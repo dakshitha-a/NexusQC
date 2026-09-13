@@ -32,7 +32,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import CLEAR_MOLECULE, AgentState
+from app.agent.state import CLEAR_MOLECULE, JOB_ATTACH_MARKER, AgentState
 from app.agent.tools import get_all_tools, get_executable_tools
 from app.config import (
     DATA_DIR,
@@ -307,8 +307,35 @@ _OMITTED_RESULT_NOTICE = (
 )
 
 
+def _omitted_attachment_notice(job_id: str) -> str:
+    return (
+        f"[The attached results for job {job_id} were omitted because the conversation "
+        f"is over its context budget. Do NOT answer from memory or fill the gap with a "
+        f"plausible value -- call check_job_status(job_id='{job_id}', fields=[...]) for "
+        f"exactly the values you need, which returns a fraction of the size.]"
+    )
+
+
+def _attached_job_id(message) -> Optional[str]:
+    """The job id inside a synthetic attached-job message, or None.
+
+    Matches how the message is built in server/routes/chat.py, through the
+    marker both sides import from app/agent/state.py.
+    """
+    if not isinstance(message, HumanMessage):
+        return None
+    content = str(getattr(message, "content", "") or "")
+    if not content.startswith(JOB_ATTACH_MARKER):
+        return None
+    return content.split("for job ", 1)[1].split(",", 1)[0].strip() or None
+
+
 def _shed_pinned_results(window: list, used: int, budget: int) -> tuple[list, int]:
-    """Blank the oldest current-turn tool results until the window fits.
+    """Blank the oldest current-turn results until the window fits.
+
+    "Results" means both a tool's own ToolMessage and the synthetic message
+    that carries an attached job's results into the turn (R-037), because both
+    are large, both are pinned, and only one of them used to be shrinkable.
 
     The content is replaced IN PLACE, keeping the ToolMessage and its
     tool_call_id exactly where they are. Deleting the message instead, or
@@ -327,6 +354,34 @@ def _shed_pinned_results(window: list, used: int, budget: int) -> tuple[list, in
     for i, m in enumerate(out):
         if used <= budget:
             break
+        # R-037: an attached job's results arrive as a synthetic HumanMessage,
+        # not as a ToolMessage, and this function could only shrink
+        # ToolMessages. Attaching three jobs to one message therefore put
+        # three job_context_summary blocks (about 20,000 characters each) into
+        # a single pinned message that nothing here could touch, so the window
+        # stayed over budget with everything else already given up and the
+        # trim ended by logging that it could not help. That is the answer to
+        # "can the budget still be exceeded by one message?": it was yes, and
+        # this is the path that made it yes.
+        #
+        # Blanked in place with the job id kept, exactly like a ToolMessage,
+        # so the model can see which job it lost and fetch precisely the
+        # fields it needs back.
+        attached_job = _attached_job_id(m)
+        if attached_job is not None:
+            notice = _omitted_attachment_notice(attached_job)
+            if m.content == notice:
+                continue
+            before = _message_tokens(m)
+            replacement = m.model_copy(update={"content": notice})
+            out[i] = replacement
+            used -= before - _message_tokens(replacement)
+            logger.warning(
+                "Blanked the attached results for job %s in the current turn to fit the "
+                "context budget; the model is told to re-fetch them rather than guess.",
+                attached_job,
+            )
+            continue
         if not isinstance(m, ToolMessage) or m.content == _OMITTED_RESULT_NOTICE:
             continue
         before = _message_tokens(m)

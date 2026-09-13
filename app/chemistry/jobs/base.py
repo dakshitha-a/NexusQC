@@ -262,6 +262,10 @@ def write_status(job_id: str, status: str, message: str = "") -> None:
     _atomic_write_text(_status_path(job_id), json.dumps({
         "status": status, "message": message, "updated_at": time.time(),
     }))
+    # R-075: the shared index below caches exactly this, so a write has to
+    # drop it. Without this the TTL alone would be correct but needlessly
+    # slow to notice a change this process made itself.
+    invalidate_job_index()
 
 
 def read_status(job_id: str) -> Optional[dict]:
@@ -685,14 +689,10 @@ def _running_job_ids() -> set[str]:
     admission gate below -- a small O(n) directory walk per dispatch tick,
     same cost profile as the CPU/mem snapshot it runs alongside."""
     running = set()
-    for job_id in _iter_job_ids_on_disk():
-        try:
-            if (read_status(job_id) or {}).get("status") != "running":
-                continue
-            spec = read_spec(job_id)
-            if is_master_spec(spec):
-                continue
-        except OSError:
+    for job_id, (task, parent_job_id, status) in job_index().items():
+        if status != "running":
+            continue
+        if is_master_spec({"task": task, "parent_job_id": parent_job_id}):
             continue
         running.add(job_id)
     return running
@@ -875,6 +875,81 @@ def _iter_job_ids_on_disk():
     for d in JOBS_DIR.iterdir():
         if d.is_dir() and d.name != "_seen" and (d / "spec.json").exists():
             yield d.name
+
+
+# --------------------------------------------------------------------------
+# One shared, short-lived index of "what is on disk and what state is it in".
+#
+# R-075. Five separate loops answered that question by walking JOBS_DIR and
+# reading two JSON files per job: the scan, ensemble and batch orchestrators
+# every three seconds, the job watcher every two, and `_running_job_ids()`
+# once per queued owner per dispatch tick. So on a stack with nothing running
+# at all, background cost grew with every job that had ever been run, and with
+# k owners queued the scheduler walked the whole archive k times a second.
+#
+# R-051 is the same walk again, in `GET /api/admin/activity`, which the admin
+# console polls while it is open and which was the only one of the six with no
+# cache of any kind next to a sibling route (`GET /api/admin/storage`) that
+# had been given one for exactly this reason.
+#
+# This is that shared cache. It holds `{job_id: (task, parent_job_id, status)}`
+# and lives for JOB_INDEX_TTL_SECONDS, which is deliberately shorter than the
+# fastest consumer's tick, so no consumer ever sees an index older than its own
+# poll interval. `write_status` invalidates it outright, so a state change made
+# in this process is visible immediately rather than up to a TTL later.
+#
+# The staleness this admits is the staleness the callers already documented as
+# acceptable: the concurrency caps are "soft, eventually-consistent" by design,
+# and the orchestrators re-check on their next tick regardless. What it must
+# never do is make a decision on data older than the decision's own cadence,
+# which is what the TTL bound is for.
+JOB_INDEX_TTL_SECONDS = 1.0
+
+_job_index_lock = threading.Lock()
+_job_index: Optional[dict[str, tuple[str, Optional[str], str]]] = None
+_job_index_at: float = 0.0
+
+
+def invalidate_job_index() -> None:
+    """Drop the shared index. Called by `write_status` on every state change,
+    and available to anything that creates or removes a job directory."""
+    global _job_index, _job_index_at
+    with _job_index_lock:
+        _job_index = None
+        _job_index_at = 0.0
+
+
+def job_index() -> dict[str, tuple[str, Optional[str], str]]:
+    """`{job_id: (task, parent_job_id, status)}` for every job on disk.
+
+    Rebuilt at most once per JOB_INDEX_TTL_SECONDS. A job whose spec or status
+    cannot be read is omitted rather than guessed at, which matches what every
+    caller's own `except OSError: continue` did before.
+    """
+    global _job_index, _job_index_at
+    with _job_index_lock:
+        if _job_index is not None and (time.monotonic() - _job_index_at) < JOB_INDEX_TTL_SECONDS:
+            return _job_index
+    built: dict[str, tuple[str, Optional[str], str]] = {}
+    try:
+        ids = list(_iter_job_ids_on_disk())
+    except OSError:
+        ids = []
+    for job_id in ids:
+        try:
+            spec = read_spec(job_id)
+            if spec is None:
+                continue
+            status = (read_status(job_id) or {}).get("status")
+            if not status:
+                continue
+        except OSError:
+            continue
+        built[job_id] = (spec.get("task") or "", spec.get("parent_job_id"), status)
+    with _job_index_lock:
+        _job_index = built
+        _job_index_at = time.monotonic()
+    return built
 
 
 def _children_manifest_path(master_id: str) -> Path:
@@ -1403,8 +1478,22 @@ class JobManager:
         # enforce_quota()'s disk I/O must not share a lock with cancel()/
         # _run_inner()'s fast in-memory state transitions.
         from app.chemistry.jobs.quota import enforce_quota
-        with self._quota_lock:
-            enforce_quota()
+        # R-043/R-075: a sub-job does not run the sweep. `enforce_quota()`
+        # walks every non-terminal job's directory with `rglob`, and a wave
+        # dispatch calls this method once per child, so dispatching a 40-child
+        # wave ran forty full sweeps back to back, each one `rglob`-ing up to
+        # twenty live ORCA/BAGEL scratch directories. The wave's own
+        # orchestrator runs it exactly once when the wave is placed, which is
+        # the same answer at one fortieth of the cost.
+        #
+        # Skipping it here cannot let a user grow past their cap unnoticed: a
+        # sub-job only exists because a master was submitted, and that master
+        # ran the sweep on the way in. What a sub-job's own sweep would have
+        # caught is the ensemble filling up mid-wave, and the per-wave call
+        # catches that at the next wave.
+        if not spec.parent_job_id:
+            with self._quota_lock:
+                enforce_quota()
         return spec.job_id
 
     def submit_scan(

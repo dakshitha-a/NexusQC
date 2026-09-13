@@ -14,6 +14,17 @@ from typing_extensions import NotRequired, TypedDict
 from langgraph.graph.message import add_messages
 
 
+JOB_ATTACH_MARKER = "(attached job context for job "
+"""Opening of the synthetic HumanMessage that carries an attached job's
+results into a turn (server/routes/chat.py builds it; app/agent/graph.py's
+context-budget trim recognises it). Defined here rather than in either of
+them because both need it and neither should import the other: the route
+layer importing the graph is normal, the graph importing a route is not."""
+
+JOB_ATTACH_PREFIX = JOB_ATTACH_MARKER + "{jid}, not typed by the user)"
+"""The full prefix, formatted with the job id."""
+
+
 CLEAR_MOLECULE = {"__cleared__": True}
 """Sentinel passed as the `molecule` update to explicitly clear the active
 molecule (see clear_molecule() in graph.py, used by the UI's reset

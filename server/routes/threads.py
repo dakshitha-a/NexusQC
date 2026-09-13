@@ -18,17 +18,21 @@ from app.auth import models as auth_models
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter, record
 from server.schemas import CreateThreadIn, RenameThreadIn, SetPinnedIn
 
+from server.routes._paging import paged
+
 router = APIRouter()
 
 
 @router.get("/api/threads")
-def list_threads(request: Request):
+def list_threads(request: Request, offset: int = 0, limit: int | None = None):
+    """Opt-in paging; see server/routes/_paging.py for why the default is
+    still the whole list."""
     user = current_user_or_none(request)
     all_threads = thread_registry.list_threads()
     owned = owned_ids_filter("thread", user)
-    if owned is None:
-        return all_threads
-    return [t for t in all_threads if t["thread_id"] in owned]
+    if owned is not None:
+        all_threads = [t for t in all_threads if t["thread_id"] in owned]
+    return paged(all_threads, offset, limit)
 
 
 @router.post("/api/threads", status_code=201)

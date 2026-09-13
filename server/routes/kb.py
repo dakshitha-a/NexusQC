@@ -29,6 +29,8 @@ from app.rag.quota import enforce_quota
 from app.rag.store import delete_source, delete_upload_file, list_sources
 from app.rag.web_scrape import ScrapeError, fetch_page, robots_disallows
 
+from server.routes._paging import paged
+
 router = APIRouter()
 
 # scripts/seed_knowledge_base.py writes the pre-seeded BAGEL/ORCA/PySCF
@@ -210,8 +212,9 @@ def _find_source_file(source: str, owner: str | None) -> Path | None:
 
 
 @router.get("/api/kb/sources")
-def get_sources(request: Request):
-    return list_sources(owner_filter=_owner_filter(request))
+def get_sources(request: Request, offset: int = 0, limit: int | None = None):
+    """Opt-in paging; see server/routes/_paging.py."""
+    return paged(list_sources(owner_filter=_owner_filter(request)), offset, limit)
 
 
 @router.get("/api/kb/quota")

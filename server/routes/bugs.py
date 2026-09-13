@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from app.auth import models
+from app.auth import models, rate_limit
 from app.auth.deps import get_current_user
 from app.config import BUG_REPORTS_DIR
 
@@ -21,6 +21,24 @@ router = APIRouter(prefix="/api/bug-reports", tags=["bugs"])
 # to be the only limit.
 MAX_ATTACHMENTS = 3
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
+# R-052. The two caps above bounded ONE report; nothing bounded how many
+# reports one account could file, so three 5MB screenshots at a time, filed in
+# a loop, was an unmetered write channel into a directory no quota watches. The
+# two limits below close that, and they are deliberately generous: somebody
+# reporting a real problem should never hit either.
+#
+# Reports per account per window, not per IP. Bug reports come from signed-in
+# users, so the account is both the right unit and a stabler one than an
+# address several colleagues may share.
+BUG_REPORT_RATE_LIMIT_MAX = 12
+BUG_REPORT_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+# And a ceiling on what one account's screenshots can add up to across every
+# report it still has on file. Reaching it means talking to an admin, who can
+# archive or delete old reports; that is the intended answer, because an
+# account with 100MB of screenshots outstanding is not a reporting pattern.
+MAX_ATTACHMENT_BYTES_PER_USER = 100 * 1024 * 1024
 
 # Sniffed from the first bytes, not taken from the declared content-type --
 # that header is supplied by the client and is not evidence of anything. The
@@ -79,6 +97,10 @@ def submit_bug_report(
     there is a single shape here rather than a JSON branch and a multipart one.
     """
     _validate_body(body)
+    rate_limit.enforce_for_key(
+        "bug_report", str(user["id"]),
+        BUG_REPORT_RATE_LIMIT_MAX, BUG_REPORT_RATE_LIMIT_WINDOW_SECONDS,
+    )
 
     real = [f for f in files if f is not None and f.filename]
     if len(real) > MAX_ATTACHMENTS:
@@ -106,6 +128,23 @@ def submit_bug_report(
             )
         content_type, ext = sniffed
         staged.append((data, content_type, ext, f.filename))
+
+    # Checked after staging, so the figure includes what is about to be
+    # written rather than only what is already there, and checked before the
+    # report row is created, so a refusal leaves nothing behind.
+    if staged:
+        incoming = sum(len(d) for d, _ct, _ext, _name in staged)
+        already = models.bug_report_attachment_bytes_for_user(str(user["id"]))
+        if already + incoming > MAX_ATTACHMENT_BYTES_PER_USER:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Your bug-report screenshots have reached "
+                    f"{MAX_ATTACHMENT_BYTES_PER_USER // (1024 * 1024)}MB in total. "
+                    "File this report without the screenshots, or ask an admin to "
+                    "clear out reports you no longer need."
+                ),
+            )
 
     row = models.create_bug_report(str(user["id"]), body)
     report_id = str(row["id"])

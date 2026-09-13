@@ -26,6 +26,8 @@ from app.uploads.quota import current_usage_bytes as uploads_storage_usage_bytes
 from app.uploads.quota import enforce_quota
 from app.uploads.store import add_upload, clear_uploads, delete_upload, get_upload, list_uploads, read_upload_content
 
+from server.routes._paging import paged
+
 router = APIRouter()
 
 
@@ -46,8 +48,9 @@ def _owner_filter(request: Request) -> str | None:
 
 
 @router.get("/api/uploads")
-def get_uploads(request: Request):
-    return list_uploads(owner_filter=_owner_filter(request))
+def get_uploads(request: Request, offset: int = 0, limit: int | None = None):
+    """Opt-in paging; see server/routes/_paging.py."""
+    return paged(list_uploads(owner_filter=_owner_filter(request)), offset, limit)
 
 
 @router.get("/api/uploads/quota")

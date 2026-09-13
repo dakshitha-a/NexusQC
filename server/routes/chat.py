@@ -27,6 +27,7 @@ from app.agent.graph import (
 from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.agent.troubleshoot import compose_troubleshoot_message
+from app.agent.state import JOB_ATTACH_MARKER, JOB_ATTACH_PREFIX
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import get_job_manager, read_spec
 from app.chemistry.jobs.summarize import job_context_summary
@@ -37,6 +38,8 @@ from app.config import JOBS_DIR
 from app.uploads.store import get_upload, read_upload_content
 from server.schemas import AttachUploadIn, JobApprovalIn, MessageIn, MoleculeBuildIn, TagJobFrameIn
 from server.sse import async_event_stream, hub
+
+from server.routes._paging import tail_window
 
 router = APIRouter()
 
@@ -146,11 +149,28 @@ def _require_attachments(request: Request, job_ids=None, plot_ids=None) -> None:
 
 
 @router.get("/api/threads/{thread_id}/state")
-def get_state(thread_id: str, request: Request):
+def get_state(thread_id: str, request: Request, messages_limit: int | None = None):
+    """The conversation as the app renders it.
+
+    R-080: `messages_limit` returns only the LAST N messages, plus
+    `messages_total` so a caller knows what it is missing. It is opt-in and
+    the default is still the whole transcript, for the reason
+    server/routes/_paging.py sets out. A conversation is read from its end,
+    which is why this is a trailing window rather than an offset page: the
+    front of a long thread is the part nobody is looking at.
+
+    This is the one list in the app with no ceiling for a single user. A job
+    list can be archived and a plot list deleted; a conversation's message
+    list only ever gets longer, and every reload sends all of it."""
     _require_thread(thread_id, request)
     config = _config(thread_id)
     state = read_state(config)
     payload = serialize_state(state)
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        window, total = tail_window(messages, messages_limit)
+        payload["messages"] = window
+        payload["messages_total"] = total
     payload["pending_approval"] = pending_approval(config)
     return payload
 
@@ -363,14 +383,14 @@ def tag_job_frame(thread_id: str, body: TagJobFrameIn, request: Request):
 # Marker on the synthetic message that carries an attached job's results.
 # Carries the job id so the same job can be recognised on a later turn --
 # see _attached_job_messages.
-_JOB_ATTACH_PREFIX = "(attached job context for job {jid}, not typed by the user)"
+_JOB_ATTACH_PREFIX = JOB_ATTACH_PREFIX
 
 
 def _already_attached_job_ids(state: dict) -> set[str]:
     found: set[str] = set()
     for message in state.get("messages", []):
         content = str(getattr(message, "content", "") or "")
-        if content.startswith("(attached job context for job "):
+        if content.startswith(JOB_ATTACH_MARKER):
             found.add(content.split("for job ", 1)[1].split(",", 1)[0].strip())
     return found
 
@@ -393,6 +413,18 @@ def _attached_job_messages(state: dict, job_ids: list[str] | None) -> list:
     history is therefore replaced by a one-line pointer: the model can still
     resolve "this job" to the right id, at about twenty tokens instead of
     ten thousand.
+
+    R-036: the pointer says what to do if the results are NOT there any more.
+    `_already_attached_job_ids` scans the FULL checkpointed history, while the
+    prompt the model actually sees has been trimmed to a token budget, so on a
+    long conversation the summary this points at can have been trimmed out.
+    The old wording asserted flatly that the results were "in this
+    conversation above", which in that case is a statement the model has no
+    way to check and every reason to believe, and it answers from what it can
+    see rather than saying it cannot see it. Naming the tool that fetches the
+    results back is the cheap fix: it costs a few tokens, it is true whether
+    or not the summary survived the trim, and it turns a dead end into a
+    recoverable one.
     """
     if not job_ids:
         return []
@@ -402,8 +434,12 @@ def _attached_job_messages(state: dict, job_ids: list[str] | None) -> list:
         prefix = _JOB_ATTACH_PREFIX.format(jid=jid)
         if jid in already:
             messages.append(HumanMessage(
-                content=f"{prefix} Its full results are already in this conversation above; "
-                        f"they are not repeated here. Refer to them there."
+                content=f"{prefix} Its full results were given earlier in this "
+                        f"conversation and are not repeated here. Read them there if "
+                        f"they are still visible to you. If they are not, this "
+                        f"conversation has been trimmed to fit the context window: "
+                        f"call check_job_status(job_id='{jid}') to read them again "
+                        f"rather than answering from memory or guessing."
             ))
         else:
             messages.append(HumanMessage(content=f"{prefix} {job_context_summary(jid)}"))

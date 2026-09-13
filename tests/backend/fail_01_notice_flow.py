@@ -207,9 +207,18 @@ def main() -> int:
               "```" in text, text[:120])
         check("the invalid basis appears in the evidence",
               BOGUS_BASIS in text, "basis not found in composed message")
+        # R-014 rewrote this instruction. It used to name three tools that
+        # are not bound (search_knowledge_base, web_search,
+        # search_academic_literature) and a `doc_type='manual'` argument from
+        # before those four collapsed into one `search` tool. What matters is
+        # unchanged: send the model to the engine's own manuals, and keep it
+        # away from the published-literature search, which is for chemistry
+        # judgement rather than software errors. The argument name is checked
+        # too, because naming a real tool with an argument it does not take
+        # fails in exactly the same way as naming a tool that does not exist.
         check("it directs the model to the manuals rather than the paper search",
-              "doc_type='manual'" in text and "search_academic_literature is not" not in text,
-              "manual instruction missing")
+              "search(source='manuals')" in text and "search(source='scholar')" not in text.split("not search")[0],
+              f"manual instruction missing or misnamed: {text[-400:]}")
         check("any proposed fix is routed through an approval card, not run directly",
               "approval card" in text, text[-120:])
 

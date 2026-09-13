@@ -39,6 +39,7 @@ what is valid, so the full list is paid only when someone needs it.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
@@ -349,3 +350,35 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
         kwargs["fmt"] = fmt.lower()
 
     return PlotStyle(**kwargs)
+
+
+# --------------------------------------------------------------------------
+# R-079. One lock around every figure this app draws.
+#
+# Every renderer in app/chemistry/spectrum.py and app/chemistry/job_charts.py
+# uses the pyplot state machine: `plt.rc_context(...)` mutates a global
+# rcParams dict for the duration of a block, and `plt.subplots()` registers
+# the figure in a global manager. Matplotlib documents pyplot as not
+# thread-safe, and these renderers are called from FastAPI's request
+# threadpool and from the orchestrator threads, so two renders genuinely can
+# overlap. When they do, one figure is drawn under the other's rcParams: wrong
+# fonts, wrong sizes, wrong colours. This project treats a chart as a
+# scientific artifact rather than decoration, so a chart that is quietly drawn
+# in someone else's style is a real defect even though no number in it is
+# wrong. `plt.subplots`'s global registration also means a crash mid-render
+# can leak a figure.
+#
+# A single process-wide lock rather than one per module, because the state
+# being protected is one global. It is held only for the draw itself, which is
+# on the order of a tenth of a second, so concurrent plot requests queue
+# briefly rather than colliding. The alternative, moving every renderer to the
+# object-oriented `Figure()` plus `FigureCanvasAgg` API with an explicit
+# rcParams dict, needs no global state at all and is the better end state; it
+# is also a rewrite of thirteen renderers, and this is the change that makes
+# the current ones correct.
+_render_lock = threading.Lock()
+
+
+def figure_lock():
+    """Hold while creating and drawing a pyplot figure. See above."""
+    return _render_lock

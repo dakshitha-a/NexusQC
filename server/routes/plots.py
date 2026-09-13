@@ -23,6 +23,8 @@ from app.auth.ownership import check_owner_or_admin, current_user_or_none
 from app.chemistry.jobs.naming import job_download_name, slugify_label
 from app.plots import store as plot_store
 
+from server.routes._paging import paged
+
 router = APIRouter()
 
 # What a downloaded plot is served as. The display route is always PNG; only a
@@ -58,9 +60,11 @@ def _row(record: dict) -> dict:
 
 
 @router.get("/api/plots")
-def get_plots(request: Request):
+def get_plots(request: Request, offset: int = 0, limit: int | None = None):
+    """Opt-in paging; see server/routes/_paging.py."""
     plot_store.sweep_orphans()
-    return [_row(r) for r in plot_store.list_plots(owner_filter=_owner_filter(request))]
+    rows = [_row(r) for r in plot_store.list_plots(owner_filter=_owner_filter(request))]
+    return paged(rows, offset, limit)
 
 
 @router.get("/api/plots/{plot_id}")

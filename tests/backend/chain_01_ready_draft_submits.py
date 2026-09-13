@@ -12,8 +12,25 @@ no approval card ever appearing, so it was a reliability defect too.
 
 The judgment itself cannot move into the app. "The user asked for this to
 be run" is a fact about what they said, not one the backend holds. So the
-model still makes it, once, up front, through `run_when_ready`, and the app
-acts on it when the draft completes.
+model still makes it, once, up front, and the app acts on it when the draft
+completes.
+
+**The default flipped on 2026-09-13, and this script was rewritten for it.**
+It used to be that the model had to opt IN with `run_when_ready=True`, and
+this file checked that a draft with the flag unset stopped at READY. R-101
+measured what that cost on real conversations: on fresh threads the agent
+reached no approval card at all in the whole nuclear-ensemble family and
+intermittently in four others, ending the turn normally with a description of
+a job and no way to approve it. So running is the default now and
+`preview_only=True` is the opt-out, for the one case where a card is wrong:
+the user asked to SEE an input rather than run one. `run_when_ready=True` is
+still accepted and still means what it said, which is why the scenarios below
+keep passing it.
+
+Which way round the default sits is a judgement about the cost of being
+wrong in each direction. A card nobody wanted costs one click on Reject. No
+card when one was wanted costs a calculation that never happens, with nothing
+on screen saying why.
 
 What this script pins:
 
@@ -21,7 +38,7 @@ What this script pins:
   SAME tool call, with no submit_draft in between;
 - the intent is sticky, so a draft that becomes ready three updates later
   still chains;
-- with the flag unset the old behaviour is exactly preserved, which is what
+- `preview_only` still gets the old behaviour exactly, which is what
   "show me the input without running it" depends on;
 - the approval gate is untouched. Nothing runs without a card, and the card
   still carries the real spec and input preview;
@@ -200,19 +217,36 @@ def run_tools_only(tmp: Path) -> None:
     check("answering the last question opens the card by itself",
           h.pending() is not None, out[:160])
 
-    print("\n== without the flag, nothing changes ==")
+    print("\n== preview_only still answers \"show me the input\" ==")
+    # The narrow case the default has to leave room for. Stated once on the
+    # first call and sticky from there, the same way the run intent is, so a
+    # user who said "just show me the input" does not have to say it again at
+    # every elicitation step.
+    h = Harness(tmp)
+    h.seed(molecule=WATER)
+    out = h.call("start_job_draft", {"task": "single point", "method": "hf",
+                                     "preview_only": True})
+    check("an incomplete preview draft still asks its question",
+          "DRAFT INCOMPLETE" in out, out[:160])
+    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
+    check("a ready preview draft stops at READY", "DRAFT READY" in out, out[:160])
+    check("no card is opened", h.pending() is None, str(h.pending())[:120])
+    check("and the model is still told it may submit",
+          "NEXT STEP" in out and "submit_draft" in out, out[:200])
+    check("the input it would run is there to show",
+          "input this job would use" in out, out[:400])
+    check("the preview intent is sticky, so it did not have to be repeated",
+          h.values().get("draft_preview_only") is True,
+          str(h.values().get("draft_preview_only")))
+
+    print("\n== with nothing stated at all, the card opens ==")
+    # The R-101 default. Same draft as above with no flag either way.
     h = Harness(tmp)
     h.seed(molecule=WATER)
     h.call("start_job_draft", {"task": "single point", "method": "hf"})
-    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
-    check("a ready draft stops at READY", "DRAFT READY" in out, out[:160])
-    check("no card is opened", h.pending() is None, str(h.pending())[:120])
-    check("and the model is still told to submit",
-          "NEXT STEP" in out and "submit_draft" in out, out[:200])
-    # The reason the flag defaults to False: "show me the input without
-    # running it" is a real request, and it is answered from this reply.
-    check("the input it would run is there to show",
-          "input this job would use" in out, out[:400])
+    h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
+    check("a ready draft opens the card without being asked twice",
+          h.pending() is not None, str(h.pending())[:120])
 
 
 def run_full_graph() -> int:

@@ -396,6 +396,9 @@ class JobWatcher:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_status: dict[str, str] = {}  # job_id -> last-emitted status, dedups job_update events
+        # R-040: set while the off-thread quota pass is in flight, so a slow
+        # pass skips the next tick rather than stacking threads.
+        self._quota_pass_running = False
         self._held: dict[str, str] = {}  # thread_id -> why its summaries are currently waiting
         self._tick = 0
 
@@ -456,16 +459,54 @@ class JobWatcher:
                 _report_swallowed("a poll tick", e)
             self._tick += 1
             if DATABASE_URL and self._tick % _QUOTA_ENFORCE_EVERY_N_TICKS == 0:
-                try:
-                    from app.auth.storage_quota import enforce_all_quotas
-                    enforce_all_quotas()
-                except Exception as e:
-                    # Same "never kill the watcher thread" rule as _poll_once
-                    # above, and the same reason it has to be audible: quota
-                    # enforcement failing silently means storage grows until
-                    # something else notices for it.
-                    _report_swallowed("quota enforcement", e)
+                self._start_quota_pass()
             self._stop.wait(_POLL_INTERVAL_SECONDS)
+
+    def _start_quota_pass(self) -> None:
+        """R-040: run the quota pass on its own thread, never on the watcher's.
+
+        This used to be an inline call here, and it reintroduced exactly the
+        coupling this whole class exists to avoid. `enforce_all_quotas`'s
+        thread-eviction branch calls `delete_thread_checkpoints`, which takes
+        that thread's graph lock, and a running turn holds that lock for its
+        whole ReAct loop, measured at 53 to 77 seconds. While the watcher was
+        blocked on it, `_poll_once` was not running for anybody: every
+        conversation on the deployment stopped receiving job updates for the
+        length of one unrelated turn.
+
+        One pass at a time, guarded by the flag rather than by a lock, so a
+        pass that is running long simply skips the next tick instead of
+        queueing threads behind it. The pass is idempotent and eventually
+        consistent by design, so a skipped tick costs nothing.
+        """
+        if self._quota_pass_running:
+            _log.info("job_watcher: previous quota pass still running; skipping this tick.")
+            return
+
+        def _run() -> None:
+            try:
+                from app.auth.storage_quota import enforce_all_quotas
+                enforce_all_quotas()
+                # R-088: the same slow tick is the natural home for the
+                # sessions sweep. Expired rows describe tokens that stopped
+                # working when they expired, so nothing can want them; the
+                # table used to keep every row for the life of the
+                # deployment.
+                from app.auth import models as _auth_models
+                removed = _auth_models.delete_expired_sessions()
+                if removed:
+                    _log.info("job_watcher: removed %d expired session row(s).", removed)
+            except Exception as e:
+                # Same "never kill the watcher" rule as _poll_once above, and
+                # the same reason it has to be audible: quota enforcement
+                # failing silently means storage grows until something else
+                # notices for it.
+                _report_swallowed("quota enforcement", e)
+            finally:
+                self._quota_pass_running = False
+
+        self._quota_pass_running = True
+        threading.Thread(target=_run, daemon=True, name="quota-enforcement").start()
 
     def _poll_once(self) -> None:
         mgr = get_job_manager()
@@ -478,6 +519,23 @@ class JobWatcher:
             seen = _read_seen(thread_id)
             newly_done = []
             for job_id in active_job_ids:
+                # R-039: a job that has already reached a terminal state and
+                # has already been recorded in `seen` can never change again
+                # and can never produce another notice, yet its status.json
+                # was re-read on every two-second tick for the life of the
+                # process. `active_job_ids` only grows (its reducer is
+                # append-only), so a conversation from months ago went on
+                # costing a filesystem read per job per tick forever.
+                #
+                # `_last_status` was already here, caching the last status
+                # this watcher emitted for the purpose of deduplicating the
+                # SSE event; it was never used to skip the read that produced
+                # it. Both conditions are required: terminal on the cached
+                # value, AND already in `seen`, so a job that reached terminal
+                # while nobody was looking still gets its one notice.
+                cached = self._last_status.get(job_id)
+                if cached in _TERMINAL_STATUSES and job_id in seen:
+                    continue
                 status = mgr.status(job_id)
                 status_str = status["status"]
                 if self._last_status.get(job_id) != status_str:

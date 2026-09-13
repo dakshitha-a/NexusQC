@@ -688,25 +688,57 @@ def enforce_all_quotas() -> dict:
 
     cfg = get_quota_config()
 
+    # R-044: the starting total is what the user ACTUALLY holds, not what
+    # happens to be evictable.
+    #
+    # Each pass below used to start from `sum(c["size"] for c in candidates)`,
+    # the total of its own eviction candidates. Candidates exclude everything
+    # that must not be evicted: a running or pending job, a thread pinned by an
+    # open conversation, a scan or ensemble child that belongs to a master. So
+    # a user whose usage was mostly non-evictable measured under their cap
+    # while genuinely over it, and the pass evicted nothing at all. That is
+    # under-enforcement rather than over-eviction, which is the safe direction
+    # to have been wrong in, but it means the number the pass acts on and the
+    # number the admin console shows were two different quantities with the
+    # same name.
+    #
+    # `usage_report()` is the same measurement the console and every /quota
+    # route read, so the pass now enforces against the figure the user is
+    # shown. What cannot be evicted still is not: the candidate list is
+    # unchanged, so a user over their cap on running jobs alone has nothing
+    # taken away, which is correct. The difference is that everything they DO
+    # have evictable now goes, instead of nothing.
+    usage_by_user = {r["user_id"]: r for r in usage_report()["per_user"]}
+
     for u in models.list_users():
         uid = str(u["id"])
         kb_candidates = _kb_candidates(owner_filter=uid)
-        _evict_oldest_first(kb_candidates, cfg["per_user_kb_quota_bytes"], sum(c["size"] for c in kb_candidates), evicted)
+        current = (usage_by_user.get(uid) or {}).get(
+            "kb_bytes", sum(c["size"] for c in kb_candidates))
+        _evict_oldest_first(kb_candidates, cfg["per_user_kb_quota_bytes"], current, evicted)
 
     for u in models.list_users():
         uid = str(u["id"])
         upload_candidates = _upload_candidates(owner_filter=uid)
+        current = (usage_by_user.get(uid) or {}).get(
+            "upload_bytes", sum(c["size"] for c in upload_candidates))
         _evict_oldest_first(
-            upload_candidates, cfg["per_user_uploads_quota_bytes"], sum(c["size"] for c in upload_candidates), evicted
+            upload_candidates, cfg["per_user_uploads_quota_bytes"], current, evicted
         )
 
     for u in models.list_users():
         uid = str(u["id"])
         combined = _job_candidates(owner_filter=uid) + _thread_candidates(owner_filter=uid)
+        current = (usage_by_user.get(uid) or {}).get(
+            "jobs_and_chat_bytes", sum(c["size"] for c in combined))
         _evict_oldest_first(
-            combined, cfg["per_user_jobs_and_chat_quota_bytes"], sum(c["size"] for c in combined), evicted
+            combined, cfg["per_user_jobs_and_chat_quota_bytes"], current, evicted
         )
 
+    # The global pass below re-reads usage_report(). That is a fresh
+    # measurement rather than the snapshot above, because _evict()
+    # invalidates the cache on every eviction, so the passes above have
+    # already dropped it if they removed anything.
     report = usage_report()
     if report["global"]["total_bytes"] > cfg["global_storage_quota_bytes"]:
         everything = _job_candidates() + _kb_candidates() + _upload_candidates() + _thread_candidates()
@@ -957,6 +989,9 @@ def purge_own_data(user_id: str) -> dict:
     only ever act on the caller's own resources (owner_filter=user_id on
     every candidate builder below).
 
+    Also their own plots and project archives, as of R-087; see the comment
+    at that pass for why those belong here and threads still do not.
+
     Deliberately narrower than purge_user_data (used for admin-driven
     account DELETION): chat threads are left untouched here. Losing every
     conversation as a side effect of "clear out my old jobs" would be a
@@ -976,11 +1011,49 @@ def purge_own_data(user_id: str) -> dict:
         if owner == user_id and not job_is_terminal(job_id):
             _cancel_and_await_terminal(job_id)
 
+    # R-087: this user's plots and project archives go too.
+    #
+    # They did not, and the response counts did not mention them either, so
+    # "Delete all my data" left a Plots panel full of charts and a Projects
+    # list full of archives, and reported a job/KB/upload tally that read as
+    # complete. For plots that was largely self-correcting, since every source
+    # job had just gone and sweep_orphans would eventually catch up, but "the
+    # cleanup pass will probably get to it" is not what a danger-zone button
+    # should mean. For projects it was not self-correcting at all: a project
+    # row survives with its member jobs gone, so the user was left with a list
+    # of empty archives.
+    #
+    # Threads are still deliberately left alone here, which is the difference
+    # from purge_user_data below. Losing every conversation as a side effect of
+    # clearing out old jobs would be a surprising, unrelated loss for someone
+    # whose account still exists afterwards. A plot and a project archive are
+    # both views onto the jobs being deleted, so they go with them; a
+    # conversation is not.
+    #
+    # Projects first, for the same cost reason purge_user_data gives: _evict
+    # calls registry.prune_job per job, a read-modify-write of projects.json
+    # each time, and deleting the projects first makes every one a no-op.
+    from app.projects import registry as project_registry
+    project_ids = models.list_owned("project", user_id)
+    if project_ids:
+        project_registry.delete_projects(project_ids)
+        for project_id in project_ids:
+            models.forget_ownership("project", project_id)
+
     job_candidates = _job_candidates(owner_filter=user_id)
     kb_candidates = _kb_candidates(owner_filter=user_id)
     upload_candidates = _upload_candidates(owner_filter=user_id)
     for c in job_candidates + kb_candidates + upload_candidates:
         _evict(c)
+
+    from app.plots import store as plot_store
+    plot_ids = [r["plot_id"] for r in plot_store.list_plots(owner_filter=user_id)]
+    for plot_id in plot_ids:
+        plot_store.delete_plot(user_id, plot_id)
+    try:
+        (PLOTS_DIR / user_id).rmdir()  # no-op unless now empty
+    except OSError:
+        pass
 
     # Same F-001 reconciliation purge_user_data does -- see its own
     # docstring for why a filesystem-side sweep is needed alongside the
@@ -1006,4 +1079,9 @@ def purge_own_data(user_id: str) -> dict:
         "kb_sources": [c["key"] for c in kb_candidates],
         "orphaned_kb_files": orphans,
         "upload_ids": [c["key"] for c in upload_candidates],
+        # R-087: reported, not just done. A count that omits a category the
+        # call deleted is how the omission stayed invisible in the first
+        # place.
+        "plot_ids": plot_ids,
+        "project_ids": [str(pid) for pid in project_ids],
     }

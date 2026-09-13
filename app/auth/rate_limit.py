@@ -87,6 +87,33 @@ def enforce(bucket: str, request: Request, max_attempts: int, window_seconds: in
         )
 
 
+def enforce_for_key(bucket: str, key_part: str, max_attempts: int, window_seconds: int) -> None:
+    """`enforce`, but keyed on something other than the client IP.
+
+    R-052 needed a per-ACCOUNT budget rather than a per-address one. Bug
+    reports come from signed-in users, so the account is both the right unit
+    and a stabler one: several people behind one address should not share a
+    budget, and one person on several addresses should not get several.
+
+    Fails open on a Redis error, exactly as `enforce` does, and for the same
+    reason: a rate limiter that turns an outage into a 500 has made the outage
+    worse."""
+    key = f"qc_agent:ratelimit:{bucket}:{key_part}"
+    try:
+        client = get_client()
+        count = client.incr(key)
+        if count == 1:
+            client.expire(key, window_seconds)
+    except Exception:
+        logger.warning("rate_limit: Redis unavailable, failing open for bucket=%s", bucket, exc_info=True)
+        return
+    if count > max_attempts:
+        raise HTTPException(
+            status_code=429,
+            detail="too many attempts, please wait before trying again",
+        )
+
+
 def enforce_login(request: Request) -> None:
     enforce("login", request, LOGIN_RATE_LIMIT_MAX_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
 

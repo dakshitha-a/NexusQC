@@ -9,6 +9,7 @@ import json
 import secrets
 import shutil
 import string
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -492,6 +493,40 @@ def revoke_session(session_id: str) -> None:
         conn.execute("UPDATE sessions SET revoked = true WHERE id = %s", (session_id,))
 
 
+def revoke_sessions_for_user(user_id: str) -> None:
+    """Marks every one of a user's live sessions revoked. Used when an account
+    is deactivated or deleted, where "this person is out" is the whole point
+    and leaving rows unmarked makes the table say the opposite."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET revoked = true WHERE user_id = %s AND NOT revoked",
+            (user_id,),
+        )
+
+
+def delete_expired_sessions() -> int:
+    """Removes rows that are past their expiry, and revoked rows older than a
+    day. Returns how many went.
+
+    R-088: `revoked` and `expires_at` both existed and nothing ever wrote the
+    first or acted on the second, so the sessions table only ever grew for the
+    life of a deployment. Rows do cascade away with their user, which is why
+    this was slow rather than unbounded, but an account that logs in daily for
+    a year leaves a year of rows behind whether or not it is ever deleted.
+
+    A revoked row is kept for a day rather than deleted at once, so that "this
+    session was ended" is answerable for a little while after the fact. An
+    expired row answers nothing: the token it describes stopped working when
+    it expired."""
+    with get_pool().connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM sessions WHERE expires_at < %s "
+            "OR (revoked AND issued_at < %s)",
+            (_now(), _now() - timedelta(days=1)),
+        )
+        return cur.rowcount or 0
+
+
 # --- Ownership index -------------------------------------------------------
 
 
@@ -794,6 +829,27 @@ def list_bug_reports() -> list[dict]:
         ).fetchall()
 
 
+def get_bug_report(report_id: str) -> Optional[dict]:
+    """One report by id, or None for a missing one AND for an id that is not
+    a well-formed UUID.
+
+    The parse is the same defence server/routes/shares.py's `_lookup_user`
+    records: without it a hand-crafted request with a junk id reaches Postgres
+    and raises InvalidTextRepresentation, which surfaces as a 500. That is a
+    different error shape from a well-formed miss, and the difference tells a
+    prober their input got further than it should have."""
+    try:
+        uuid.UUID(str(report_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT id, user_id, body, created_at, status, archived_at "
+            "FROM bug_reports WHERE id = %s",
+            (str(report_id),),
+        ).fetchone()
+
+
 def set_bug_report_status(report_id: str, status: str) -> None:
     with get_pool().connection() as conn:
         conn.execute("UPDATE bug_reports SET status = %s WHERE id = %s", (status, report_id))
@@ -807,6 +863,26 @@ def set_bug_report_archived(report_id: str, archived: bool) -> None:
             "UPDATE bug_reports SET archived_at = %s WHERE id = %s",
             (_now() if archived else None, report_id),
         )
+
+
+def bug_report_attachment_bytes_for_user(user_id: str) -> int:
+    """Total attachment bytes across every report this account still has on
+    file. R-052: attachments deliberately do not count against the reporter's
+    storage quota, because a quota-blocked bug report is perverse, which left
+    this route as the one write channel in the app with no ceiling of any
+    kind. This is the number the ceiling is checked against."""
+    try:
+        uuid.UUID(str(user_id))
+    except (ValueError, AttributeError, TypeError):
+        return 0
+    with get_pool().connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(a.size_bytes), 0) AS total "
+            "FROM bug_report_attachments a JOIN bug_reports r ON r.id = a.report_id "
+            "WHERE r.user_id = %s",
+            (str(user_id),),
+        ).fetchone()
+    return int((row or {}).get("total") or 0)
 
 
 def get_bug_report_attachment(attachment_id: str) -> Optional[dict]:

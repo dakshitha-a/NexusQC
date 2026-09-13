@@ -20,6 +20,7 @@ would be answering a question that cannot be asked.
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from typing import Optional
 
@@ -35,6 +36,23 @@ from app.projects import registry as project_registry
 from server.schemas import CreateShareIn
 
 router = APIRouter()
+
+# R-045. One lock per recipient, created on demand and kept, so the
+# check-then-act inside accept_share below cannot interleave with itself for
+# the same user. The dictionary is bounded by the number of accounts that have
+# accepted a share in this process's lifetime, which is small and does not
+# grow with usage.
+_accept_locks: dict[str, threading.Lock] = {}
+_accept_locks_guard = threading.Lock()
+
+
+def _accept_lock_for(user_id: str) -> threading.Lock:
+    with _accept_locks_guard:
+        lock = _accept_locks.get(user_id)
+        if lock is None:
+            lock = threading.Lock()
+            _accept_locks[user_id] = lock
+        return lock
 
 VALID_KINDS = ("job", "project")
 
@@ -200,11 +218,29 @@ def accept_share(share_id: str, request: Request):
     AFTER the copy succeeded, so a failure part-way leaves the offer
     pending and retryable rather than consumed. set_share_status is a
     compare-and-set on 'pending', so two accept clicks cannot both copy.
+
+    R-045: the quota check and the copy are held under a per-recipient lock.
+    They are a check-then-act, and this is the one quota path in the app that
+    never evicts anything, so an overage created here is permanent rather than
+    reclaimed on the next pass. Two shares accepted at the same moment both
+    measured the same starting usage, both fitted, and both copied. The lock
+    is keyed on the recipient because that is what the cap is about: two
+    different people accepting at once is not a race.
+
+    Per-process, not per-deployment. That is honest about what it covers: one
+    api container is what this deployment runs, and a second would need a
+    Postgres advisory lock keyed on the user id instead. Written down here so
+    that stays a decision rather than a surprise.
     """
     user = _require_user(request)
     share = _load_pending(share_id, user, "to")
     me = str(user["id"])
+    with _accept_lock_for(me):
+        return _accept_share_locked(share_id, share, me, user)
 
+
+def _accept_share_locked(share_id: str, share: dict, me: str, user: dict):
+    """The body of accept_share, held under that recipient's lock."""
     if share["kind"] == "job":
         job_ids = [share["resource_id"]]
     else:

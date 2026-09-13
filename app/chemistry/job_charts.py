@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from dataclasses import replace  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
-from app.chemistry.plot_style import PlotStyle  # noqa: E402
+from app.chemistry.plot_style import PlotStyle, figure_lock  # noqa: E402
 from app.chemistry.units import HARTREE_TO_EV  # noqa: E402
 
 # The same red spectrum.py marks an equilibrium reference with, imported
@@ -119,7 +119,8 @@ def render_mo_diagram(
 
     st = (style or PlotStyle()).with_defaults(
         title="Molecular orbital energies", xlabel="", ylabel="Orbital energy (eV)")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         for row in shown:
             frontier = row is homo or row is lumo
@@ -199,7 +200,8 @@ def render_optimization_trace(
         title=title, xlabel="Optimization step", ylabel="Energy above final (eV)")
     if not st.log_y and use_log:
         st = replace(st, log_y=True)
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         steps = list(range(1, len(relative) + 1))
         # The final step IS the reference, so its value is exactly zero, and
@@ -237,7 +239,8 @@ def render_excited_state_map(
     osc = [0.0 if f is None else float(f) for f in oscillator_strengths]
     st = (style or PlotStyle()).with_defaults(
         title="Excited states", xlabel="Excitation energy (eV)", ylabel="Oscillator strength")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         span = (max(energies_eV) - min(energies_eV)) or 1.0
         ax.bar(energies_eV, osc, width=span * 0.012, color=st.accent("#0072B2"))
@@ -305,7 +308,8 @@ def render_thermochemistry(
     st = (style or PlotStyle()).with_defaults(
         title="Electronic energy to Gibbs free energy" + (f" ({subtitle})" if subtitle else ""),
         xlabel="", ylabel="Energy relative to the electronic energy (eV)")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         # Two flat markers for the endpoints, three floating bars between
         # them. The endpoints are levels rather than bars because they are
@@ -385,7 +389,8 @@ def render_sampling_diagnostics(
     st = (style or PlotStyle()).with_defaults(
         title=f"Wigner sampling ({subtitle})",
         xlabel="Harmonic potential above equilibrium (eV)", ylabel="Samples")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         ax.hist(energies_eV, bins="auto", color=st.accent("#3b6fd6"), edgecolor="white")
         ax.axvline(mean, color=_REFERENCE_RED, linestyle="--", linewidth=1.6, zorder=3)

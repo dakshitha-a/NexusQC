@@ -5,6 +5,7 @@ why job data must never share that lock with in-flight chat turns."""
 from __future__ import annotations
 
 import io
+import logging
 import math
 import re
 import tempfile
@@ -38,10 +39,13 @@ from app.chemistry.jobs.naming import job_download_name, job_filename_stem, reso
 from app.chemistry.jobs.quota import QUOTA_BYTES as JOB_QUOTA_BYTES
 from app.chemistry.jobs.quota import current_usage_bytes as job_storage_usage_bytes
 from app.chemistry.spectrum import render_ir_spectrum_plot, render_line_plot, render_uvvis_plot
+from server.routes._paging import paged
 from app.config import DATABASE_URL, JOBS_DIR, PLOTS_DIR
 from server.schemas import RenameJobIn, RenderPlotIn
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def _attachment(filename: str) -> dict[str, str]:
@@ -270,7 +274,8 @@ def _iter_all_job_specs():
 
 
 @router.get("/api/jobs")
-def list_all_jobs(request: Request, include_archived: bool = False):
+def list_all_jobs(request: Request, include_archived: bool = False,
+                  offset: int = 0, limit: int | None = None):
     """Global, cross-thread job list for the persistent Job Manager panel
     -- distinct from GET /api/threads/{id}/jobs below, which stays scoped
     to one conversation's active_job_ids for the chat sidebar. Scans
@@ -315,7 +320,7 @@ def list_all_jobs(request: Request, include_archived: bool = False):
     else:
         rows = [r for r in rows if r["job_id"] not in archived]
     rows.sort(key=lambda r: r["created_at"], reverse=True)
-    return rows
+    return paged(rows, offset, limit)
 
 
 @router.get("/api/jobs/quota")
@@ -827,8 +832,18 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
             )
         try:
             raw_cube = orca_runner.render_orbital_cube(str(job_dir), index - 1, gbw_filename=gbw_filename)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"orca_plot failed: {exc}")
+        except Exception:
+            # R-083: the exception text carried orca_plot's own stderr, which
+            # names engine binaries and absolute paths on the host, straight
+            # into an HTTP response body. It belongs in the server log, which
+            # is where chat.py already puts this class of failure. The client
+            # gets a short message that says what to do about it.
+            logger.exception("orca_plot failed rendering orbital %s for job %s", index, job_id)
+            raise HTTPException(
+                status_code=500,
+                detail="Could not render that orbital. The engine's plotting step failed; "
+                       "the details are in the server log.",
+            )
         Path(raw_cube).replace(cube_path)
     else:
         molden_path = artifacts.get("molden")
@@ -888,7 +903,46 @@ def get_neb_frames_live(job_id: str, request: Request):
     if not all_trj_path.exists():
         return Response(content="", media_type="text/plain")
 
-    text = all_trj_path.read_text()
+    # R-081: a trailing window, not the whole file. This route is polled
+    # while the job runs and the file grows by one full path's worth of
+    # frames every NEB iteration, so reading and splitting all of it to keep
+    # the last handful of frames made the cost of a poll grow linearly with
+    # iteration count while the poll rate stayed constant. _tail_lines
+    # thirty lines up in this module exists for exactly this shape.
+    #
+    # The window is sized from the answer: n_images_total frames of
+    # (natoms + 2) lines each, doubled so a partially written trailing frame
+    # cannot eat into the frames actually wanted, and floored at 64 KB so a
+    # small molecule still reads a sensible block. natoms comes from the
+    # spec's own molecule rather than the file, so no read is needed to size
+    # the read. If the molecule is not recorded, fall back to the whole file
+    # rather than guess a window that might be too small to hold one frame.
+    natoms = len((spec.get("molecule") or {}).get("symbols") or [])
+    if natoms:
+        lines_wanted = n_images_total * (natoms + 2) * 2
+        # ~90 bytes per xyz line is generous for "SYM x y z" at full double
+        # precision; the floor covers the small-molecule case.
+        window = max(65536, lines_wanted * 90)
+        size = all_trj_path.stat().st_size
+        with open(all_trj_path, "rb") as f:
+            if size > window:
+                f.seek(size - window)
+            data = f.read()
+        text = data.decode("utf-8", errors="replace")
+        if size > window:
+            # A window read almost certainly starts mid-frame. Drop
+            # everything before the first line that is a bare atom count,
+            # which is what starts an xyz frame, so split_xyz_frames is never
+            # handed a truncated first record.
+            lines = text.split("\n")
+            for i, line in enumerate(lines):
+                if line.strip().isdigit():
+                    text = "\n".join(lines[i:])
+                    break
+            else:
+                text = ""
+    else:
+        text = all_trj_path.read_text()
     frames = orca_runner.split_xyz_frames(text)
     last_iteration = frames[-n_images_total:] if frames else []
     return Response(content="".join(last_iteration), media_type="text/plain")

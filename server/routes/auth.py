@@ -11,6 +11,8 @@ never fully close.
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -18,15 +20,44 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from app.auth import models
-from app.auth.deps import clear_session_cookie, get_current_user, set_session_cookie
+from app.auth.deps import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from app.auth.rate_limit import enforce_login, enforce_password_reset, enforce_register
 from app.auth.redis_session import clear_active_session, set_active_session
-from app.auth.security import issue_token, new_session_id, verify_password
+from app.auth.security import decode_token, issue_token, new_session_id, verify_password
 from app.auth.storage_quota import purge_own_data
 from app.chemistry.jobs.naming import job_filename_stem
 from app.config import JOBS_DIR, SESSION_TTL_SECONDS, UPLOADS_DIR
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+_UNSAFE_ARCNAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_arcname(text: str, limit: int = 60) -> str:
+    """A label reduced to something safe to use as one path segment inside the
+    zip. Labels are user-written free text, and a zip entry name is a path:
+    a conversation called "../../etc/passwd" must not become one. Everything
+    outside a small safe set collapses to an underscore, and the result is
+    trimmed, so the id appended by the caller stays the part that makes the
+    name unique."""
+    cleaned = _UNSAFE_ARCNAME_RE.sub("_", text).strip("._-")
+    return (cleaned[:limit] or "untitled")
+
+
+def _session_id_from_request(request: Request) -> str | None:
+    """The `sid` inside the caller's own session token, or None.
+
+    Only ever called after get_current_user has accepted the request, so the
+    token is present and decodable; the belt-and-braces None handling is for
+    the case where that stops being true."""
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        return None
+    payload = decode_token(token)
+    return (payload or {}).get("sid")
 
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{3,32}$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -131,7 +162,31 @@ def login(body: LoginIn, request: Request, response: Response):
 
 @router.post("/logout")
 def logout(request: Request, response: Response):
+    """Ends the session in all three places it is recorded.
+
+    R-088: this used to clear the Redis key and the cookie and leave the
+    Postgres row exactly as it was, marked live, for ever. `revoke_session`
+    existed and had no caller at all; `revoked` and `expires_at` were columns
+    nothing ever wrote or acted on. Nothing was insecure about it, because
+    what actually decides whether a token still works is the Redis key, but
+    the sessions table is the only durable record of who was signed in when,
+    and a table that says every session ever opened is still open is not a
+    record of anything.
+
+    The session id comes from the caller's own token rather than from a
+    lookup, so this revokes the session that is logging out and no other. A
+    token that cannot be decoded never reaches here: get_current_user above
+    has already refused it."""
     user = get_current_user(request)
+    session_id = _session_id_from_request(request)
+    if session_id:
+        try:
+            models.revoke_session(session_id)
+        except Exception:
+            # Logging out is not worth a 500, for the same reason clearing
+            # the Redis key is not: the cookie is going regardless and the
+            # Redis key is what actually gates the token.
+            logger.warning("could not mark the session revoked on logout", exc_info=True)
     clear_active_session(str(user["id"]))
     clear_session_cookie(response)
     return {"logged_out": True}
@@ -238,6 +293,11 @@ def purge_my_data(request: Request):
         "purged_jobs": len(purged["job_ids"]),
         "purged_kb_sources": len(purged["kb_sources"]),
         "purged_uploads": len(purged["upload_ids"]),
+        # R-087: plots and project archives are deleted by this call and were
+        # missing from its counts, so the response read as complete while two
+        # categories went unmentioned.
+        "purged_plots": len(purged.get("plot_ids") or []),
+        "purged_projects": len(purged.get("project_ids") or []),
     }
 
 
@@ -257,13 +317,41 @@ def download_my_data(request: Request):
     download, once per concurrent download. app/projects/zipstream.py does
     the same job as a generator, holding one file chunk at a time.
 
-    The archive's LAYOUT is deliberately unchanged: same paths, same
-    per-job rules, same filename. Each job gets the same export
-    /api/jobs/{id}/download would give it (a generated text summary for
-    PySCF, the literal job directory for ORCA/BAGEL) rather than a second,
-    different format, reusing _pyscf_text_summary directly."""
-    from app.auth.models import all_owners
+    Each job gets the same export /api/jobs/{id}/download would give it (a
+    generated text summary for PySCF, the literal job directory for
+    ORCA/BAGEL) rather than a second, different format, reusing
+    _pyscf_text_summary directly.
+
+    R-046: conversations, plots and project archives are in the zip too.
+    They were not, and their absence was not arbitrary, it was just never
+    revisited: the button was written when jobs and uploads were most of what
+    an account held. The same account's quota bills it for chat history, and
+    the danger-zone purge beside this button deletes conversations when an
+    admin removes the account, so "all my data" that silently meant "my jobs
+    and my uploads" was the one description of the three that was wrong.
+
+    Conversations go in as JSON, one file per thread, holding what the app
+    itself reads back: the message list, the active molecule, the job ids.
+    That is a faithful export rather than a rendered transcript, because a
+    rendered transcript throws away the tool calls and the job links, which
+    are most of what makes a NexusQC conversation worth keeping.
+
+    Plots go in as their record plus every rendered version, since a plot is
+    versioned on purpose (an older message cites the version it drew, see
+    app/plots/store.py) and exporting only the latest would lose exactly what
+    the versioning is for. Projects go in as JSON: an archive is a membership
+    list, and the jobs it names are already in the zip.
+
+    Scan and ensemble frames needed no work here and are worth saying so
+    about: they are sub-jobs, and sub-jobs record their owner as of R-001, so
+    they arrive through the ordinary owned-jobs pass."""
+    from app.agent import threads as thread_registry
+    from app.agent.graph import read_state
+    from app.agent.serialize import serialize_state
+    from app.auth.models import all_owners, list_owned
     from app.chemistry.jobs.base import get_job_manager, read_meta, read_spec, spec_created_at
+    from app.plots import store as plot_store
+    from app.projects import registry as project_registry
     from app.projects.zipstream import stream_zip
     from app.rag.store import SHARED_OWNER, list_sources
     from app.uploads.store import list_uploads, read_upload_content
@@ -306,6 +394,47 @@ def download_my_data(request: Request):
             path = UPLOADS_DIR / source["owner"] / source["source"]
             if path.is_file():
                 yield f"kb/{source['source']}", path
+
+        # R-046: conversations. One file per thread, named by the label the
+        # user gave it so the archive is browsable, with the id kept in the
+        # filename because labels are neither unique nor required.
+        owned_thread_ids = set(list_owned("thread", user_id))
+        for entry in thread_registry.list_threads():
+            thread_id = entry["thread_id"]
+            if thread_id not in owned_thread_ids:
+                continue
+            try:
+                state = serialize_state(read_state({"configurable": {"thread_id": thread_id}}))
+            except Exception:
+                # One unreadable checkpoint must not cost the user the rest of
+                # their archive. The registry entry still goes in, so the
+                # conversation is at least named.
+                logger.warning("could not export thread %s", thread_id, exc_info=True)
+                state = {"messages": [], "export_error": "this conversation could not be read"}
+            payload = {"thread": entry, "state": state}
+            yield (f"conversations/{_safe_arcname(entry.get('label') or 'conversation')}"
+                   f"_{thread_id}.json",
+                   json.dumps(payload, indent=2, default=str).encode("utf-8"))
+
+        # R-046: plots, record plus every rendered version.
+        for record in plot_store.list_plots(owner_filter=user_id):
+            plot_id = record["plot_id"]
+            stem = f"plots/{_safe_arcname(record.get('label') or 'plot')}_{plot_id}"
+            yield f"{stem}/record.json", json.dumps(record, indent=2, default=str).encode("utf-8")
+            for version in record.get("versions") or []:
+                path = plot_store.version_path(user_id, plot_id, version)
+                if path is not None and path.is_file():
+                    yield f"{stem}/{version}.png", path
+
+        # R-046: project archives. A membership list; the jobs it names are
+        # already in the zip under jobs/.
+        for project_id in list_owned("project", user_id):
+            project = project_registry.get_project(project_id)
+            if project is None:
+                continue
+            name = _safe_arcname(project.get("name") or "project")
+            yield (f"projects/{name}_{project_id}.json",
+                   json.dumps(project, indent=2, default=str).encode("utf-8"))
 
     return StreamingResponse(
         stream_zip(entries()),

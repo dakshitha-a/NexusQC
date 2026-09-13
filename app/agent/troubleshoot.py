@@ -131,16 +131,18 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
             "No output was captured for this job, so diagnose from the parameters "
             "above and say plainly that the engine produced nothing to go on."
         )
-    # Every tool named here is one the model actually has. R-014: this used
-    # to name search_knowledge_base, web_search and search_academic_literature,
-    # none of which is bound -- the four were collapsed into a single `search`
-    # tool with a `kind` argument, and this message was not updated. So the
-    # one prompt in the app that tells the model where to look for an engine
-    # error told it to call three tools that do not exist.
+    # Every tool named here is one the model actually has, called the way it
+    # is actually declared. R-014: this used to name search_knowledge_base,
+    # web_search and search_academic_literature, none of which is bound -- the
+    # four were collapsed into one `search` tool taking a `source` argument,
+    # and this message was not updated. So the one prompt in the app that
+    # tells the model where to look for an engine error named three tools that
+    # do not exist. The argument is `source`, not `kind`; the first pass at
+    # this fix wrote `kind` and fail_01_notice_flow.py is what caught it.
     parts.append(
-        "Work out what went wrong. Consult search(kind='manuals') for the engine's own "
-        "documentation on the keywords involved, and search(kind='web') for the specific "
-        "error text if that is not enough -- not search(kind='scholar'), which covers "
+        "Work out what went wrong. Consult search(source='manuals') for the engine's own "
+        "documentation on the keywords involved, and search(source='web') for the specific "
+        "error text if that is not enough -- not search(source='scholar'), which covers "
         "published papers rather than software errors. Then explain to the user, in plain "
         "language, what failed and why. If you can propose a corrected job, build it with "
         "start_job_draft and submit_draft so they get an approval card showing exactly what "

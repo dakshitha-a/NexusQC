@@ -87,6 +87,12 @@ class JobScheduler:
         self._order: list[Optional[str]] = []
         self._rr_pos = 0
         self._queued_ids: set[str] = set()  # membership, for O(1) enqueue/dequeue checks
+        # R-075: job_id -> the last "waiting for headroom" message written for
+        # it, so the no-headroom branch of _dispatch_tick rewrites status.json
+        # only when what it would say has actually changed. Bounded by
+        # _forget_pending_message below, which drops an id as it leaves the
+        # queue, so this cannot grow with jobs that are long gone.
+        self._last_pending_message: dict[str, str] = {}
         # Jobs admitted but not yet released. `block_reason` counts running
         # jobs by reading status.json, and admission does not write
         # status.json -- "running" is written later, on a pool thread. This
@@ -147,6 +153,7 @@ class JobScheduler:
                             self._order.remove(owner)
                     break
             self._queued_ids.discard(job_id)
+            self._last_pending_message.pop(job_id, None)
             return True
 
     def release(self, job_id: str) -> None:
@@ -211,6 +218,7 @@ class JobScheduler:
                 return False
             q.popleft()
             self._queued_ids.discard(job_id)
+            self._last_pending_message.pop(job_id, None)
             # Leaving the queue IS admission, so the caps start counting this
             # job here, under the same lock that took it off the queue.
             self._in_flight.add(job_id)
@@ -258,8 +266,19 @@ class JobScheduler:
 
         has_headroom, n_idle, message = self._resources_available()
         if not has_headroom:
+            # R-075: only write when the message actually changed. While the
+            # host has no headroom this branch runs about once a second and
+            # used to rewrite status.json for every queued job of every owner
+            # on every tick, which on a busy shared machine is a burst of
+            # small atomic writes a second saying exactly what the last burst
+            # said. The message carries live CPU and memory figures, so it
+            # does change as those move; what this drops is the identical
+            # rewrite, which is most of them.
             for owner in owners_snapshot:
                 for job_id in self._peek_all(owner):
+                    if self._last_pending_message.get(job_id) == message:
+                        continue
+                    self._last_pending_message[job_id] = message
                     write_status(job_id, "pending", message)
             return
 

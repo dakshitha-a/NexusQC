@@ -308,8 +308,26 @@ export const listJobs = (threadId: string) => request<JobRow[]>(`/api/threads/${
 // includeArchived brings back the jobs filed into a project archive, each
 // row then carrying project_id/project_name. Off by default, matching the
 // route: getting a finished study off this list is the point of archiving.
-export const listAllJobs = (includeArchived = false) =>
-  request<JobRow[]>(`/api/jobs${includeArchived ? "?include_archived=true" : ""}`);
+//
+// `limit` is opt-in and the route's default is still the whole list (R-080;
+// see server/routes/_paging.py for why a truncating default would have been
+// silently wrong). Passing it changes the response shape to a page plus a
+// total, so this returns one uniform {rows, total} either way and callers
+// never have to branch on it.
+export interface JobPage {
+  rows: JobRow[];
+  total: number;
+}
+export const listAllJobs = async (includeArchived = false, limit?: number): Promise<JobPage> => {
+  const params = new URLSearchParams();
+  if (includeArchived) params.set("include_archived", "true");
+  if (limit !== undefined) params.set("limit", String(limit));
+  const qs = params.toString();
+  const body = await request<JobRow[] | { rows: JobRow[]; total: number }>(
+    `/api/jobs${qs ? `?${qs}` : ""}`,
+  );
+  return Array.isArray(body) ? { rows: body, total: body.length } : body;
+};
 export const getJobsQuota = () => request<StorageQuota>("/api/jobs/quota");
 export const getJob = (jobId: string) => request<JobRow>(`/api/jobs/${jobId}`);
 export const renameJob = (jobId: string, label: string) =>

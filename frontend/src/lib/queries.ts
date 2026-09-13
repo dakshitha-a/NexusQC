@@ -52,10 +52,24 @@ export const useJobsQuery = (threadId: string | null) => {
 // includeArchived is part of the key, not just the fetcher: the two lists
 // are genuinely different sets of rows, so sharing one cache entry would
 // show the wrong one for a tick every time the toggle moves.
-export const useJobsListQuery = (includeArchived = false) =>
+// The page size the Job Manager asks for when nothing is being searched or
+// filtered. R-080: GET /api/jobs walks every job directory on every call and
+// this query polls it every four seconds from every open tab, measured at
+// 5.5 ms with 8 jobs and 20.9 ms with 58, so the cost grows with the archive
+// while the poll rate does not.
+//
+// Why the panel drops the limit while a filter is active, rather than paging
+// through: the search is a fuzzy client-side rank over the whole list, and a
+// search that quietly only covered the most recent page would be worse than
+// no paging at all. So the common case (an unfiltered panel, polled) is
+// bounded, and the moment someone actually looks for something the full list
+// is fetched. The panel says which of the two it is showing.
+export const JOB_LIST_PAGE_SIZE = 200;
+
+export const useJobsListQuery = (includeArchived = false, limit?: number) =>
   useQuery({
-    queryKey: [...jobsListQueryKey, includeArchived] as const,
-    queryFn: () => api.listAllJobs(includeArchived),
+    queryKey: [...jobsListQueryKey, includeArchived, limit ?? "all"] as const,
+    queryFn: () => api.listAllJobs(includeArchived, limit),
     refetchInterval: 4000,
   });
 

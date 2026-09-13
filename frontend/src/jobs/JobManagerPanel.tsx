@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Archive, GitBranch, Inbox, Paperclip, Pencil, Send, Undo2, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as api from "../lib/api";
-import { jobsListQueryKey, useJobsListQuery } from "../lib/queries";
+import { JOB_LIST_PAGE_SIZE, jobsListQueryKey, useJobsListQuery } from "../lib/queries";
 import { useAttachedJobsStore } from "../lib/attachedJobsStore";
 import { AddToProjectPopover } from "../projects/AddToProjectPopover";
 import { ShareDialog } from "../sharing/ShareDialog";
@@ -38,7 +38,14 @@ export function JobManagerPanel() {
   // working.
   const { query, searchOpen, showArchived, statuses, engines } = useJobFilterStore();
   const { setQuery, setSearchOpen, setShowArchived, clearFilters } = useJobFilterStore();
-  const jobsQuery = useJobsListQuery(showArchived);
+  // R-080. Unfiltered, the panel asks for a bounded page, because this query
+  // polls every four seconds from every open tab. The moment a search or a
+  // filter is active it asks for everything, because the fuzzy match and the
+  // status/engine narrowing below both run over whatever this returns, and a
+  // search covering only the most recent page would be quietly wrong. The
+  // footer says which of the two the list is.
+  const filtering = Boolean(query.trim()) || statuses.length > 0 || engines.length > 0;
+  const jobsQuery = useJobsListQuery(showArchived, filtering ? undefined : JOB_LIST_PAGE_SIZE);
   const queryClient = useQueryClient();
   const { attachedJobs, addJob, removeJob } = useAttachedJobsStore();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -53,7 +60,8 @@ export function JobManagerPanel() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: jobsListQueryKey }),
   });
 
-  const jobs = jobsQuery.data ?? [];
+  const jobs = jobsQuery.data?.rows ?? [];
+  const jobsTotal = jobsQuery.data?.total ?? jobs.length;
   const attachedIds = new Set(attachedJobs.map((j) => j.job_id));
   const { flashing, clear } = useFlashOnTerminal(jobs);
 
@@ -525,6 +533,14 @@ export function JobManagerPanel() {
             ))}
           </tbody>
         </table>
+        {/* Says what the list is, rather than letting a bounded list look
+            like the whole archive. Only appears when the two differ. */}
+        {!filtering && jobsTotal > jobs.length && (
+          <div className="px-3 py-2 text-2xs text-text-muted" data-testid="jobmanager-page-note">
+            Showing the {jobs.length} most recent of {jobsTotal} jobs. Searching or
+            filtering looks through all of them.
+          </div>
+        )}
       </div>
     </div>
   );

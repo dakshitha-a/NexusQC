@@ -31,7 +31,7 @@ from matplotlib.lines import Line2D
 # renderer now opens a `plt.rc_context` for its own figure instead.
 from dataclasses import replace  # noqa: E402
 
-from app.chemistry.plot_style import PlotStyle  # noqa: E402
+from app.chemistry.plot_style import PlotStyle, figure_lock  # noqa: E402
 
 # `_FIGSIZE`/`_DPI` used to stand here, reading PlotStyle's class defaults for
 # the one renderer that still sized its own figure. render_histogram_plot takes
@@ -112,7 +112,8 @@ def render_series_plot(
     if log_y:
         st = replace(st, log_y=True)
 
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         n_series = len(series)
         proxy_handles: list[Line2D] = []
@@ -206,7 +207,8 @@ def render_line_plot(
     st = (style or PlotStyle()).with_defaults(title=title, xlabel=xlabel, ylabel=ylabel)
     if log_y:
         st = replace(st, log_y=True)
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         for i, (label, y) in enumerate(y_series.items()):
             y_masked = [v if v is not None else np.nan for v in y]
@@ -266,7 +268,8 @@ def render_neb_plot(path_rows: list[dict], out_path: str, style: PlotStyle = Non
 
     st = (style or PlotStyle()).with_defaults(
         title="NEB-TS reaction path", xlabel="Image", ylabel="Relative energy (eV)")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         ax.plot(xs, ys, marker=st.marker if st.marker is not None else "o",
                 markersize=st.ms(4.0), linewidth=st.lw(1.5), linestyle=st.line_style,
@@ -336,7 +339,8 @@ def render_ir_spectrum_plot(
         xlabel="Wavenumber (cm$^{-1}$)",
         ylabel="IR intensity (Gaussian-broadened, km/mol)",
     )
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         ax.plot(grid, spectrum, color=st.accent("tab:blue"),
                 linewidth=st.lw(1.5), linestyle=st.line_style,
@@ -413,7 +417,8 @@ def render_histogram_plot(
     # the fixed default was. A caller asking for a bigger figure gets a bigger
     # figure, not a bigger first panel.
     width, height = st.figsize
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, axes = plt.subplots(1, len(labels), figsize=(width * len(labels), height))
         if len(labels) == 1:
             axes = [axes]
@@ -501,7 +506,8 @@ def render_entropy_plateau_plot(
               + ("" if threshold is not None else " (no plateau found)"),
         xlabel="Pilot orbital (sorted by entropy)",
         ylabel="Single-orbital entropy $s^{(1)}$")
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         x = np.arange(len(sorted_entropies))
         ax.bar(x, sorted_entropies, color=colors, width=0.7)
@@ -589,7 +595,8 @@ def render_wigner_ensemble_spectrum(
         xlabel="Energy (eV)",
         ylabel="Normalized intensity (arb. units)",
     )
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         colors = plt.cm.nipy_spectral(np.linspace(0.1, 0.9, max(len(by_state_norm), 1)))
         for i, state_idx in enumerate(sorted(by_state_norm)):
@@ -661,7 +668,8 @@ def render_uvvis_plot(
         xlabel="Wavelength (nm)",
         ylabel="Oscillator strength (Gaussian-broadened, arb. units)",
     )
-    with plt.rc_context(st.rc()):
+    # R-079: pyplot is global state; see plot_style.figure_lock.
+    with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         ax.plot(grid_nm[order], spectrum[order], color=st.accent("tab:blue"),
                 linewidth=st.lw(1.5), linestyle=st.line_style,

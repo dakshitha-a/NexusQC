@@ -289,6 +289,12 @@ def set_user_active(user_id: str, body: UserActiveIn, admin: dict = Depends(requ
     updated = models.set_user_active(user_id, body.is_active)
     if not body.is_active:
         clear_active_session(user_id)
+        # R-088: and mark the durable rows revoked, not just the Redis key.
+        # The Redis key is what actually stops the token working; the sessions
+        # table is the record of who was signed in, and leaving a suspended
+        # account's rows marked live makes that record say the opposite of
+        # what just happened.
+        models.revoke_sessions_for_user(user_id)
     models.audit(
         str(admin["id"]),
         "set_user_active",
@@ -311,6 +317,13 @@ class InviteCreateIn(BaseModel):
 def create_invite(body: InviteCreateIn, admin: dict = Depends(require_admin)):
     if body.role not in ("user", "admin"):
         raise HTTPException(status_code=400, detail="role must be 'user' or 'admin'")
+    # R-089: the same bound the password-reset route below has carried all
+    # along. An invite can mint another admin, and an unbounded ttl_hours let
+    # one sit redeemable for years, which is a credential with no expiry
+    # rather than an invitation. 72 hours is the reset route's ceiling and
+    # there is no reason for the two to differ.
+    if body.ttl_hours < 1 or body.ttl_hours > 72:
+        raise HTTPException(status_code=400, detail="ttl_hours must be between 1 and 72")
     row = models.create_invite_token(str(admin["id"]), body.role, body.email_hint, body.ttl_hours)
     models.audit(str(admin["id"]), "create_invite", target=row["token"], details={"role": body.role})
     return row
@@ -448,6 +461,15 @@ class BugReportPatchIn(BaseModel):
 def patch_bug_report(report_id: str, body: BugReportPatchIn, admin: dict = Depends(require_admin)):
     if body.status is None and body.archived is None:
         raise HTTPException(status_code=400, detail="provide 'status', 'archived', or both")
+    # R-082: look the report up first. Without this the handler answered 200
+    # for a report that does not exist, because an UPDATE matching no rows is
+    # not an error, and it answered 500 for a malformed id, because a junk
+    # string reaches Postgres as a uuid literal. Both matter more than they
+    # look: each wrote an audit row claiming a report had been changed, and
+    # the audit log is documented as append-only and therefore has to be
+    # true. get_bug_report parses the id, so both cases arrive here as None.
+    if models.get_bug_report(report_id) is None:
+        raise HTTPException(status_code=404, detail="bug report not found")
     if body.status is not None:
         if body.status not in ("open", "closed"):
             raise HTTPException(status_code=400, detail="status must be 'open' or 'closed'")
@@ -748,12 +770,7 @@ def get_activity(admin: dict = Depends(require_admin)):
     records no last-seen -- so a running job or an open stream is the real
     signal, and last_login_at is context rather than evidence.
     """
-    from app.chemistry.jobs.base import (
-        _iter_job_ids_on_disk,
-        is_master_spec,
-        read_spec,
-        read_status,
-    )
+    from app.chemistry.jobs.base import is_master_spec, job_index
     from server.sse import hub
 
     job_owners = models.all_owners("job")
@@ -764,17 +781,21 @@ def get_activity(admin: dict = Depends(require_admin)):
     # master is marked running for its whole lifetime as bookkeeping and is
     # never itself a dispatched subprocess, so counting it would claim work
     # that nothing is doing.
+    # R-051: this used to walk JOBS_DIR and read two JSON files per job on
+    # every call, uncached, while the admin console polled it. It now reads
+    # base.py's shared ~1 s index, the same one the three orchestrators and
+    # the scheduler's admission gate read, so an open console costs one walk
+    # per second across the whole process rather than one per poll on top of
+    # everything else. The neighbouring GET /api/admin/storage was given a
+    # 20 s cache for exactly this reason; this answers a question that moves
+    # faster, so it gets the short index rather than a long cache.
     running: dict[str, int] = {}
     pending: dict[str, int] = {}
     unowned_running = unowned_pending = 0
-    for job_id in _iter_job_ids_on_disk():
-        try:
-            state = (read_status(job_id) or {}).get("status")
-            if state not in ("running", "pending"):
-                continue
-            if is_master_spec(read_spec(job_id)):
-                continue
-        except OSError:
+    for job_id, (task, parent_job_id, state) in job_index().items():
+        if state not in ("running", "pending"):
+            continue
+        if is_master_spec({"task": task, "parent_job_id": parent_job_id}):
             continue
         bucket = running if state == "running" else pending
         owner = job_owners.get(job_id)

@@ -36,6 +36,7 @@ from typing import Optional
 
 from app.chemistry.geometry_upload import parse_multi_frame_xyz
 from app.chemistry.jobs.base import (
+    job_index,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
     master_dispatch_guard,
     SCAN_ONLY_PARAM_KEYS, JobResult, JobSpec, read_result, read_spec, read_status,
@@ -118,16 +119,14 @@ def _build_state_series(state_energies_per_image: list) -> dict[str, list[Option
 
 
 def _iter_running_scan_masters():
-    # Duplicated (not imported) from base.py's private _iter_job_ids_on_disk,
-    # same convention server/routes/jobs.py's _iter_all_job_ids already
-    # follows for the same reason (see that function's own comment).
-    for d in JOBS_DIR.iterdir():
-        if not d.is_dir() or d.name == "_seen" or not (d / "spec.json").exists():
-            continue
-        spec = read_spec(d.name)
-        if (spec and spec.get("task") in ("pes_1d", "interp_pes")
-                and (read_status(d.name) or {}).get("status") == "running"):
-            yield d.name
+    # R-075: reads the shared, ~1 s index in base.py instead of walking
+    # JOBS_DIR and parsing two JSON files per job every three seconds. This loop ran
+    # whether or not anything was running, so its cost grew with every job
+    # ever run rather than with the work in front of it, and three
+    # orchestrators plus the job watcher were each paying it separately.
+    for job_id, (task, _parent, status) in job_index().items():
+        if task in ("pes_1d", "interp_pes") and status == "running":
+            yield job_id
 
 
 class ScanOrchestrator:
@@ -191,6 +190,7 @@ class ScanOrchestrator:
         # dispatch_lock guards this process's threads; the guard beside it
         # guards other PROCESSES sharing data/jobs/ -- see
         # base.master_dispatch_guard for the race and its signature.
+        dispatched_here = False
         with dispatch_lock, master_dispatch_guard(master_id):
             from app.chemistry.jobs.base import get_job_manager
             sub_ids = sub_job_ids_of(master_id)
@@ -280,6 +280,20 @@ class ScanOrchestrator:
                     params=image_params, parent_job_id=master_id,
                 )
                 mgr.submit(sub_spec)
+                dispatched_here = True
+
+        # R-043/R-075: the wave's one quota sweep, run once here rather than
+        # once inside every child's submit(). enforce_quota() walks every
+        # non-terminal job's directory with rglob, so a forty-child wave used
+        # to run forty full sweeps back to back, each of them rglob-ing up to
+        # twenty live engine scratch directories. Deliberately outside
+        # dispatch_lock: the sweep is slow disk I/O and the lock exists to
+        # keep two dispatch decisions apart, not to serialise disk work. Also
+        # deliberately after the whole wave rather than before it, so what it
+        # measures includes what was just placed.
+        if dispatched_here:
+            from app.chemistry.jobs.quota import enforce_quota
+            enforce_quota()
 
     def _update_one(self, master_id: str) -> None:
         result = read_result(master_id)
