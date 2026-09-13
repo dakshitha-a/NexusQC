@@ -182,6 +182,10 @@ Set in `.env`:
 
 - `QC_AGENT_POSTGRES_PASSWORD`, the first generated value
 - `QC_AGENT_JWT_SECRET`, the second generated value
+- `QC_AGENT_DEPLOY_SECRET`, the third generated value. It signs the
+  deployment requests the admin panel writes for the host-side runner. Skip
+  it and everything still works except the Apply button, which will report
+  that the runner cannot verify who asked.
 - `QC_AGENT_LAN_BIND`, the LAN IP you just found (e.g. `192.168.1.50`)
 - `QC_AGENT_TAILSCALE_BIND`. This host's tailnet IP, if it has one. Both
   variables are required for `docker compose up` to even parse
@@ -682,6 +686,7 @@ These are in addition to everything in
 |---|---|---|
 | `QC_AGENT_DATABASE_URL` | *unset* | Postgres connection string. Setting this is what switches the app into multi-user mode. |
 | `QC_AGENT_JWT_SECRET` | *required once the above is set* | Signs session cookies; at least 32 bytes. The app fails fast at startup if it's missing while auth is active. |
+| `QC_AGENT_DEPLOY_SECRET` | *unset* | Signs the deployment requests the admin panel writes into `data/deploy/` for `scripts/deploy_runner.sh`. The runner refuses `update` and `rollback` without a valid signature and says why, so an unset value disables the in-app update rather than weakening it. `data/` is bind-mounted into the api container and `.env` is not, which is what makes this a boundary: something that can write a file into `data/` still cannot sign one. |
 | `QC_AGENT_REDIS_URL` | *unset* | Backs one-session-per-user enforcement and the rate limiter. Required alongside the database URL. |
 | `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout; a lockout would strand a legitimate user for the window's duration with nothing to do about it. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
 | `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for registration. |

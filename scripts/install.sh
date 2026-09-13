@@ -434,9 +434,11 @@ if [ "$REGEN" -eq 1 ]; then
 
     PG_PASSWORD="$(openssl rand -hex 24)"
     JWT_SECRET="$(openssl rand -hex 32)"
+    DEPLOY_SECRET="$(openssl rand -hex 32)"
     envset QC_AGENT_POSTGRES_PASSWORD "$PG_PASSWORD"
     envset QC_AGENT_JWT_SECRET "$JWT_SECRET"
-    ok "generated a Postgres password and a JWT signing secret"
+    envset QC_AGENT_DEPLOY_SECRET "$DEPLOY_SECRET"
+    ok "generated a Postgres password, a JWT signing secret and a deploy-request secret"
 
     APP_UID="$(id -u)"; APP_GID="$(id -g)"
     envset APP_UID "$APP_UID"

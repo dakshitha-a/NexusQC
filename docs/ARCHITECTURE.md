@@ -2428,6 +2428,30 @@ absolute path, because this host runs several checkouts and a unit called
 plainly `nexusqc-updater` would have the second install silently retarget the
 first.
 
+**The request is signed, because otherwise the file is the authority.** That
+was the original design's real weakness and it took a security review to see
+it: `data/` is bind-mounted into the api container, the runner polls
+`data/deploy/request.json` at a fixed, documented name, and it never read the
+`requested_by` field it was handed. So the question "did an admin ask for
+this?" was answered by "a file exists", and any path by which a non-admin
+could write a file into `data/` was a path to a host deployment action. One
+existed: the knowledge-base upload routes joined a caller-supplied filename
+onto the upload directory without sanitising it, and a `pathlib` join with an
+absolute string discards the left operand (R-002).
+
+Both halves of that chain are now closed independently, which is the point of
+saying it twice. The upload routes sanitise (`server/routes/kb.py`'s
+`_safe_dest`), and the runner verifies an HMAC over the request's own fields,
+keyed on `QC_AGENT_DEPLOY_SECRET` from `.env`. `.env` is at the repo root, not
+inside the bind mount, so something that can write into `data/` still cannot
+sign. The signed body includes `requested_at`, and a request older than an
+hour is refused, so a copy of a real request is not a permanent key.
+`app/auth/deploy_signing.py` holds the canonical form and the shell side
+reproduces it; they cannot import each other, so the recipe is written out in
+both places on purpose. `ping` is answered before the check so a deployment
+with no secret configured can still be told that it has no secret configured,
+rather than presenting a button that does nothing.
+
 Without the runner installed, the panel still reports what is deployed, who is
 mid-calculation and what an update would break. It shows the host command
 instead of an Apply button, and says why. That is the honest degradation, and

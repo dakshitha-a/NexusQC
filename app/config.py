@@ -597,6 +597,16 @@ SERVER_CORS_ORIGINS = [
 # an empty secret rather than silently using one, since an empty/predictable
 # secret would let anyone forge a valid session cookie for any user.
 JWT_SECRET = os.environ.get("QC_AGENT_JWT_SECRET", "")
+
+# Shared with scripts/deploy_runner.sh on the host, which reads it straight
+# out of .env. It is what lets the runner tell a deployment request written by
+# this app's admin route from any other file that happens to appear at
+# data/deploy/request.json -- and data/ is bind-mounted, so "any other file"
+# used to include one an ordinary user could write through a knowledge-base
+# upload (R-002). The runner refuses update and rollback without a valid
+# signature. .env is not inside the bind mount, which is what makes the secret
+# a real boundary rather than a formality.
+DEPLOY_SECRET = os.environ.get("QC_AGENT_DEPLOY_SECRET", "")
 JWT_ALGORITHM = "HS256"
 SESSION_TTL_SECONDS = int(os.environ.get("QC_AGENT_SESSION_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 days, matches the "remember me" duration from the original deployment ask
 

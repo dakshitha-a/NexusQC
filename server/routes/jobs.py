@@ -694,6 +694,11 @@ def get_job_log(job_id: str, request: Request, lines: int = 20):
 
 
 _GBW_NAME_RE = re.compile(r"^input(_im\d+)?\.gbw$")
+# The only two values `spin` ever legitimately carries: molden.py's
+# cube_for_orbital maps it to alpha=0 / beta=1 and treats anything else as
+# "not specified". It reaches the filesystem through cube_key, so it is
+# allowlisted rather than merely ignored (R-005).
+_SPIN_VALUES = ("alpha", "beta")
 
 
 @router.post("/api/jobs/{job_id}/orbitals/{index}/cube")
@@ -726,7 +731,19 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
     allowlist-validated against _GBW_NAME_RE before ever touching the
     filesystem, since it's client-supplied and otherwise builds a path
     directly; the cube cache key includes it so different frames' cubes
-    for the "same" orbital index never collide."""
+    for the "same" orbital index never collide.
+
+    All three inputs that reach `cube_key` are validated, and R-005 is why
+    that sentence is worth writing down. `gbw` was allowlisted and `spin`
+    was not, although both are client-supplied query parameters and both
+    land in the same `cube_key`, which two lines later becomes
+    `job_dir / f"mo_{cube_key}.cube"`. The download NAME built from
+    `cube_key` was slugified, with a comment saying it was slugified
+    because `cube_key` carries client input, so the cosmetic surface was
+    hardened while the real path beside it was not. `index` is bounded
+    here too: FastAPI guarantees it is an integer and nothing guaranteed it
+    was positive, and a negative index reached ORCA's plotting as
+    `index - 1` (R-083)."""
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
@@ -735,6 +752,16 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
 
+    if index < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Orbital index must be 1 or greater (orbitals are numbered from 1 here); got {index}.",
+        )
+    if spin is not None and spin not in _SPIN_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"spin must be one of {', '.join(_SPIN_VALUES)} if given; got {spin!r}.",
+        )
     gbw_filename = "input.gbw"
     if gbw is not None:
         if not _GBW_NAME_RE.match(gbw):
@@ -757,6 +784,11 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
 
     job_dir = JOBS_DIR / job_id
     cube_path = job_dir / f"mo_{cube_key}.cube"
+    # Defence in depth behind the three allowlists above: the path that is
+    # actually written must land in this job's own directory, whatever
+    # cube_key turned out to be.
+    if cube_path.resolve().parent != job_dir.resolve():
+        raise HTTPException(status_code=400, detail="Invalid orbital request.")
     engine = spec.get("engine")
     if engine == "orca":
         gbw_path = job_dir / gbw_filename

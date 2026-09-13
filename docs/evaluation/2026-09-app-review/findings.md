@@ -221,7 +221,7 @@ check that nothing was dropped in the merge.
   the "A's own top-level job is protected" leg rests on the master's 404 rather
   than a seeded job; worth a clean re-seed if triage wants it, but the child
   leak is not in doubt.
-- resolution: fixed 881ca31
+- resolution: fixed 106cb5b
 - regression test: tests/backend/sec_11_child_job_ownership.py
 
 ### R-002: a knowledge-base upload can write a file anywhere, and reach the host deploy runner
@@ -267,6 +267,8 @@ check that nothing was dropped in the merge.
   completes on any deployment using the in-app update feature. Two independent
   fixes each break it: sanitise the filename, or have the runner verify the
   requester.
+- resolution: fixed, pending commit
+- regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-003: two routes read any user's job into the caller's conversation
 - surface: code:server
@@ -408,6 +410,8 @@ check that nothing was dropped in the merge.
   the instances are individually actionable. Instance 2 is independently at
   least S2 and is worth reproducing live in P5.
 - coordinator addendum: two further instances were confirmed during Phase 5 verification and belong to this theme. (4) The approval-card guard `append_notice_unless_card_pending` was measured, documented and applied to one `update_state` caller out of seven (see the molecule-panel finding). (5) `check_external=False` was documented in `elicitation.py`, applied in `submit_draft`, and omitted from the newer `run_when_ready` shortcut (see the evaporating-approval finding). Five sites, one habit.
+- resolution: fixed, pending commit
+- regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-006: the URL ingest route fetches an arbitrary URL before it knows who is calling
 - surface: code:server
@@ -501,6 +505,8 @@ check that nothing was dropped in the merge.
   committed. Separately worth carrying into the fix plan: `request.json`'s
   fixed, documented name is what makes R-002's escalation aimable. Changing it
   would not fix R-002 but would remove the convenient target.
+- resolution: fixed, pending commit
+- regression test: tests/backend/sec_12_kb_path_safety.py
 
 ### R-009: The active-space literature search reads every user's private uploaded papers, because it passes `state=None` into the one KB path that exists to scope by owner
 - surface: code:agent
@@ -3202,7 +3208,11 @@ check that nothing was dropped in the merge.
 - expected: A client-supplied out-of-range index is a 400. An internal tool's raw stderr belongs in the server log, which `chat.py:882` already does correctly (`logger.exception(...)` before raising) and which this site does not do at all.
 - evidence: `server/routes/jobs.py:767-770`; `server/routes/jobs.py:778-781` (the correct pattern, five lines below); `app/chemistry/jobs/orca_runner.py:1706-1710`.
 - pointer: `index` is unvalidated on entry (no bound, no positivity check) on the ORCA branch; the molden branch validates inside `cube_for_orbital` (`app/chemistry/jobs/molden.py:128-130`).
+- partial: the unvalidated `index` half was closed in P1.3 alongside R-005,
+  which is where the same route's other unvalidated inputs were fixed; the
+  500-carrying-engine-paths half is P5.2's.
 - note: Fix: validate `index >= 1` at the route, log the exception, and return a short 500 detail.
+
 
 ---
 
@@ -3422,7 +3432,7 @@ check that nothing was dropped in the merge.
   What leaks is a list row (label, engine, method, status, size), not results.
 - note: filing it because the asymmetry is the kind that becomes a real hole if
   membership rules ever loosen; fix is one call inside the loop.
-- resolution: fixed 881ca31
+- resolution: fixed 106cb5b
 - regression test: tests/backend/sec_11_child_job_ownership.py
 
 

@@ -60,9 +60,62 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # silently does nothing is worse than no button.
 touch_runner_state() {
     mkdir -p "$DEPLOY_DIR"
-    printf '{"alive_at": %s, "pid": %s, "repo": "%s"}\n' \
-        "$(date -u +%s)" "$$" "$REPO_ROOT" > "$RUNNER_STATE.tmp"
+    # No repo path. This file used to carry $REPO_ROOT, and nginx serves the
+    # whole of data/deploy at /deploy-status/ with no authentication, so an
+    # unauthenticated GET handed out the operator's username and the host's
+    # filesystem layout (R-008). Nothing ever read the field. The api reads
+    # alive_at; the pid is for a human looking at the file on the host.
+    printf '{"alive_at": %s, "pid": %s}\n' "$(date -u +%s)" "$$" > "$RUNNER_STATE.tmp"
     mv -f "$RUNNER_STATE.tmp" "$RUNNER_STATE"
+}
+
+# The shared secret the api signs deployment requests with. Read from .env,
+# which lives at the repo root and is NOT inside the bind-mounted data/
+# directory -- that is the whole point, since the attack this defends against
+# is someone who can write a file into data/ but cannot read the repo root.
+read_deploy_secret() {
+    [ -f "$REPO_ROOT/.env" ] || { printf ''; return 0; }
+    sed -n 's/^[[:space:]]*QC_AGENT_DEPLOY_SECRET[[:space:]]*=[[:space:]]*//p' "$REPO_ROOT/.env" \
+        | tail -n1 | tr -d '"'"'"'\r'
+}
+
+# Verifies the HMAC the api wrote, using the same canonical form as
+# app/auth/deploy_signing.py: the request's own fields minus `signature`, as
+# JSON with sorted keys and no spaces after separators, UTF-8.
+#
+# Prints one of: ok | unsigned | bad | nosecret | stale
+#
+# `stale` is the replay guard. The signature is over a fixed payload, so a
+# copy of a real request stays valid forever without one; `requested_at` is
+# inside the signed body, and a request older than the window is refused.
+request_signature_state() {
+    local file="$1" secret="$2"
+    python3 - "$file" "$secret" <<'PYEOF'
+import hashlib, hmac, json, sys, time
+path, secret = sys.argv[1], sys.argv[2]
+try:
+    payload = json.load(open(path))
+except Exception:
+    print("bad"); raise SystemExit(0)
+sig = str(payload.get("signature") or "")
+if not secret:
+    print("nosecret"); raise SystemExit(0)
+if not sig:
+    print("unsigned"); raise SystemExit(0)
+body = {k: v for k, v in payload.items() if k != "signature"}
+want = hmac.new(secret.encode("utf-8"),
+                json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                hashlib.sha256).hexdigest()
+if not hmac.compare_digest(sig, want):
+    print("bad"); raise SystemExit(0)
+try:
+    age = time.time() - float(payload.get("requested_at") or 0)
+except (TypeError, ValueError):
+    print("bad"); raise SystemExit(0)
+if age > 3600 or age < -300:
+    print("stale"); raise SystemExit(0)
+print("ok")
+PYEOF
 }
 
 # status.json is rewritten in full at every step rather than appended to, so a
@@ -139,6 +192,36 @@ except Exception:
         *)
             write_status "$dir" failed "unknown action" \
                 "{\"error\": \"unknown action: $(printf '%s' "$action" | tr -cd 'A-Za-z0-9_-')\"}"
+            return 0 ;;
+    esac
+
+    # Who asked. Everything above this point is safe to do for any file that
+    # turns up: it reads fields and writes a status. Everything below runs
+    # git and update.sh on the host, so it happens only for a request this
+    # deployment's own api signed.
+    #
+    # `ping` is deliberately above the check, so the admin panel can still
+    # find out the runner is alive on a deployment that has no secret set
+    # yet, and the operator gets a message instead of a button that does
+    # nothing. `report` is below it: it runs git and check_destructive.sh.
+    local sig_state
+    sig_state="$(request_signature_state "$dir/request.json" "$(read_deploy_secret)")"
+    case "$sig_state" in
+        ok) ;;
+        nosecret)
+            log "refusing $action: QC_AGENT_DEPLOY_SECRET is not set in $REPO_ROOT/.env"
+            write_status "$dir" failed "this deployment cannot verify who asked" \
+                "{\"error\": \"QC_AGENT_DEPLOY_SECRET is not set in .env, so the runner cannot tell a request from the admin panel apart from any other file written into data/deploy. Add one (openssl rand -hex 32) to .env, recreate the api container so it sees the same value, and try again.\"}"
+            return 0 ;;
+        unsigned|bad|stale)
+            log "refusing $action: request signature $sig_state"
+            write_status "$dir" failed "the request could not be verified" \
+                "{\"error\": \"the deployment request carried no valid signature ($sig_state). Only this deployment's own admin panel can ask for an update.\"}"
+            return 0 ;;
+        *)
+            log "refusing $action: unexpected signature state '$sig_state'"
+            write_status "$dir" failed "the request could not be verified" \
+                "{\"error\": \"the deployment request could not be verified.\"}"
             return 0 ;;
     esac
 

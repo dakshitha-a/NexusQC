@@ -148,6 +148,9 @@ services:
       QC_AGENT_DATABASE_URL: postgresql://${QC_AGENT_POSTGRES_USER:-qc_agent}:${QC_AGENT_POSTGRES_PASSWORD:?}@postgres:5432/${QC_AGENT_POSTGRES_DB:-qc_agent}
       QC_AGENT_REDIS_URL: redis://redis:6379/0
       QC_AGENT_JWT_SECRET: ${QC_AGENT_JWT_SECRET:?set QC_AGENT_JWT_SECRET in .env}
+      # Not :? -- an existing deployment that predates this variable must keep
+      # starting. The runner refuses update/rollback when it is unset and says so.
+      QC_AGENT_DEPLOY_SECRET: ${QC_AGENT_DEPLOY_SECRET:-}
       # Empty on purpose in the deployed stack. app/config.py defaults this
       # to "http://localhost:5173,http://127.0.0.1:5173" for the Vite dev
       # workflow, and AccessControlMiddleware checks that static allowlist

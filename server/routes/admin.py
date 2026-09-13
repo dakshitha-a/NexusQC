@@ -29,6 +29,7 @@ from app.auth.storage_quota import (
     purge_user_data,
     usage_report,
 )
+from app.auth.deploy_signing import sign_deploy_request
 from app.config import BUG_REPORTS_DIR, DEPLOY_DIR, MAX_CONCURRENT_JOBS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -665,6 +666,14 @@ def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
         "requested_by": str(admin["id"]),
         "requested_at": time.time(),
     }
+    # Signed, because until now the file WAS the authority. data/ is
+    # bind-mounted into this container, the runner polls
+    # data/deploy/request.json at that fixed name and runs update.sh or
+    # --rollback on the host from what it finds, and it never read
+    # requested_by. So anything that could write a file into data/ could ask
+    # the host to redeploy, and a knowledge-base upload could (R-002). The
+    # secret lives in .env, which is not in the bind mount.
+    payload["signature"] = sign_deploy_request(payload)
     # Written then renamed: a systemd .path unit fires on the file existing,
     # and it must never see a half-written one.
     tmp = DEPLOY_DIR / f".request.{deploy_id}.tmp"

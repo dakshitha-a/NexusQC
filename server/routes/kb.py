@@ -69,6 +69,46 @@ def _upload_dir(owner: str | None) -> Path:
     return d
 
 
+def _safe_dest(owner: str | None, filename: str | None) -> Path:
+    """The one place a client-supplied filename becomes a path to write to.
+
+    R-002. `add_text_source` did `(_upload_dir(owner) / filename).write_text(...)`
+    with `filename` straight off a Pydantic `str | None` that had no
+    validator, and `add_source` did the same with the multipart filename
+    after checking only its extension. A `pathlib` join with an absolute
+    string discards the left operand entirely, so a caller did not even need
+    `../`: `Path("/app/data/kb/uploads/user-123") / "/app/data/deploy/request.json"`
+    is `/app/data/deploy/request.json`. `data/` is bind-mounted into the api
+    container, and `scripts/deploy_runner.sh` polls `data/deploy/request.json`
+    at that fixed name every three seconds and runs `scripts/update.sh` or
+    `--rollback` on the host from what it finds there. So an ordinary user's
+    knowledge-base upload could reach a host deployment action.
+
+    The defence already existed twenty lines up. `_find_source_file`, the READ
+    path, takes `Path(source).name` and then re-checks containment after
+    resolving, and its comment explains why. It was applied in one direction
+    only, which is a habit rather than an accident here (R-005), so this
+    function exists to be the single direction-agnostic answer that both
+    write paths and the URL path call.
+
+    Two independent checks, deliberately, because either alone has a hole:
+    taking `.name` defeats traversal and absolute paths, and re-resolving
+    defeats a symlink already sitting in the upload directory.
+    """
+    name = Path(filename or "").name
+    if not name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="A source needs a file name.")
+    d = _upload_dir(owner)
+    dest = d / name
+    try:
+        parent_ok = dest.resolve().parent == d.resolve()
+    except OSError:
+        parent_ok = False
+    if not parent_ok:
+        raise HTTPException(status_code=400, detail=f"Invalid source name: {filename!r}")
+    return dest
+
+
 def _content_search_dirs(owner: str | None) -> list[Path]:
     """Directories `get_source_content` may serve a file out of, for a
     caller whose ownership filter is `owner` (None == admin/no-auth).
@@ -147,7 +187,7 @@ def add_source(request: Request, file: UploadFile = File(...), doc_type: str = F
             detail=f"Unsupported file type '{suffix}' -- only PDF, TXT, MD, and DOCX files are accepted",
         )
     owner = _owner_key(request)
-    dest = _upload_dir(owner) / file.filename
+    dest = _safe_dest(owner, file.filename)
     dest.write_bytes(file.file.read())
     try:
         n_chunks = ingest_file(dest, doc_type, owner=owner)
@@ -187,7 +227,9 @@ def add_text_source(body: AddTextSource, request: Request):
     # Written to disk (not just the vector store) so it shows up uniformly
     # alongside file uploads for list_sources/delete_source, and so a
     # dropped snippet survives a KB re-seed the same way an uploaded file does.
-    (_upload_dir(owner) / filename).write_text(body.text)
+    dest = _safe_dest(owner, filename)
+    filename = dest.name
+    dest.write_text(body.text)
     try:
         n_chunks = ingest_text(body.text, filename, body.doc_type, owner=owner)
     except ValueError as e:
@@ -252,7 +294,10 @@ def add_url_source(body: AddUrlSource, request: Request):
     # Raw HTML is what the preview flyout renders (see get_source_content);
     # the extracted plain text (prefixed with title/source like the seed
     # script's own scraped manuals) is what actually gets chunked/embedded.
-    (_upload_dir(owner) / filename).write_text(html, errors="ignore")
+    # Derived from the URL rather than client-supplied, so this is belt and
+    # braces; it goes through the same door as the other two so there is one
+    # door rather than three, which is the whole point of R-005.
+    _safe_dest(owner, filename).write_text(html, errors="ignore")
     embed_text = f"{title}\nSource: {body.url}\n\n{text}"
     try:
         n_chunks = ingest_text(embed_text, filename, body.doc_type, owner=owner)
