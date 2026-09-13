@@ -3513,7 +3513,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S4
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:frontend
 - scope: All `fetch(` call sites outside `lib/api.ts`'s `request()`, plus `downloadPlotPng` inside it. Not reproduced.
 - repro: With a job drawer open showing an orbital, expire the session (log in as the same user in another browser, which supersedes the Redis session key). Click a different orbital row. Expectation: the viewer shows `Couldn't load orbital: Error: 401 Unauthorized` and the app stays on screen, rather than returning to the login screen the way any `request()`-routed call would.
@@ -3531,6 +3531,7 @@ check that nothing was dropped in the merge.
 - note: Low severity on both halves. The maintenance case in particular is already covered in practice — `useJobsListQuery`'s unconditional 4 s poll goes through `request()` and trips `MaintenanceGate` within seconds of an update starting, which is exactly the mechanism `lib/api.ts:194-198` describes. The 401 case is the one with a real user-visible symptom (a stale-session tab whose viewers show raw HTTP errors instead of bouncing to login), and `tests/frontend/fe_sec_*` is where a check for it would belong. Fix direction: give `api.ts` an exported `requestText(path, init)` that shares `request()`'s error branch and returns text, and route all six viewer fetches through it; that also gives the three frame viewers in the finding above their `r.ok` check for free.
 
 ---
+- coordinator: Both halves verified. `request()` centralises the maintenance-503 branch (`api.ts:226`) and the 401 branch (`:236`); the viewer fetches (`MoCubeViewer`, `ScanFrameViewer`, `GeometrySetViewer`, `EnsembleFrameViewer`, `NebFrameViewer`) and `downloadPlotPng` (`:477`) use bare `fetch` and reach neither, so during an in-app update those calls fail with a raw error instead of the maintenance overlay, and a session that expired mid-view is not bounced to login. The naming half: `api.ts:491` falls back to `${jobId}_${kind}.png`, a bare job id, when the Content-Disposition header is absent, which breaks the standing safename_descriptor.extension rule; the primary path (the header) follows it. S4 stands for both.
 
 ### R-096: a PES-scan plot's "State 1" is S1, while `target_states=[1]` is S0
 - surface: code:jobs
