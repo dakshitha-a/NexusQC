@@ -131,16 +131,27 @@ try {
     const dropZone = await page.locator('[data-testid="kb-drop-zone"]').count();
     check("KB drop zone present (the app's only data-testid)", dropZone > 0);
 
-    const search = page.locator('input[placeholder="Search sources..."]');
-    if (await search.count()) {
-      await search.fill("casscf");
-      await page.waitForTimeout(700);
-      const rows = await page.evaluate(() => document.body.innerText);
-      check("KB source search filters the list client-side",
-        rows.toLowerCase().includes("casscf") || rows.includes("No "), "");
-      await search.fill("");
-    } else {
-      check("KB search input present", false, "not found");
+    // The KB search box is behind a magnifier toggle now (SearchToggle in
+    // app-shell/SearchField.tsx), so the field does not exist in the DOM
+    // until the toggle is clicked. This spec used to look for the input
+    // directly and reported a missing search box on a panel that has one.
+    const searchToggle = page.locator('[data-testid="kb-search-open"]');
+    check("KB search toggle present", (await searchToggle.count()) > 0);
+    if (await searchToggle.count()) {
+      await searchToggle.first().click();
+      await page.waitForTimeout(400);
+      const search = page.locator('input[data-testid="kb-search"]');
+      if (await search.count()) {
+        await search.fill("casscf");
+        await page.waitForTimeout(700);
+        const rows = await page.evaluate(() => document.body.innerText);
+        check("KB source search filters the list client-side",
+          rows.toLowerCase().includes("casscf") || rows.includes("No "), "");
+        await search.fill("");
+        await search.press("Escape");
+      } else {
+        check("KB search input appears when the toggle is clicked", false, "not found");
+      }
     }
 
     const add = control(page, "Add source");

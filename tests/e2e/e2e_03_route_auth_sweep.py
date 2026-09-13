@@ -37,8 +37,18 @@ from fixtures import (  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent.parent
 
 # Routes that are legitimately reachable with no session at all.
+#
+# /api/version and /api/health/deep are here for the same documented reason
+# /api/health is: server/main.py puts all three outside the `if DATABASE_URL`
+# block because they have to answer while the deployment is in exactly the
+# state that makes authentication impossible -- the updater polls them and the
+# browser needs to know when to reload. Omitting /api/version made this
+# script report a false regression on every run and turned the whole e2e
+# suite's verdict from one failure into two (R-100).
 PUBLIC_ROUTES = {
     ("GET", "/api/health"),
+    ("GET", "/api/health/deep"),
+    ("GET", "/api/version"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/register"),
 }

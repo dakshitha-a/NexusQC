@@ -41,13 +41,20 @@ try {
   // Headings are CSS text-transform: uppercase and innerText returns the
   // TRANSFORMED text, so a title-case comparison would fail on rendered
   // content that is perfectly correct. Compare case-insensitively.
+  //
+  // The overview pane used to lead with a "Public web access" block. That
+  // control was removed from the console, so the spec asked for a heading
+  // that no longer exists and failed on correct behaviour. Overview now owns
+  // only the quota and concurrency block. "Deployment" was added to the nav
+  // after this spec was written and is checked here too.
   const SECTIONS = [
-    ["overview", ["Public web access", "Storage quotas"]],
+    ["overview", ["Storage quotas"]],
     ["invites", ["Invites"]],
     ["users", ["Users"]],
     ["reports", ["Bug reports"]],
     ["storage", ["Live storage usage"]],
     ["audit", ["Admin action history"]],
+    ["deployment", ["What is running", "Who is working right now"]],
     ["danger", ["Purge all job history", "acts on every user"]],
   ];
   for (const [id, headings] of SECTIONS) {

@@ -211,3 +211,21 @@ Note there is a **third** runner beyond `run_backend.sh` and
 `tests/e2e/ui/*.spec.mjs`, which includes the admin console's visual/section
 coverage. A change to the console's sections has to be reflected there too --
 `ui_04_admin_visual.spec.mjs` asserts on the exact set of section headings.
+
+Two of those specs had drifted behind the app and were repaired during the
+2026-09 fix phase (R-100's step), because each was reporting a failure against
+a panel that was working correctly:
+
+- `ui_03_molecule_kb.spec.mjs` looked for a bare
+  `input[placeholder="Search sources..."]` in the knowledge-base panel. The
+  search field moved behind a magnifier toggle (`SearchToggle` in
+  `frontend/src/app-shell/SearchField.tsx`) and is not in the DOM until that
+  toggle is clicked, so the spec now clicks `[data-testid="kb-search-open"]`
+  first and then types into `input[data-testid="kb-search"]`. Every panel with
+  a search field follows the same `<testId>-open` toggle plus `<testId>` input
+  pattern, so a new panel's spec should be written that way from the start.
+- `ui_04_admin_visual.spec.mjs` expected the overview pane to show a "Public
+  web access" heading. That control was removed from the console, so the
+  expectation was simply stale; the pane now owns only the storage quota and
+  concurrency block. The same step added the "Deployment" section, which was
+  added to the nav after the spec was written and had no coverage.
