@@ -518,7 +518,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S1
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by executing the input builder (no job submitted)
 - found by: audit:jobs
 - scope: ORCA only. PySCF (`pyscf_runner.run_gradient`, hf/dft branch: `root = state - 1`, `state == 1` uses `mf.nuc_grad_method()`) and BAGEL (`bagel_runner._build_input`: `grads = [{"title": "force", "target": int(s) - 1} ...]`) convert per entry and are correct; I checked both. Not checked: whether any caller upstream of `_build_spec_or_error` happens to sort the list in practice.
 - repro: submit a `single_point/grad` draft on ORCA with `target_states=[2, 1]` (a plausible phrasing of "S1 and the ground state"). Compare the two `.engrad` energies: both come from `IRoot 1`. Same input text is produced for the `state_2` and the top-level run.
@@ -532,13 +532,14 @@ check that nothing was dropped in the merge.
   `state_params = {**params, "target_state": (state - 1) or None}`
 - pointer: `or` on a value whose legitimate "ground state" encoding is exactly the falsy one. `docs/ARCHITECTURE.md` §"Several states or pairs are one job" warns about precisely this pair of conventions ("`target_states` … 1-based INCLUDING the ground state … the older scalar `target_state` … 0 or absent means the ground state").
 - note: settled by diffing the input text for `target_states=[2,1]` state 1 vs `target_states=[1]`. Fix direction: `target_state = params["target_state"] if "target_state" in params else ((targets[0] - 1) or None)` — key presence, not truthiness. A cheaper belt-and-braces fix is to sort `target_states` ascending in `_validate_target_states`, but that only hides this instance.
+- coordinator: Reproduced in process with `orca_runner.build_input_text("gradient", water, {..., "target_states": ts, "target_state": (1-1) or None})`, which is exactly what `run_gradient` does for the ground-state run at `orca_runner.py:952`. Results, for the S0 run: `[1,2]` -> no `%tddft` block (correct); `[2,1]` -> `IRoot 1`, so S1's gradient is labelled S0; `[3,1]` -> `IRoot 2`, so S2's is; `[1,3]` -> correct. The encoding at :952 is right and the `or` at :573 undoes it. Severity S1 stands: a wrong scientific number presented as correct. ORCA only; PySCF and BAGEL convert without the `or`.
 
 ### R-011: every job is hard-killed at 6 hours by an undocumented, non-overridable timeout
 - surface: code:jobs
 - class: bug
 - severity: S1
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:jobs
 - scope: all three engines. `base._run_inner` wraps every worker; `orca_runner._write_and_run`/`_write_and_run_generic` and `bagel_runner._run_bagel` each add the same cap to their own `subprocess` call, so ORCA and BAGEL are capped twice.
 - repro: submit anything that runs past 6 h (a CASPT2 or a numerical CASSCF Hessian on a real molecule is the ordinary case here). At 6 h the process group is SIGTERM'd and the job reports `failed` / `job exceeded 6h timeout`.
@@ -547,13 +548,14 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1752`, `:1786`; `app/chemistry/jobs/orca_runner.py:763,792`; `app/chemistry/jobs/bagel_runner.py:722`
 - pointer: a defensive timeout written for a runaway process, left at a value shorter than the workload the app exists to run.
 - note: confirm by asking the maintainer whether 6 h is intended at all. If it is, it belongs in `app/config.py` as `QC_AGENT_JOB_TIMEOUT_SECONDS` and in the docs, and the four literals should read the same constant. Note the ordering: the OUTER `proc.wait` in `_run_inner` starts at worker spawn, the inner `subprocess.run(timeout=...)` in the ORCA/BAGEL runners only once imports are done seconds later, so the outer one expires first and the user does see the tidy "job exceeded 6h timeout" message. The inner caps matter only for a runner invoked outside `JobManager`.
+- coordinator: `grep -rn '6 \* 3600' app/` finds five sites: `base.py:1177` and `:1752`, `orca_runner.py:763` and `:792`, `bagel_runner.py:722`. Not one is read from `app/config.py`, where every other timeout in the app has a `QC_AGENT_*` variable. At `:1752` the expiry is handled by `os.killpg(SIGTERM)`, then SIGKILL, so the kill is real, not a warning. README line 613 says "A CASSCF job can run for hours. Close the tab and come back; it'll still be there", and `CLAUDE.md` names multi-hour CASSCF/CASPT2 as the design premise. On this host BAGEL takes 80 to 96 s per CASSCF macro-iteration on water, so six hours is not a theoretical ceiling here. Severity S1 stands as a hard, silent cap on the leave-and-return premise.
 
 ### R-012: after 6 h the orphan watcher marks a still-running re-attached worker `failed`, and the status never recovers
 - surface: code:jobs
 - class: bug
 - severity: S1
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:jobs
 - scope: any engine; only reachable for a job re-attached by `_reconcile_orphaned_jobs` case 2 (worker survived a backend restart) that then runs more than 6 h from the moment of re-attachment.
 - repro: start a long job, restart the backend, leave the re-attached worker running past 6 h. `status.json` flips to `failed` while the worker keeps computing; when it finishes it writes a `completed` `result.json`, and the two disagree until the *next* backend restart runs `_reconcile_orphaned_jobs` case 1.
@@ -570,6 +572,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1176-1196`
 - pointer: `except Exception: pass` around a `wait(timeout=...)` conflates "it exited" with "I gave up waiting".
 - note: distinguish `TimeoutExpired` from a real exit — on timeout, either loop the wait or leave the job alone and keep the pid registered. Independent of whether the 6 h value itself is kept.
+- coordinator: `_watch_orphan_worker` (`base.py:1167-1196`) is the path taken when the server restarts under a running job, which is precisely the leave-and-return scenario P3.5 exercises. `psutil.Process(pid).wait(timeout=6 * 3600)` sits inside `except Exception: pass`, so a `TimeoutExpired` is indistinguishable from a normal exit. The code then pops `_orphan_pids` (cancel can no longer reach the pid), calls `read_result`, finds nothing because the worker is still running, and writes `status=failed` with the message "worker process exited after a server restart with no result recorded", which is false on both counts. Contrast with `:1752`, where the same six hours ends in a kill. So a job that crosses six hours is killed if the server never restarted and falsely marked failed while still running if it did. Severity S1: a wrong terminal status, and `docs/ARCHITECTURE.md` says `status.json` is the one answer to "has this job finished?".
 
 ### R-013: On the `run_when_ready` path the approval can silently evaporate on click, because that path re-validates with the external checks that `submit_draft` deliberately turns off
 - surface: code:agent
@@ -634,7 +637,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by grep
 - found by: audit:agent
 - scope: `app/agent/troubleshoot.py`'s composed message, i.e. every press
   of the Troubleshoot button. Cross-checked every tool name in
@@ -673,6 +676,7 @@ check that nothing was dropped in the merge.
   returns them.
 
 ---
+- coordinator: `app/agent/troubleshoot.py:126,127,129` name `search_knowledge_base`, `web_search` and `search_academic_literature`. `STATIC_TOOLS` (`app/agent/tools.py:5345`) binds `set_geometry, start_job_draft, check_job_status, convert_energy_units, search, resolve_basis_from_bse, ...`; a grep of that list for the three names returns 0. They were unified into `search(source=...)` and only `prompts.py` was updated. Cause is CODE even though the symptom is LLM-shaped: the model is being instructed to call things that do not exist.
 
 ### R-015: A literature-search backend that raises is recorded as a literature *hit*, so a failed search can be reported as published support for an active space
 - surface: code:agent
@@ -735,7 +739,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by executing the arithmetic
 - found by: audit:agent
 - scope: `explain_active_space` only (reached via the `active_space` tool
   when the user supplies `(ne, no)`). Did not check whether the same
@@ -775,6 +779,7 @@ check that nothing was dropped in the merge.
   the docstring should say which.
 
 ---
+- coordinator: `tools.py:3672` does `n_alpha = n_beta = active_electrons // 2`. For CAS(5,4) that yields `comb(4,2)*comb(4,2) = 36` where the correct `comb(4,3)*comb(4,2) = 24`; for CAS(7,6), 400 against 300. Every odd-electron space is described as the even-electron space one electron smaller. CAS(3,3) happens to agree (9 = 9) by coincidence, which would hide it in a casual check. The downstream 'too small for N roots' guard inherits the error.
 
 ### R-017: Any molecule-panel action or file attach silently destroys an open approval card
 - surface: code:agent
@@ -1333,7 +1338,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:jobs
 - scope: ORCA only, and all three of its intensity paths — `run_tddft`, `run_eom_ccsd`, `run_casscf`. PySCF gets intensities from objects, BAGEL from its own `Oscillator strength for transition between N - M` line, so neither is affected. I did **not** find a committed multiplicity>1 ORCA output to check against; `data/verified/` holds only `orca_functionals.txt`.
 - repro: run any ORCA `single_point/ee` on a triplet (`multiplicity=3`) and read `summary.oscillator_strengths` — expect all `None`. Or, cheaper: `grep -n "0-1A" $(any real ORCA triplet output)`; ORCA labels those rows `0-3A -> 1-3A`.
@@ -1348,6 +1353,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/orca_runner.py:100-102`; padding at `:1484` (tddft), `:1523` (eom_ccsd), `:1576` (casscf)
 - pointer: a regex derived from one real run (a singlet) generalised to a class it does not cover, and a padding rule that turns "did not parse" into "engine does not report it".
 - note: partial confirmation without a run — `grep -rhoE "[0-9]+-[0-9][A-Za-z']+ *-> *[0-9]+-[0-9][A-Za-z']+" data/scraped/orca/` returns rows including `0-1A  -> 10-3A` and `0-1A  ->  1-3A`, so the digit after the dash is unambiguously the state's multiplicity and the manual's own examples already contain values other than 1. What is still unconfirmed is only the left-hand side for a genuinely open-shell reference, which one water-triplet ORCA TDDFT run would settle. A second consequence falls out of the same evidence: on any run that computes singlets AND triplets, `_TDDFT_STATE` collects every state while `_ABSORPTION_ROW` collects only the singlet rows, and the padding then appends the Nones at the END — so the singlet intensities are silently attached to the wrong states. This app's own `_tddft_block` never asks for triplets, but a hand-edited input on a `tddft` job reaches the same parser through `_effective_input_text`. Fix direction: `r"0-(\d+)([A-Za-z0-9']+)\s*->\s*\d+-\1\2\s+..."`, and make an empty match raise inside `_safe_parse` rather than pad, so a parse failure is distinguishable from a genuine absence.
+- coordinator: `orca_runner.py:100`: `_ABSORPTION_ROW = re.compile(r"0-1A\s*->\s*\d+-1A\s+...")`. The `1A` after the hyphen is ORCA 6's multiplicity-plus-irrep label, so the pattern admits singlet-to-singlet rows only. A doublet ground state prints `0-2A -> 1-2A` and matches nothing; both call sites (`:1463`, `:1522`) then get `osc = []` with no warning. Scope: every open-shell excited-state job on ORCA, and by extension any Wigner ensemble built on one, which is where the audit says it surfaces as 'No sample contributed'. Worth a live reproduction in P5 on a doublet, since the label format is version-specific and the parsers here are meant to be derived from real output.
 
 ### R-031: startup reconciliation can overwrite a `result.json` written in the window between its own read and its `failed` write
 - surface: code:jobs
