@@ -1330,7 +1330,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:jobs
 - scope: every master task (`pes_1d`, `interp_pes`, `wigner_spectra`, `batch`) on every engine. Not an issue for ordinary jobs, whose runners had written no artifacts by the time they were cancelled.
 - repro: submit a 5-point scan, cancel it while running, then try to open its frame slider / download its path / start a job from image 3.
@@ -1344,6 +1344,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1562-1564`
 - pointer: `JobResult` has a mutable-default-shaped API where omitting a field means "erase it", and this is the one call site that rebuilds a result from a partial read.
 - note: `artifacts=(read_result(job_id) or {}).get("artifacts", {})` alongside the existing summary carry-over. Same shape of bug, lower stakes, in `_watch_orphan_worker`'s two failure writes and `_run_inner`'s failure writes.
+- coordinator: `base.py:1562-1564`, verbatim: `write_result(JobResult(job_id, "cancelled", error="Cancelled by user.", summary=(read_result(job_id) or {}).get("summary", {})))`. `summary` is carried across from the existing result; `artifacts` is not named, and `JobResult.artifacts` is `field(default_factory=dict)`, so the rewritten `result.json` has `artifacts: {}`. The files a scan or ensemble master already wrote (`path_xyz`, `ensemble_xyz`, `pes_plot`, `ensemble_spectrum_data`) remain on disk with nothing pointing at them, which is 'a result that cannot be found afterwards' in the leave-and-return sense, for the completed part of a cancelled batch. Reproducible live in P3.5 by cancelling a scan after its first child completes.
 
 ### R-030: ORCA oscillator strengths are parsed with a singlet-only row pattern, so any open-shell job silently reports none
 - surface: code:jobs
@@ -1372,7 +1373,7 @@ check that nothing was dropped in the merge.
 - class: bug
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:jobs
 - scope: all engines; `_reconcile_orphaned_jobs` case 4 only (worker pid recorded but not alive-and-verified).
 - repro: hard to force deliberately — kill the backend while a job is in its final `write_result`, restart immediately. The window is the several file reads between `read_result` and the `write_result(... "failed" ...)`.
@@ -1381,6 +1382,7 @@ check that nothing was dropped in the merge.
 - evidence: `app/chemistry/jobs/base.py:1118` (`result = read_result(job_id)`) → `:1158-1165` (the `failed` write)
 - pointer: read-then-write with no re-read at the point of decision, on the one branch that destroys data.
 - note: re-read `result.json` immediately before the `failed` write and fall back to case 1 if it is now terminal. Cheap and complete.
+- coordinator: `base.py:1118` reads `result = read_result(job_id)`; between there and `:1158-1165` the loop calls `read_spec`, `is_master_spec` (a registry import), `read_meta` and `_pid_is_same_process` (a `psutil.Process` lookup), and only then writes a `failed` status and a `failed` `result.json`. `write_result` (verified) canonicalises and writes; it never checks whether a terminal result already exists. A worker that lands its `completed` result inside that window has it replaced. The window is milliseconds and the trigger is a restart, so this is rare; it is also the only branch in the module that replaces a terminal result rather than syncing to one, and the fix is a one-line re-read before the write.
 
 ### R-032: The Redis session client has no socket timeout, and it is on the path of every authenticated request
 - surface: code:server
@@ -1413,7 +1415,7 @@ check that nothing was dropped in the merge.
 - class: perf
 - severity: S2
 - cause: CODE
-- confidence: suspected (code read), not yet reproduced
+- confidence: confirmed by code read
 - found by: audit:server
 - scope: `server/sse.py:107-124` (`event_stream`) plus `server/routes/chat.py:728-731` (`get_events`). This engages `sse.py`'s own documented decision to use `queue.Queue` rather than `asyncio.Queue`; the queue choice is right for the publishers, the cost is on the consumer side.
 - repro: Open 40 concurrent `curl -N https://<host>/api/threads/<id>/events` (they need not be distinct threads), then time `curl /api/health`. Expect it to hang rather than answer.
@@ -1432,6 +1434,7 @@ check that nothing was dropped in the merge.
 - note: This is a scalability ceiling on a lab-shared deployment, not a today-crash — say so when triaging. Confirm with the 40-stream test above. Fix directions: make `event_stream` an async generator that awaits `asyncio.to_thread(q.get, ...)` under its own dedicated `CapacityLimiter`, or bridge `hub.publish` into an `asyncio.Queue` with `loop.call_soon_threadsafe`, or simply raise the default limiter's `total_tokens` in `lifespan` and document why.
 
 ---
+- coordinator: `server/sse.py:107` `def event_stream(thread_id) -> Iterator[str]` is a synchronous generator, and `server/routes/chat.py:731` hands it to `StreamingResponse`. Starlette iterates a sync generator through `iterate_in_threadpool`, one `to_thread.run_sync(next, it)` per item, and each `next()` blocks in `q.get(timeout=_KEEPALIVE_SECONDS)` at `:113` with `_KEEPALIVE_SECONDS = 15.0`, so a stream holds a token almost continuously. `sse.py:8` acknowledges the generator runs in the threadpool. `grep -rn 'total_tokens|CapacityLimiter|to_thread' app server` returns nothing, so the pool is anyio's default 40 and it is the same pool every plain-`def` route handler runs on. A ceiling rather than a defect today; P4.3 can measure it by opening tabs until `/api/health` latency moves.
 
 ### R-034: A submission in a mixed tool batch produces no confirmation at all — the app's node is skipped and the tool text forbids the model from saying anything
 - surface: code:agent
