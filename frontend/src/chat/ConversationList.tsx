@@ -8,6 +8,7 @@ import { SearchField } from "../app-shell/SearchField";
 import * as api from "../lib/api";
 import { relativeTime } from "../lib/relativeTime";
 import type { ThreadSummary } from "../lib/api";
+import { rowProps } from "../lib/rowProps";
 
 
 /**
@@ -150,6 +151,7 @@ export function ConversationList() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="conversation-scroll">
         {shown.map((t) => {
           const active = t.thread_id === activeThreadId;
+          const keys = rowProps(() => setActiveThreadId(t.thread_id), { kind: "button" });
           return (
             <div
               key={t.thread_id}
@@ -161,8 +163,12 @@ export function ConversationList() {
               // else.
               className={`group flex cursor-pointer items-center gap-1.5 px-3 py-1.5 transition-colors ${
                 active ? "hairline bg-accent-wash" : "hover:bg-surface-raised"
-              }`}
+              } ${keys.className}`}
               onClick={() => setActiveThreadId(t.thread_id)}
+              tabIndex={keys.tabIndex}
+              role={keys.role}
+              aria-current={active ? "true" : undefined}
+              onKeyDown={keys.onKeyDown}
             >
               {renamingId === t.thread_id ? (
                 <input

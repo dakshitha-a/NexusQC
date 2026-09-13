@@ -51,22 +51,62 @@ function execApi(code) {
   }).trim();
 }
 
-/** toDataURL() of the last currently-visible <canvas> in the page -- the
- *  3Dmol viewers each own exactly one, and the most recently mounted is the
- *  one a just-opened drawer put there. Returns null rather than throwing if
- *  the read is refused, so a failure reports as a mismatch with a reason
- *  instead of killing the run. */
-async function canvasSnapshot(page) {
-  return page.evaluate(() => {
-    const canvases = Array.from(document.querySelectorAll("canvas")).filter((c) => c.offsetParent !== null);
+/** toDataURL() of one named panel's 3Dmol canvas.
+ *
+ *  This used to take "the last currently-visible <canvas> in the page", on the
+ *  reasoning that the most recently mounted viewer is the one a just-opened
+ *  drawer put there. That is wrong for the vibrations check, and wrong in a
+ *  way that made the check silently vacuous rather than noisy.
+ *
+ *  In the frequency job's drawer the vibrations panel comes BEFORE the
+ *  orbitals panel in the DOM, and the orbitals panel renders whenever the job
+ *  has cubes or an orbital table. A PySCF frequency job always writes an
+ *  orbital table, ExpandablePanel evaluates its child eagerly, and MoCubeViewer
+ *  creates its 3Dmol viewer (and therefore a canvas) unconditionally in its
+ *  init effect, before any cube exists. With no cube to fetch it never draws
+ *  anything into that canvas and never responds to the atom-label switch. So
+ *  "the last canvas" was a blank one that nothing could change, two reads of it
+ *  were byte-identical, and the check reported the labels as wiped. That is the
+ *  mechanism behind the "Atom numbers do not come back after a vibrational mode
+ *  change" entry that sat open in docs/BACKLOG.md.
+ *
+ *  ExpandablePanel's `name` prop exists for exactly this and surfaces as
+ *  `data-panel`, so each check now names the panel it means.
+ *
+ *  The second half of the fix is the pause. ModeAnimationViewer runs
+ *  `animate({loop: "backAndForth", reps: 0})`, so the vibrations canvas is
+ *  repainting continuously and two snapshots taken a few hundred milliseconds
+ *  apart differ whatever the labels do: with the animation running the check
+ *  passes unconditionally, which is no better than failing unconditionally.
+ *  3Dmol hangs the GLViewer off its own canvas as `_3dmol_viewer`
+ *  (`3dmol/src/GLViewer.ts`, `this.glDOM._3dmol_viewer = this`), so the
+ *  animation can be stopped and a single deterministic frame rendered before
+ *  each read, with no hook needed in the app.
+ *
+ *  Returns null rather than throwing if the read is refused, so a failure
+ *  reports as a mismatch with a reason instead of killing the run. */
+async function canvasSnapshot(page, panel = null) {
+  return page.evaluate((panelName) => {
+    const scope = panelName
+      ? document.querySelector(`[data-panel="${panelName}"]`)
+      : document;
+    if (!scope) return null;
+    const canvases = Array.from(scope.querySelectorAll("canvas")).filter((c) => c.offsetParent !== null);
     const c = canvases[canvases.length - 1];
     if (!c) return null;
     try {
+      const v = c._3dmol_viewer;
+      if (v) {
+        // Stop on a known frame, then draw it, so the only thing that can
+        // differ between two reads is what the switch changed.
+        if (typeof v.pauseAnimate === "function") v.pauseAnimate();
+        if (typeof v.render === "function") v.render();
+      }
       return c.toDataURL();
     } catch {
       return null;
     }
-  });
+  }, panel);
 }
 
 /** Flip the switch and wait for the re-render to land. The viewers render
@@ -299,10 +339,10 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "gs_job_id
         ` toggles=${await page.locator('[data-testid="mocube-atom-labels"]').count()}`,
     );
 
-    const cubeOn = await canvasSnapshot(page);
+    const cubeOn = await canvasSnapshot(page, "orbitals");
     await toggle(page, "mocube-atom-labels");
     await page.waitForTimeout(400);
-    const cubeOff = await canvasSnapshot(page);
+    const cubeOff = await canvasSnapshot(page, "orbitals");
     check(
       "the numbers are still drawn on the orbital after an isovalue drag, and come off with the switch",
       !!cubeOn && !!cubeOff && cubeOn !== cubeOff,
@@ -347,9 +387,9 @@ print(json.dumps({"thread_id": thread_id, "freq_job_id": freq_job_id, "gs_job_id
       await modeRows.nth(1).click();
       await page.waitForTimeout(1200);
     }
-    const modeOn = await canvasSnapshot(page);
+    const modeOn = await canvasSnapshot(page, "vibrations");
     await toggle(page, "mode-atom-labels");
-    const modeOff = await canvasSnapshot(page);
+    const modeOff = await canvasSnapshot(page, "vibrations");
     check(
       "the numbers are still drawn on the vibration after a mode change, and come off with the switch",
       !!modeOn && !!modeOff && modeOn !== modeOff,

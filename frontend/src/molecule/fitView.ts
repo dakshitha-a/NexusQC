@@ -123,3 +123,42 @@ export function useViewerAutoFit(
     };
   }, [containerRef, viewerRef]);
 }
+
+/**
+ * The nearest thing to a `destroy()` that 3Dmol 2.5.5 offers from outside.
+ *
+ * `GLViewer` has no teardown method, and its constructor registers five things
+ * it never removes: `mouseup` and `touchend` on `document.body`, `resize` on
+ * `window`, a `ResizeObserver` on the container and an `IntersectionObserver`
+ * on the container. Clearing the container's `innerHTML` in cleanup detaches
+ * the canvas and drops this app's own reference, but those five bindings are a
+ * separate and stronger reference: the viewer, its scene graph and its
+ * geometry buffers stay reachable for the life of the page.
+ *
+ * Two of the five can be removed from here, and they are the two that cost
+ * something visible. Both observers watch the container, and the container is
+ * a stable `<div>` that survives a viewer swap, so after any rebuild the
+ * orphan's observers fire on the same element as the live viewer's and the
+ * orphan runs a full `resize()`: re-read the box, `setSize()` on the renderer,
+ * re-render into a canvas nobody can see. Every window resize does the same to
+ * every orphan ever created. Disconnecting them stops that work and removes
+ * the container-side reference.
+ *
+ * The `document.body` and `window` listeners cannot be removed, because the
+ * bound functions were never stored anywhere. Removing the residual needs an
+ * upstream `destroy()`. This is documented in docs/ARCHITECTURE.md rather than
+ * quietly accepted.
+ */
+export function releaseViewer(viewer: GLViewer | null): void {
+  if (!viewer) return;
+  const v = viewer as unknown as {
+    divwatcher?: { disconnect?: () => void };
+    intwatcher?: { disconnect?: () => void };
+  };
+  try {
+    v.divwatcher?.disconnect?.();
+    v.intwatcher?.disconnect?.();
+  } catch {
+    // A library version without these fields is not a reason to break unmount.
+  }
+}

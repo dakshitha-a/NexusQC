@@ -10,6 +10,7 @@ import { useAttachedPlotsStore } from "../lib/attachedPlotsStore";
 import { DeletePlotButton } from "./DeletePlotButton";
 import { PlotFlyout } from "./PlotFlyout";
 import { relativeTime } from "../lib/relativeTime";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 
 // How a row describes where a plot came from. A composed chart is described
@@ -130,9 +131,10 @@ export function PlotsPanel() {
             <li
               key={plot.plot_id}
               onClick={() => setOpenPlotId(plot.plot_id)}
+              {...rowProps(() => setOpenPlotId(plot.plot_id), { kind: "button" })}
               data-testid={`plot-row-${plot.plot_id}`}
               title="Click to enlarge"
-              className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-raised"
+              className={`flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-raised ${ROW_FOCUS_CLASS}`}
             >
               <input
                 type="checkbox"

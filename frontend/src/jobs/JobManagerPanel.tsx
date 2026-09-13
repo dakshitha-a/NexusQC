@@ -19,6 +19,7 @@ import { SearchInput } from "../app-shell/SearchField";
 import { relativeTime, jobTimeTitle } from "../lib/relativeTime";
 import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 
 // This is the persistent, cross-conversation job list (GET /api/jobs) --
@@ -326,6 +327,9 @@ export function JobManagerPanel() {
                 // theory. Same shape as the detach button's own testid above.
                 data-testid={`jobmanager-row-${job.job_id}`}
                 onClick={() => setOpenJobId(job.job_id)}
+                {...rowProps(() => setOpenJobId(job.job_id), {
+                  selected: job.job_id === openJobId,
+                })}
                 onAnimationEnd={() => clear(job.job_id)}
                 // The hairline marks a job that is actually running, which is
                 // the one row in this list somebody is waiting on. The flash
@@ -333,7 +337,7 @@ export function JobManagerPanel() {
                 // failure and a completion no longer look the same for the
                 // 900ms that is the only notice either of them gets.
                 style={{ "--flash-color": flashColor(job.status) } as CSSProperties}
-                className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
+                className={`cursor-pointer border-t border-border hover:bg-surface-raised ${ROW_FOCUS_CLASS} ${
                   flashing.has(job.job_id) ? "animate-flash-once" : ""
                 }`}
               >
@@ -345,10 +349,16 @@ export function JobManagerPanel() {
                   className={`w-6 py-2 pl-3 ${job.status === "running" ? "hairline hairline-live" : ""}`}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {/* Named, and addressable. The row itself is a keyboard
+                      control now (lib/rowProps.ts), so the one control inside
+                      it that is not a labelled button had to say what it
+                      selects, the way the plots list's checkbox already did. */}
                   <input
                     type="checkbox"
                     checked={selected.has(job.job_id)}
                     onChange={() => toggleSelected(job.job_id)}
+                    aria-label={`Select ${job.label ?? job.job_id}`}
+                    data-testid={`jobmanager-select-${job.job_id}`}
                   />
                 </td>
                 <td className="w-6 py-2">

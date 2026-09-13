@@ -10,7 +10,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
 import { applyAtomLabels } from "../molecule/atomLabels";
 import { captureApng } from "../molecule/captureViewer";
-import { viewerConfig, fitView, useViewerAutoFit } from "../molecule/fitView";
+import { viewerConfig, fitView, releaseViewer, useViewerAutoFit } from "../molecule/fitView";
 
 interface Props {
   molecule: MoleculeDict;
@@ -48,7 +48,6 @@ export function ModeAnimationViewer({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GLViewer | null>(null);
-  const rafRef = useRef<number | null>(null);
   const atomLabels = useViewerPrefsStore((s) => s.atomLabels);
 
   useEffect(() => {
@@ -68,7 +67,12 @@ export function ModeAnimationViewer({
     const stopThemeWatch = watchViewerTheme(() => viewerRef.current);
     return () => {
       stopThemeWatch();
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      // The animation itself is stopped by the effect below, which owns it.
+      // There used to be a cancelAnimationFrame(rafRef.current) here, left
+      // over from a hand-rolled requestAnimationFrame loop that v.animate()
+      // replaced. rafRef was never assigned after that, so the line cancelled
+      // nothing and, worse, read as if this cleanup stopped the animation.
+      releaseViewer(viewerRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };

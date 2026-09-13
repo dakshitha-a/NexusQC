@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 // Shows the per-orbital energy/occupancy table any engine's mo_visualization
 // job produces in summary.orbital_table (same {index, spin, energy_eV,
@@ -138,7 +139,8 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
                   ref={isSelected ? selectedRowRef : undefined}
                   data-testid={`orbital-row-${r.index}${r.spin ? `-${r.spin}` : ""}`}
                   onClick={() => onSelect(r)}
-                  className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
+                  {...rowProps(() => onSelect(r), { selected: isSelected })}
+                  className={`cursor-pointer border-t border-border hover:bg-surface-raised ${ROW_FOCUS_CLASS} ${
                     isSelected ? "bg-surface-raised" : ""
                   }`}
                 >

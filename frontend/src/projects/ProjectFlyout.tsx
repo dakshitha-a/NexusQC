@@ -9,6 +9,7 @@ import { triggerDownload } from "../lib/download";
 import { jobsListQueryKey, projectQueryKey, projectsQueryKey, useProjectQuery } from "../lib/queries";
 import * as api from "../lib/api";
 import { formatBytes } from "./formatBytes";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 /**
  * One project's contents, opened by clicking its row in the left rail.
@@ -138,7 +139,10 @@ export function ProjectFlyout({ projectId, onClose }: { projectId: string; onClo
                         key={job.job_id}
                         data-testid={`project-job-row-${job.job_id}`}
                         onClick={() => setOpenJobId(job.job_id)}
-                        className="cursor-pointer border-t border-border hover:bg-surface-raised"
+                        {...rowProps(() => setOpenJobId(job.job_id), {
+                          selected: job.job_id === openJobId,
+                        })}
+                        className={`cursor-pointer border-t border-border hover:bg-surface-raised ${ROW_FOCUS_CLASS}`}
                       >
                         <td className="w-6 py-2" onClick={(e) => e.stopPropagation()}>
                           <input

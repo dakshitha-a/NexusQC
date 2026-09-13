@@ -11,7 +11,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "./AtomLabelToggle";
 import { applyAtomLabels } from "./atomLabels";
 import { capturePng } from "./captureViewer";
-import { viewerConfig, fitView, useViewerAutoFit } from "./fitView";
+import { viewerConfig, fitView, releaseViewer, useViewerAutoFit } from "./fitView";
 
 interface Atom {
   elem: string;
@@ -110,6 +110,7 @@ export function MoleculeViewer({
     lastKeyRef.current = null;
     return () => {
       stopThemeWatch();
+      releaseViewer(viewerRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };

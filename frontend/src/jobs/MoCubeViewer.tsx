@@ -12,7 +12,7 @@ import { useViewerPrefsStore } from "../lib/viewerPrefsStore";
 import { AtomLabelToggle } from "../molecule/AtomLabelToggle";
 import { applyAtomLabels, type LabelPosition } from "../molecule/atomLabels";
 import { capturePng } from "../molecule/captureViewer";
-import { viewerConfig, fitView, useViewerAutoFit } from "../molecule/fitView";
+import { viewerConfig, fitView, releaseViewer, useViewerAutoFit } from "../molecule/fitView";
 import type { OrbitalSelection } from "./OrbitalTable";
 
 /** How long a selection has to hold still before its cube is fetched. Long
@@ -122,6 +122,7 @@ export function MoCubeViewer({
     const stopThemeWatch = watchViewerTheme(() => viewerRef.current);
     return () => {
       stopThemeWatch();
+      releaseViewer(viewerRef.current);
       if (containerRef.current) containerRef.current.innerHTML = "";
       viewerRef.current = null;
     };

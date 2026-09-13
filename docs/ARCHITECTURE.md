@@ -864,7 +864,7 @@ equilibrium than any other.
 rule lives, with `equilibrium_geometry_for_ensemble` looking the source job up
 from a master's own `source_frequency_job_id`. It was previously written out at
 all three call sites, each carrying a comment saying the others had to be kept
-in step — which is the point at which a comment should have been a function.
+in step, which is the point at which a comment should have been a function.
 
 ### One spectrum, three origins
 
@@ -1822,12 +1822,48 @@ though the DOM node is not actually torn down, so a "clear the container in
 cleanup" fix is silently a no-op, and the first mount's orphaned canvas is still
 present when the second `createViewer()` appends another on top.
 
-Browsers cap live WebGL contexts per page (commonly 8–16). Repeated
-mount/unmount exhausted that cap and every subsequent context silently failed to
-initialise, the viewer rendered as a blank square with no error. The actual fix
-clears the container at the *start* of the init effect. Verified by
+The fix clears the container at the *start* of the init effect. Verified by
 instrumentation: live canvas count stays at exactly 1 across dozens of rapid
 cycles, where it previously grew without bound.
+
+**Why that fix is right, corrected.** This section used to explain it by the
+per-page WebGL context cap: browsers allow only 8 to 16 live contexts, repeated
+mount and unmount exhausted the cap, and every context after that silently
+failed to initialise. That is a real browser limit and it may well be what the
+original blank square was, on whatever 3Dmol was installed at the time. It is
+not what the pinned version does, and a session reasoning from the old text
+would draw the wrong conclusion about what is scarce.
+
+3Dmol 2.5.5 does not give each viewer its own WebGL context. When
+`OffscreenCanvas` exists, which it does in every browser this app targets, the
+renderer uses a single module-level context shared by every viewer on the page
+(`3dmol/src/WebGL/Renderer.ts`, the `_gl_singleton` at the top of the file and
+the branch in `initGL`). Each viewer resizes that one offscreen context to its
+own canvas immediately before drawing and copies the result out through
+`transferToImageBitmap`. The visible `<canvas>` elements hold only a
+`bitmaprenderer` context, which is not a capped resource. So counting live
+canvases was never counting the capped thing.
+
+What actually justifies clearing the container, and clearing it early, is
+reachability rather than the context cap. `GLViewer` has no teardown method and
+its constructor registers listeners on `document.body` and `window` and two
+observers on the container, none of which it ever removes, so a replaced viewer
+stays reachable with its scene graph, its geometry buffers and its detached
+canvas. The init effect disconnects the two observers before dropping the
+reference, which at least stops an orphan re-rendering into a canvas nobody can
+see every time the window resizes. The `document.body` and `window` bindings
+cannot be removed from outside the library, because the bound functions were
+never stored anywhere, so a residual per-viewer allocation remains until the
+page is reloaded. Removing it needs an upstream `destroy()`.
+
+The shared context has one consequence worth knowing: it is a single point of
+failure. If it is lost, every mounted viewer keeps a dead reference and draws
+nothing, and the library's per-canvas `webglcontextlost` listener does not fire,
+because the loss happens on the offscreen canvas rather than on any visible one.
+The library's own recovery lives in `GLViewer.resize()`, which checks
+`renderer.isLost()`. The largest allocation this app makes against the shared
+context is `captureViewer.ts`'s up to 4096 px re-render for a PNG export, which
+is the most likely trigger on a modest GPU.
 
 Related, and easy to lose an afternoon to: **`page.screenshot()` cannot reliably
 capture WebGL canvas content.** Use `canvas.toDataURL()` via `page.evaluate()`
@@ -2137,9 +2173,9 @@ browser. It found six real failures on its first run.
 `molecule/themeColors.ts` reads `--bg` and applies it with
 `viewer.setBackgroundColor()` on the live viewer, and every viewer subscribes to
 the appearance store for as long as it is mounted. It must not be done by
-rebuilding the viewer: `GLViewer` has no `destroy()`, browsers cap live WebGL
-contexts per page, and rebuilding is exactly the leak described under the Strict
-Mode notes above.
+rebuilding the viewer: `GLViewer` has no `destroy()` and stays reachable through
+listeners it never removes, so rebuilding is exactly the leak described under
+the Strict Mode notes above.
 
 Light themes additionally switch on 3Dmol's own silhouette outline. The default
 CPK colouring draws hydrogen white, which is invisible on Daylight's paper

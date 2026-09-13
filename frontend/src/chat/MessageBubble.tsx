@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, Download, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -250,7 +250,21 @@ export function SystemNoticeRow({ content }: { content: string }) {
   );
 }
 
-export function MessageBubbleRow({ message }: { message: ChatMessage }) {
+// Memoised, and this is the single highest-value memo boundary in the app.
+// A streamed token writes a new `streaming` object into the chat store on
+// every delta, ChatPane subscribes to the whole store, and ChatPane maps the
+// entire history through this component. Without the memo, one token
+// re-rendered every message in the conversation, and each assistant message
+// re-ran a full remark parse of its own markdown from scratch: on the order
+// of a thousand identical parses per second on a long thread.
+//
+// What makes the memo free is that the store's `token` reducer never touches
+// `s.messages`, so every element keeps its identity across a token and the
+// default shallow prop compare rejects the re-render. Keep it that way: a
+// reducer that rebuilds the message array on each token would silently undo
+// this. FailedJobNotice subscribes with a selector (`s.threadId`), which does
+// not change mid-turn, so nothing below reopens the whole-store subscription.
+export const MessageBubbleRow = memo(function MessageBubbleRow({ message }: { message: ChatMessage }) {
   // Checked before the AIMessage branch: a notice IS an AIMessage (written
   // by append_notice, not by the model), so the generic assistant bubble
   // would otherwise swallow it and the Troubleshoot button would never
@@ -265,4 +279,4 @@ export function MessageBubbleRow({ message }: { message: ChatMessage }) {
   if (message.type === "ToolMessage") return <ToolResultChip message={message} />;
   if (message.type === "AIMessage") return <AssistantBubble content={message.content} />;
   return null;
-}
+});

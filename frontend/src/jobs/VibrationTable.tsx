@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 // Shows the frequency list from a completed frequency job's summary. Rows
 // are click-selectable when mode-displacement vectors are available
@@ -66,7 +67,13 @@ export function VibrationTable({
             ref={selectedMode === i ? selectedRowRef : undefined}
             data-testid={`vibration-row-${i}`}
             onClick={selectable ? () => onSelectMode!(i) : undefined}
-            className={`border-t border-border ${selectable ? "cursor-pointer hover:bg-surface-raised" : ""} ${
+            // A table that is only displaying frequencies is not a control, so
+            // it stays untabbable; only the selectable variant, which is how a
+            // user picks the mode to animate, becomes reachable.
+            {...(selectable
+              ? rowProps(() => onSelectMode!(i), { selected: selectedMode === i })
+              : {})}
+            className={`border-t border-border ${selectable ? `cursor-pointer hover:bg-surface-raised ${ROW_FOCUS_CLASS}` : ""} ${
               selectedMode === i ? "bg-surface-raised" : ""
             }`}
           >

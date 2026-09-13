@@ -10,6 +10,7 @@ import { useFlashOnTerminal } from "./useFlashOnTerminal";
 import { relativeTime, jobTimeTitle } from "../lib/relativeTime";
 import type { CSSProperties } from "react";
 import type { JobRow } from "../lib/api";
+import { ROW_FOCUS_CLASS, rowProps } from "../lib/rowProps";
 
 
 function description(job: JobRow): string {
@@ -72,6 +73,9 @@ export function JobsPanel() {
             <tr
               key={job.job_id}
               onClick={() => setSelectedJobId(job.job_id)}
+              {...rowProps(() => setSelectedJobId(job.job_id), {
+                selected: job.job_id === selectedJobId,
+              })}
               data-testid={`job-row-${job.job_id}`}
               onAnimationEnd={() => clear(job.job_id)}
               // The hairline marks a job that is actually running, which is
@@ -80,7 +84,7 @@ export function JobsPanel() {
               // failure and a completion no longer look the same for the
               // 900ms that is the only notice either of them gets.
               style={{ "--flash-color": flashColor(job.status) } as CSSProperties}
-              className={`cursor-pointer border-t border-border hover:bg-surface-raised ${
+              className={`cursor-pointer border-t border-border hover:bg-surface-raised ${ROW_FOCUS_CLASS} ${
                 flashing.has(job.job_id) ? "animate-flash-once" : ""
               }`}
             >
