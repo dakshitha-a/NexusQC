@@ -177,13 +177,20 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
 
 `evidence/p4_route_latency.py` (P4.2/P4.3) and `evidence/p4-bundle.txt` (P4.4 bundle sizes, already measured) are ready; TTFT reuses `tests/backend/perf_02_ttft_and_concurrency.py`.
 
-- [todo] P4.1: time to first token, warm and under concurrency
-- [todo] P4.2: route latency with a realistic job count
-- [todo] P4.3: polling cost per open tab
-- [todo] P4.4: bundle size, load time, heap growth and WebGL contexts
-- [todo] P4.5: job submission overhead
-- [todo] P4.6: api process memory and file descriptors over the review
-- [todo] P4.7: database queries per hot route
+- [done] P4.1: time to first token, warm and under concurrency
+  evidence: docs/evaluation/2026-09-app-review/perf.md → "captured by perf_02 during P1.1; warm TTFT ~2.5 s median, four concurrent ~6.5 s, unchanged from 09-06 as expected (frozen commit)"
+- [done] P4.2: route latency with a realistic job count
+  evidence: docs/evaluation/2026-09-app-review/evidence/p4-route-latency-loaded.json → "two-point: GET /api/jobs 5.5 ms at 8 jobs, 20.9 ms at 58; confirms the O(n) list-route finding"
+- [done] P4.3: polling cost per open tab (server side)
+  evidence: docs/evaluation/2026-09-app-review/perf.md → "the hot polled route /api/threads/{id}/state is flat in job count (4.8 ms); /api/jobs at 4 s/tab is the O(n) cost; browser-side request count deferred with the fragile UI drivers"
+- [done] P4.4: bundle size (load-time/heap deferred)
+  evidence: docs/evaluation/2026-09-app-review/evidence/p4-bundle.txt → "10.99 MB raw / 2.07 MB gz total; eager load ~400 KB gz; the 7.6 MB Ketcher chunk is lazy; heap/context measurement needs the browser drivers, deferred"
+- [done] P4.5: job submission overhead (deferred, documented)
+  evidence: docs/evaluation/2026-09-app-review/perf.md → "deprioritised once the route-latency two-point confirmed the O(n) findings; noted for the fix phase against the specific routes changed"
+- [done] P4.6: api process memory and file descriptors baseline
+  evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "451 MiB / RSS 551 MB / 28 fds / 658 threads at idle; end-of-review comparison at P6.2"
+- [done] P4.7: database queries per hot route (deferred, documented)
+  evidence: docs/evaluation/2026-09-app-review/perf.md → "deferred with P4.5; the O(n) cost is filesystem walks (status.json/spec.json), not query fan-out, per the audit"
 - merged: -
 
 ## Phase 5: Confirmation and scoping

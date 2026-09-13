@@ -1,0 +1,22 @@
+# P4.4 bundle composition, read from the deployed frontend/dist (stamp ca7e0ff13d24)
+# measured 2026-09-13T07:13:54Z. raw = bytes on disk; gz = gzip -9 of the same bytes, which is what nginx serves
+
+file                                                            raw         gz
+MoleculeBuilderModal-Dk0OV_CZ.js                            7596327    1174969
+index-Sab0WuuS.js                                           1457370     394748
+index.modern-kJFjCff0.js                                    1220815     323730
+index.modern-78b4d253-BuU14KEL.js                            391819     115407
+MoleculeBuilderModal-BjvbX1y1.css                            180390      28130
+indigoWorker-75cc6e94-DgouvrFi.js                             73814      23133
+index-H4uQqV4i.css                                            63962      11163
+react-Du4I-rQQ.js                                              8760       3448
+
+TOTAL (js+css)                                             10993257    2074728
+
+# what index.html loads eagerly (modulepreload / script / stylesheet):
+  src="/assets/index-Sab0WuuS.js"
+  href="/assets/react-Du4I-rQQ.js"
+  href="/assets/index-H4uQqV4i.css"
+
+# files in dist:
+80

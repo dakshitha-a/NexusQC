@@ -2158,6 +2158,7 @@ check that nothing was dropped in the merge.
 - note: read-only and admin-only, so it degrades a panel rather than the app.
 
 ---
+- coordinator (P4): measured: p50 5.0 ms at 8 jobs, 8.4 ms at 58 jobs. Real growth, gentler slope than /api/jobs. evidence/p4-route-latency-loaded.json.
 
 ### R-052: bug-report attachments are uncapped per account -- no quota, no rate limit, no ceiling on report count
 
@@ -3108,6 +3109,7 @@ check that nothing was dropped in the merge.
 - note: Not urgent at current scale; worth a tracker item rather than a fix now. The cheapest change is offset/limit on `GET /api/jobs` mirroring `get_scan_children` exactly.
 
 ---
+- coordinator (P4): measured: GET /api/jobs p50 5.5 ms at 8 jobs, 20.9 ms at 58 jobs (~linear), p95 30 ms; polled every 4 s per tab, so ~100 ms per poll at a few hundred jobs. Confirms the O(n). evidence/p4-route-latency-loaded.json.
 
 ### R-081: `GET /api/jobs/{id}/neb_frames_live` reads and splits the whole trajectory file on every poll
 - surface: code:server
