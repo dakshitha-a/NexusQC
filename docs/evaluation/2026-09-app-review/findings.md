@@ -3634,3 +3634,33 @@ check that nothing was dropped in the merge.
 - evidence: docs/evaluation/2026-09-app-review/evidence/frontend-run.log (the cas_14 block)
 - pointer: the comment at `JobDetailDrawer.tsx:1239-1242` is itself the likely lead: it says `RefineResult` names fields `refined_active_*` but the runner publishes them under the recommendation's own keys, "so there is no `refined_` anything". If the "refined space is stated" line and the occupation table are gated on a `refined_*` key that is never published, the table is empty by construction.
 - note: settle in P3.4, which drives `cas_reco/refine` end to end and can read the completed job's `result.json` directly to see whether `natural_occupations` is populated and under which key. cas_14 was not in the 2026-09-06 frontend failure list, but the suite has changed since, so "regression" is not established; the spec's own header says the drawer "did not exist" before it was written, so this may be a still-incomplete rendering rather than a regression.
+
+### R-100: the route auth-sweep test reports a false regression because its public-route list omits the intentionally-public /api/version
+- surface: code:tests (harness)
+- class: bug
+- severity: S4
+- cause: HARNESS
+- confidence: confirmed by code read
+- found by: baseline P1.3 (tests/e2e/e2e_03_route_auth_sweep.py)
+- scope: the anonymous pass of the route auth sweep only.
+- repro: `bash tests/e2e/run_e2e.sh e2e_03`.
+- observed: `[FAIL] anonymous caller is rejected by all 101 non-public routes -- GET /api/version -> 200`, so the whole e2e suite reports 2 failed scripts instead of 1. The non-admin pass (25 admin routes, all 403) and the cross-user pass (thread routes, all 404) both pass.
+- expected: `/api/version` is deliberately unauthenticated. `server/main.py:155-160`: "Unauthenticated and outside the `if DATABASE_URL:` block above, for the same reason /api/health is: it has to answer while the deployment is in [maintenance]". The test's `PUBLIC_ROUTES` set (`e2e_03:40`) lists only `/api/health`, `/api/auth/login`, `/api/auth/register`, and omits `/api/version`.
+- evidence: docs/evaluation/2026-09-app-review/evidence/e2e-run.log (the e2e_03 block)
+- pointer: add `("GET", "/api/version")` to `PUBLIC_ROUTES` in `tests/e2e/e2e_03_route_auth_sweep.py:40`.
+- note: this is a test fix, in the docs/tests zone the review may touch, but it is left for the fix phase to keep the review record-only. It matters for the report's honesty: without it the e2e suite looks like it has an auth regression, and it does not. Distinct from R-001/R-003, which are real cross-user paths this sweep does not probe (it covers thread routes only, as its own cross-user pass shows).
+
+### R-101: the agent unreliably reaches the approval card for excited-state, ensemble and some complex jobs
+- surface: drafting/elicitation/approval
+- class: bug
+- severity: S2 (deterministic for the wigner ensemble) to S3 (flaky elsewhere)
+- cause: LLM
+- confidence: confirmed at the suite level: e2e_19 failed across the harness's 3 retries (deterministic); the e2e_08 cells recovered on retry (flaky, 1-2/3)
+- found by: baseline P1.3 (tests/e2e/e2e_19_wigner_ensemble.py, e2e_08_job_matrix.py)
+- scope: observed on wigner_spectra (the source freq job and the ensemble job, both), and flakily on excited-state single points (M13-M17), cas_reco (M26), opt/ci on bagel (M34) and opt_freq on bagel (M37). Not seen on the plain ground-state single points.
+- repro: `bash tests/e2e/run_e2e.sh e2e_19` and `python3 tests/e2e/e2e_08_job_matrix.py --tier 1`.
+- observed: the tool traces stop after `start_job_draft`/`update_job_draft` with no `submit_draft` and no approval card, `timed_out=False`, elapsed 10-44s, so the turn ended without producing a card. e2e_19: "missing tool call 'submit_draft' (called: ['set_geometry', 'start_job_draft', 'update_job_draft'])", both the freq and ensemble legs, across retries.
+- expected: a ready draft ends the turn at the approval card. The mechanical fallback (submit the same spec directly via `get_job_manager().submit`) works, so the code path is sound and this is an LLM prompt-reliability finding, not CODE.
+- evidence: docs/evaluation/2026-09-app-review/evidence/e2e-run.log
+- pointer: the model, on these job families, treats the draft as complete after `update_job_draft` and does not proceed. `docs/ARCHITECTURE.md`'s "run_when_ready" and the `submit_draft` NEXT STEP instruction are the levers; this is a candidate for the same mechanical-rule treatment as `want_oscillator_strengths -> ORCA`.
+- note: the deterministic wigner case (0/3) is the actionable one and is why e2e_19 is one of the two failed scripts; the flaky cells belong in the fix plan as prompt hardening. Verify the k/N per cell against fresh threads in P3.3/P3.4, which drive these families through the real UI.

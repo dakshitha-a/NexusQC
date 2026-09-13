@@ -90,8 +90,49 @@ carried into the walkthrough to settle.
 
 ## The end-to-end scenarios and the job matrix
 
-_(pending: `bash tests/e2e/run_e2e.sh`, then `e2e_08 --tier 3` separately, then
-`node tests/e2e/ui/run_ui.mjs`)_
+**What it is.** `bash tests/e2e/run_e2e.sh`, the agent-driven pre-deployment
+suite: real browser or HTTP sessions, real agent turns against the live model,
+with every assertion made on the tool trace read back from thread state. 17
+scripts (preflight, harness gate, molecule resolution, agent tools, approval
+flow, the 41-cell job matrix, plots, KB, param correction, stability,
+logout-and-return, elicitation, wigner, blind input). LLM-nondeterministic
+failures are retried up to 3 times on fresh threads, so a script's verdict is
+its outcome after retries.
+
+**Result: 15 of 17 scripts passed, 2 failed.** The two failures:
+
+- **`e2e_03_route_auth_sweep`** is test drift, **R-100**, not an auth
+  regression. It flags `GET /api/version -> 200` anonymously, but that route is
+  deliberately public (documented in `server/main.py:155`, like `/api/health`);
+  the test's `PUBLIC_ROUTES` list just omits it. The non-admin pass (25 admin
+  routes all 403) and the cross-user pass (thread routes all 404) both hold.
+- **`e2e_19_wigner_ensemble`** is a real prompt-reliability finding, **R-101**.
+  The agent reaches a ready draft for both the source frequency job and the
+  ensemble job, then does not call `submit_draft`, so no approval card appears,
+  across all three retries. The mechanical fallback works, so the code path is
+  sound; this is the agent not proceeding, and it is the deterministic end of a
+  wider flaky pattern (excited-state single points, cas_reco, and some bagel
+  cells in `e2e_08` failed the same way on first attempt and recovered on
+  retry).
+
+**Other observations carried into Phase 3**, none of which failed a script but
+each worth a live look:
+
+- `e2e_13_stability` reported 4/10, every failure downstream of its ORCA
+  CASSCF probe reaching `failed` under host load 12-13. Whether that is
+  contention (ENV) or a real defect is settled by an isolated re-run; see
+  `evidence/p1-notes.md`.
+- `e2e_08` M23 hit `RuntimeError: ORCA exited with code 2` on one cell, an
+  engine failure to be reproduced in isolation (ENV vs CODE).
+- `e2e_10_kb` K5 expects the agent to call `search_knowledge_base`, which was
+  unified into `search(source=...)`; this is the same tool-name drift the audit
+  recorded (the troubleshoot-prompt finding), test side.
+- `e2e_11_param_correction` C2/C3 came back `method=None` and candidate menus
+  `None`; whether keyword suggestion regressed or the assertion is stale is a
+  P3.3 check.
+- `e2e_17` L9b: after a job completed while the user was logged out, no
+  unprompted summary was written; L1-L8 (the leave-and-return core: survival,
+  results, artifacts, resume) all passed. A P3.5 look.
 
 ## The open backlog item
 
