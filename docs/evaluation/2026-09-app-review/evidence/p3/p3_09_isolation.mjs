@@ -36,8 +36,47 @@ async function post(ctx, p, data) {
   return { status: r.status() };
 }
 
-// --- Enumerate everything qa_review owns, as qa_review ----------------------
-const owned = await L.observe(a.page, "enumerate-owned-by-A", async () => {
+// --- Seed a GENUINELY-OWNED job for qa_review -------------------------------
+// GET /api/jobs returns unowned jobs too (visible to everyone by design), so
+// its output cannot be treated as "owned by A". To test real isolation we
+// need a job with a recorded ownership row. Submit one through the API as
+// qa_review (JobManager.submit records ownership for an authenticated caller),
+// wait for it to complete, and test qa_review_2's access to THAT.
+const A_OWNED = await L.observe(a.page, "seed-owned-job-for-A", async () => {
+  // Drive a real turn so the job is created and owned the way the app does it.
+  const r = await a.ctx.request.get(`${BASE_URL}/api/threads`);
+  const th = await r.json();
+  let tid = ((Array.isArray(th) ? th : th.threads || [])[0] || {});
+  tid = tid.id || tid.thread_id;
+  if (!tid) {
+    const c = await a.ctx.request.post(`${BASE_URL}/api/threads`, { data: {}, headers: { "content-type": "application/json" } });
+    tid = (await c.json()).thread_id || (await c.json()).id;
+  }
+  // Submit a trivial owned job directly via the jobs API is not exposed; use
+  // the agent turn path with a fully-specified request, then read the job id.
+  await a.ctx.request.post(`${BASE_URL}/api/threads/${tid}/messages`, {
+    data: { text: "Run an HF/STO-3G single point on water with PySCF." }, headers: { "content-type": "application/json" } });
+  // Poll the thread's jobs for a new id (the agent will draft; we approve via API).
+  let jobId = null, pending = null;
+  for (let i = 0; i < 40 && !jobId; i++) {
+    await a.page.waitForTimeout(3000);
+    const st = await (await a.ctx.request.get(`${BASE_URL}/api/threads/${tid}/state`)).json();
+    pending = st.pending_approval || st.state?.pending_approval;
+    if (pending) {
+      await a.ctx.request.post(`${BASE_URL}/api/threads/${tid}/approvals/job`, { data: { approved: true }, headers: { "content-type": "application/json" } });
+    }
+    const jr = await a.ctx.request.get(`${BASE_URL}/api/threads/${tid}/jobs`);
+    const jobs = jr.ok() ? await jr.json() : [];
+    const list = Array.isArray(jobs) ? jobs : jobs.jobs || [];
+    if (list.length) jobId = (list[0].id || list[0].job_id);
+  }
+  return { thread: tid, jobId };
+}, { inventory: false });
+const A_OWNED_JOB = A_OWNED.result && A_OWNED.result.jobId;
+L.note(`qa_review's genuinely-owned seeded job: ${A_OWNED_JOB}`);
+
+// --- Enumerate what A can SEE (jobs list includes unowned; label honestly) --
+const owned = await L.observe(a.page, "enumerate-visible-to-A", async () => {
   const out = {};
   for (const [k, p] of [["jobs", "/api/jobs"], ["threads", "/api/threads"], ["plots", "/api/plots"], ["projects", "/api/projects"]]) {
     const r = await a.ctx.request.get(`${BASE_URL}${p}`);
@@ -45,6 +84,10 @@ const owned = await L.observe(a.page, "enumerate-owned-by-A", async () => {
     const items = Array.isArray(d) ? d : (d[k] || d.items || []);
     out[k] = items.map((it) => it.id || it.job_id || it.thread_id).filter(Boolean);
   }
+  // The one job we KNOW A owns (has an ownership row) is the seeded one; the
+  // rest of the jobs list may be unowned leftovers visible to everyone.
+  out.a_owned_job = A_OWNED_JOB;
+  out.jobs_note = "GET /api/jobs includes unowned jobs (visible to all by design); only a_owned_job is proven A-owned";
   return out;
 }, { inventory: false });
 
@@ -57,10 +100,17 @@ const KNOWN_MASTER = "186fe458ec9e";
 await L.observe(b.page, "cross-user-read-sweep", async () => {
   const res = owned.result || {};
   const targets = [];
-  for (const j of (res.jobs || [])) {
-    targets.push([`GET /api/jobs/${j}`, () => get(b.ctx, `/api/jobs/${j}`)]);
-    targets.push([`GET /api/jobs/${j}/download`, () => get(b.ctx, `/api/jobs/${j}/download`)]);
-    targets.push([`GET /api/jobs/${j}/log`, () => get(b.ctx, `/api/jobs/${j}/log`)]);
+  // The genuinely-owned job first, clearly labelled: this is the real isolation test.
+  if (res.a_owned_job) {
+    const j = res.a_owned_job;
+    targets.push([`GET /api/jobs/${j} (A-OWNED)`, () => get(b.ctx, `/api/jobs/${j}`)]);
+    targets.push([`GET /api/jobs/${j}/download (A-OWNED)`, () => get(b.ctx, `/api/jobs/${j}/download`)]);
+    targets.push([`GET /api/jobs/${j}/log (A-OWNED)`, () => get(b.ctx, `/api/jobs/${j}/log`)]);
+  }
+  // The rest of the visible list, labelled as possibly-unowned so the report
+  // does not mistake settled unowned-visibility for a leak.
+  for (const j of (res.jobs || []).filter((x) => x !== res.a_owned_job)) {
+    targets.push([`GET /api/jobs/${j} (visible, maybe unowned)`, () => get(b.ctx, `/api/jobs/${j}`)]);
   }
   for (const th of (res.threads || [])) {
     targets.push([`GET /api/threads/${th}/state`, () => get(b.ctx, `/api/threads/${th}/state`)]);

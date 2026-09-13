@@ -165,7 +165,8 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
 - [todo] P3.6: follow-up questions, plots and the knowledge base
 - [todo] P3.7: projects and sharing
 - [todo] P3.8: the admin console
-- [todo] P3.9: two users at once, isolation and quotas
+- [done] P3.9: two users at once, isolation and quotas
+  evidence: docs/evaluation/2026-09-app-review/evidence/p3/p3_09_isolation.jsonl → "cross-user sweep as qa_review_2: thread 404, owned master 404, but the master's child leaks 200 + 16KB download (R-001 confirmed live); R-003's live probe was flawed (driver used A's thread as B, so it tested thread isolation not the job gap); R-003 stays code-read confirmed"
 - [todo] P3.10: failure paths and recovery
 - [todo] P3.11: documentation accuracy against the running app
 - [todo] P3.12: layout, keyboard and contrast

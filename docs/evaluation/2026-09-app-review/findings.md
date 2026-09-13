@@ -206,6 +206,22 @@ check that nothing was dropped in the merge.
   with a perfectly good owner. Write access is in scope too: `PATCH` rename,
   `POST /cancel` and `DELETE` use the same check. Deletion does cascade
   correctly, so this is not a repeat of SEC-08.
+- coordinator (P3.9 live sweep): re-confirmed through the running app with a
+  second account. In one cross-user sweep as qa_review_2 (owning nothing):
+  qa_review's thread returns 404, the owned master `186fe458ec9e` returns 404,
+  and its child `0d87ea39ec68` returns 200 with the full 17,365-byte record
+  and a 16,185-byte artifact download. So top-level owned jobs and threads are
+  correctly isolated and ONLY the child of an owned master leaks, which is
+  exactly the scope of this finding. The three unowned top-level jobs the
+  sweep also saw are the settled visible-to-all behavior, not leaks, and are
+  labelled as such in the evidence. Evidence:
+  docs/evaluation/2026-09-app-review/evidence/p3/p3_09_isolation.jsonl. Note the
+  driver's attempt to also seed a freshly-owned top-level job for A failed
+  (the agent did not produce a job in the 120 s window, adjacent to R-101), so
+  the "A's own top-level job is protected" leg rests on the master's 404 rather
+  than a seeded job; worth a clean re-seed if triage wants it, but the child
+  leak is not in doubt.
+
 
 ### R-002: a knowledge-base upload can write a file anywhere, and reach the host deploy runner
 - surface: code:auth

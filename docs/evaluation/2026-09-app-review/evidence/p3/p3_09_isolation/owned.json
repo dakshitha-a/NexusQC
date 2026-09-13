@@ -1,0 +1,14 @@
+{
+ "jobs": [
+  "ce8d511a5ad8",
+  "b6cf512459e5",
+  "3bfca24ae1a5"
+ ],
+ "threads": [
+  "3021c45228064449987f89ab376f51c5"
+ ],
+ "plots": [],
+ "projects": [],
+ "a_owned_job": null,
+ "jobs_note": "GET /api/jobs includes unowned jobs (visible to all by design); only a_owned_job is proven A-owned"
+}
