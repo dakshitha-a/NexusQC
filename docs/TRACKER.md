@@ -110,8 +110,10 @@ from P0.7 onwards is the normal state.
   evidence: tests/fixtures.py → "qa_review, qa_review_2 and qa_review_3 registered through admin-minted invites; qatest_admin's stored credentials still log in, so the bootstrap was a no-op as its docstring promises"
 - [done] P0.5: snapshot jobs, threads, plots, projects and users
   evidence: docs/evaluation/2026-09-app-review/README.md → "8 jobs / 9 threads / 3 plots / 2 projects / 8 users recorded before anything was created; the 17-vs-8 job gap resolved to 8 children of one master plus the _seen directory, which became R-001"
-- [todo] P0.6: arm the log and health watches, and take the resource baseline
-- [todo] P0.7: commit and push Phase 0
+- [done] P0.6: arm the log and health watches, and take the resource baseline
+  evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "api at idle: 451 MiB, RSS 551 MB, 28 fds, 658 threads (worth re-measuring at P4.6), health 9 to 13 ms over five probes; both Monitor watches armed and logged in the shell ledger"
+- [done] P0.7: commit and push Phase 0
+  evidence: docs/TRACKER.md → "landed across 1c8f0e8, c9f03c4 and this commit; every Phase 0 step done with evidence, check_tracker passes"
 - merged: -
 
 ## Phase 1: Baseline, the existing suites at the frozen commit

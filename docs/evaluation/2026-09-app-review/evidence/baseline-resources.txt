@@ -1,0 +1,16 @@
+=== P0.6 resource baseline (for P4.6) ===
+taken: 2026-09-13T06:47:10Z
+loadavg: 11.98 10.92 10.73 15/7547 473891
+nexusqc_dev-api-1	CPU 0.08%	MEM 451.3MiB / 1008GiB	PIDS 658
+nexusqc_dev-postgres-1	CPU 0.00%	MEM 69.93MiB / 1008GiB	PIDS 8
+nexusqc_dev-redis-1	CPU 0.61%	MEM 9.82MiB / 1008GiB	PIDS 6
+nexusqc_dev-nginx-1	CPU 0.00%	MEM 236.6MiB / 1008GiB	PIDS 256
+api container init pid: 1922722
+api RSS (kB): 550776
+api open fds: 28
+api threads: 658
+health 0.011634s
+health 0.010724s
+health 0.012634s
+health 0.010941s
+health 0.009250s
