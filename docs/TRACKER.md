@@ -118,7 +118,7 @@ from P0.7 onwards is the normal state.
 
 ## Phase 1: Baseline, the existing suites at the frozen commit
 
-- [todo] P1.1: backend suite, default set
+- [in-progress] P1.1: backend suite, default set
 - [todo] P1.2: frontend Playwright specs
 - [todo] P1.3: end-to-end scenarios and the job matrix
 - [todo] P1.4: end-to-end UI specs
@@ -150,6 +150,8 @@ were verified as they landed.
 
 ## Phase 3: Live walkthrough, surface by surface
 
+Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review/evidence/p3/` (one per step group, plus `_p3.mjs`). They wait on the backend suite finishing, because the walkthrough cannot share the stack and admission gate with it. `p3_09_isolation.mjs` is the one to run first: it proves R-001/R-003/R-009 live.
+
 - [todo] P3.1: first contact, accounts and appearance
 - [todo] P3.2: getting a molecule in
 - [todo] P3.3: drafting, elicitation and the approval gate
@@ -165,6 +167,8 @@ were verified as they landed.
 - merged: -
 
 ## Phase 4: Performance, with a number and a method for each
+
+`evidence/p4_route_latency.py` (P4.2/P4.3) and `evidence/p4-bundle.txt` (P4.4 bundle sizes, already measured) are ready; TTFT reuses `tests/backend/perf_02_ttft_and_concurrency.py`.
 
 - [todo] P4.1: time to first token, warm and under concurrency
 - [todo] P4.2: route latency with a realistic job count
