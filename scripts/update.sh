@@ -297,17 +297,41 @@ main() {
         info "the checkout is already at the target; only the build is behind"
     fi
 
-    # What the change is measured AGAINST: what is deployed, when that is known
-    # and is on the way to the target. Falls back to the checkout otherwise --
-    # including the case where the running image is somehow NOT an ancestor of the
-    # target, where a diff would be reversed and the destructive report would read
-    # backwards.
+    # Two different questions, which used to share one variable:
+    #
+    # REPORT_FROM is what the change is measured AGAINST, for the destructive
+    # report and the docs-only test. That is what is deployed whenever its
+    # commit still exists in this checkout's object store, ancestor or not. A
+    # content diff between two commits is meaningful whatever their ancestry,
+    # and the case where the deployed commit is not an ancestor is exactly the
+    # one where the report matters most: after a history rewrite every
+    # deployed stamp names a commit that is no longer on the branch, and the
+    # old rule then fell back to comparing the checkout with itself, which
+    # produced a guaranteed-empty report that read as "no destructive changes"
+    # while three new columns were going in. Only when the commit is not here
+    # at all (no stamp, or an object that has been garbage-collected) does the
+    # checkout stand in, and then the report says so.
+    #
+    # PREVIOUS_SHA is what --rollback would move the checkout back to, written
+    # to ${UPDATE_LOG}. That must be on the branch: an ancestor of the target,
+    # or the checkout's own commit. A pre-rewrite commit that happens to
+    # survive in the object store is a place a rollback must never land.
     REPORT_FROM="$CHECKOUT_SHA"
+    PREVIOUS_SHA="$CHECKOUT_SHA"
     if [ -n "$DEPLOYED_SHA" ] && git merge-base --is-ancestor "$DEPLOYED_SHA" "$TARGET_SHA" 2>/dev/null; then
         REPORT_FROM="$DEPLOYED_SHA"
+        PREVIOUS_SHA="$DEPLOYED_SHA"
+    elif [ -n "$DEPLOYED_SHA" ] && git cat-file -e "${DEPLOYED_SHA}^{commit}" 2>/dev/null; then
+        REPORT_FROM="$DEPLOYED_SHA"
+        if [ "$ROLLBACK" -eq 0 ]; then
+            warn "the running image (${DEPLOYED_SHA:0:12}) is not an ancestor of the target"
+            warn "(a rewritten history, or a build from a branch). The report below still"
+            warn "compares what is deployed with the target; only a rollback would not go there."
+        fi
     elif [ -n "$DEPLOYED_SHA" ] && [ "$ROLLBACK" -eq 0 ]; then
-        warn "the running image (${DEPLOYED_SHA:0:12}) is not an ancestor of the target;"
-        warn "reporting the change against the checkout instead."
+        warn "the running image's commit (${DEPLOYED_SHA:0:12}) is not in this checkout at all,"
+        warn "so the report below is measured from the checkout and CANNOT show what the"
+        warn "containers are missing."
     fi
 
     if [ "$ROLLBACK" -eq 0 ]; then
@@ -480,12 +504,15 @@ EOF
     # One place that writes ${UPDATE_LOG}, so the health verb and the rebuild-only
     # suppression cannot drift apart between the two exits that record an update.
     #
-    # Records REPORT_FROM as the previous commit, not the checkout's old HEAD.
+    # Records PREVIOUS_SHA as the previous commit, not the checkout's old HEAD.
     # Those differ exactly when this work is doing its job: with a stamped image
     # running behind the checkout, HEAD had moved to a commit that was never
     # deployed, and --rollback reads this file to decide where to put the
     # deployment back to. Returning it to a commit that never served traffic is
     # the same class of mistake as returning it to one that never came up healthy.
+    # It is PREVIOUS_SHA and not REPORT_FROM because the two part ways when the
+    # deployed commit is off the branch (see where they are set): the report is
+    # measured from it, the rollback must not go to it.
     record_update() {
         local verb="$1"
         if [ "$REBUILD_ONLY" -eq 1 ]; then
@@ -494,7 +521,7 @@ EOF
             info "--rollback would resolve it to a no-op."
             return 0
         fi
-        printf '%s %s %s %s\n' "$verb" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$REPORT_FROM" >> "$UPDATE_LOG"
+        printf '%s %s %s %s\n' "$verb" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TARGET_SHA" "$PREVIOUS_SHA" >> "$UPDATE_LOG"
     }
 
     psql_stack() { "${COMPOSE[@]}" exec -T postgres psql -At -U "$PGUSER_VAL" -d "$PGDB_VAL" "$@"; }

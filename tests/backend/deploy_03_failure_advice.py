@@ -53,14 +53,19 @@ def advice(*, destructive: int, rebuild_only: int, backup: str = BACKUP_DIR) -> 
 
 
 def record(*, verb: str, rebuild_only: int) -> list[str]:
-    # REPORT_FROM and CHECKOUT_SHA are deliberately different here. They differ
-    # in real life exactly when this work is doing its job: with a stamped
-    # image running behind the checkout, HEAD has moved to a commit that was
-    # never deployed, and the log has to name the one that actually ran.
+    # PREVIOUS_SHA and CHECKOUT_SHA are deliberately different here. They
+    # differ in real life exactly when this work is doing its job: with a
+    # stamped image running behind the checkout, HEAD has moved to a commit
+    # that was never deployed, and the log has to name the one that actually
+    # ran. REPORT_FROM is set too, and to something else, to prove the log
+    # takes the rollback target and not the report's baseline: after a history
+    # rewrite the deployed commit is off the branch, the report is still
+    # measured from it, and a rollback must not go there.
     script = (
         "set -uo pipefail\n"
         f'REBUILD_ONLY={rebuild_only}\nUPDATE_LOG=".update-log"\n'
-        'TARGET_SHA="ccc"\nCHECKOUT_SHA="never-deployed"\nREPORT_FROM="was-deployed"\n'
+        'TARGET_SHA="ccc"\nCHECKOUT_SHA="never-deployed"\nPREVIOUS_SHA="was-deployed"\n'
+        'REPORT_FROM="off-the-branch"\n'
         "info() { :; }\n"
         f"{shell_function('record_update')}\n"
         f"record_update {verb}\n"

@@ -181,6 +181,16 @@ repository existed and was never published on its own.
     fixed country, state, locality and organisation, so every deployment anyone
     installed anywhere minted a certificate claiming to belong to one
     particular university. Nothing consults those fields.
+- **`scripts/update.sh` measures the destructive-change report from what is
+  deployed even when that commit is off the branch.** After a history
+  rewrite every running image's stamp names a commit that no longer sits on
+  `main`, and the old rule fell back to comparing the checkout with itself: a
+  guaranteed-empty report that read "no destructive changes" while three new
+  database columns were going in. The report now compares the deployed
+  commit's content with the target's whenever the commit still exists
+  locally, and says plainly when it does not. What `--rollback` returns to is
+  a separate value that stays on the branch, because a rollback must never
+  land on a pre-rewrite commit that happens to survive in the object store.
 - **`scripts/update.sh` gets the same health wait and the same preflight.** It
   carried an identical silent 300-second loop, and had no `command -v` check of
   any kind -- so a host missing `curl` failed part-way through an update rather
