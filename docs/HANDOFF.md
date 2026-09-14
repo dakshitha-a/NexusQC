@@ -10,6 +10,31 @@ state of this file.
 
 ## Open
 
+### The evaluation's evidence logs are now tracked and need a human look before any public release (2026-09-14)
+
+`.gitignore`'s `*.log` had been silently dropping every log the 2026-09 review
+and fix phase produced, ninety-six of them, so each evidence directory in
+`docs/evaluation/2026-09-app-review/` held only its README while every number
+in those READMEs cited a file that was not in the repository. They are tracked
+now, about 1.4 MB in total, with a negation rule scoped to
+`docs/evaluation/**/evidence/**/*.log`.
+
+`evidence/redact_paths.py` replaced this host's absolute paths in them, and
+`--check` reports zero remaining, so `scripts/check_public_safe.sh`'s path
+patterns are satisfied. What a script cannot judge is the content: these logs
+carry **this deployment's real job ids, conversation labels, molecule names and
+usernames**, because that is what a test suite prints. They are chemistry names
+and `qatest_*` accounts rather than anything sensitive, but they are your data
+and the decision to publish them is yours.
+
+The same file also carries the tailnet address `100.101.102.103`, which was
+already in `docs/evaluation/2026-09-app-review/README.md` and
+`tests/backend/deploy_02_deployed_commit.py` before this phase and is not new.
+It is worth deciding about at the same time.
+
+Run `python3 docs/evaluation/2026-09-app-review/evidence/redact_paths.py --check`
+before a release to confirm nothing host-specific has crept back in.
+
 ### Three new images need a human look before the public release (2026-09-09)
 
 `scripts/check_public_safe.sh` cannot read images, which docs/DEVELOPMENT.md

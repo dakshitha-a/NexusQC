@@ -136,7 +136,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.6 → "the bootstrap command passes all four required arguments, the cron line creates its own log directory, every curl example passes -k, the pointer to the deleted docker-compose.dev.yml is gone, two status rows describing removed features are gone, and nginx.conf's header stops describing a listener and a kill switch that were deleted in August"
 - [done] P2.7: Advance the stack on the fixed scripts, verify, push
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "folded into the merged gate; P3.12's README records the decision and the run it voided"
-- merged:
+- merged: 700b8cc
 
 ## Phase 3: S2 reliability and correctness
 
@@ -164,7 +164,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.11 → "R-101; agent_02 29/31 before and 36/36 after, a complete draft now raising its own approval card"
 - [done] P3.12: Gate 2 - advance, four suites, live re-checks
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "merged into the single gate at P6.2: the stack sat on one commit through Phases 2 to 5, so running the same four suites three times would have measured the same thing three times"
-- merged:
+- merged: 700b8cc
 
 ## Phase 4: Settle, then fix
 
@@ -192,7 +192,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.5 → "plot_04_concurrent_render.py: 6 of 24 concurrent renders came out in the right style before, 24 of 24 after"
 - [done] P5.6: R-100 and the stale specs - the harness stops lying
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.6 → "e2e_03, ui_03 and ui_04 no longer fail on panels that work; the toggle-plus-input pattern is written into tests/README.md"
-- merged:
+- merged: 5d16dfe
 
 ## Phase 6: Close
 
@@ -202,6 +202,6 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.2 → "backend 158/165, e2e 13/18, frontend 38/44, e2e UI 5/9; R-101 measured at 15 of 15 fresh threads reaching the card and ui_10 at 21/21; three real defects found and fixed, thirteen stale checks corrected, two-sided cleanup diff +0 -0"
 - [done] P6.3: resolution.md, published, and the backlog updated
   evidence: docs/evaluation/2026-09-app-review/resolution.md → "102 of 102 findings carry an outcome: 100 fixed, 2 not reproduced with the measurement that says so; BACKLOG's Open section rewritten with seven entries, each naming its next experiment, and the ui_10 entry closed"
-- [todo] P6.4: Changelog, handoff, push, republish
-  evidence: CHANGELOG.md
-- merged:
+- [done] P6.4: Changelog, handoff, push, republish
+  evidence: CHANGELOG.md → "the Unreleased section carries the whole phase written for a reader who did not see the review; HANDOFF gained one entry, that the newly-tracked evidence logs carry this deployment's own job and conversation names and need a human look before any public release; tracker republished and the tailnet URL reported"
+- merged: a3fa515
