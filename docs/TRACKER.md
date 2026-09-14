@@ -124,9 +124,13 @@ The deployment gets a public address (the tailnet MagicDNS name, by the
 user's choice), with three sources: an admin-console override, `.env`, and
 the browser's own origin as the fallback that keeps today's behaviour.
 
-- [todo] P2C.1: The setting: backend config, admin console field, links built on it
-- [todo] P2C.2: Installer defaults to the MagicDNS name; certificate covers the public host
-- [todo] P2C.3: Gate: tests, browser check, dev stack rebuilt, dry run re-shown
+- [done] P2C.1: The setting: backend config, admin console field, links built on it
+  evidence: tests/backend/conf_05_public_url.py → "18/18 against the rebuilt stack: admin-only; an origin is stored and reported with source 'setting', a trailing slash dropped; eight non-origins (path, query, fragment, ftp, prose, port 99999, credentials, a number, a boolean) refused with a 422 naming the rule and the stored value untouched; blank clears to env or browser; two audit rows. links_01_public_address.spec.mjs 8/8: set through the Deployment section, a fresh invite link and a reset link start with the public address, clearing falls back to the page's origin; the section's screenshot looked at"
+- [done] P2C.2: Installer defaults to the MagicDNS name; certificate covers the public host
+  evidence: tests/backend/install_02_units.py → "37/37: the Self block's DNSName comes back without its trailing dot, with 5,000 peers after it, MagicDNS off yields nothing, tailscale down or absent yields nothing with rc 0 (two ways the helper could have ended the installer in silence, both closed); the certificate script run from a scratch copy adds DNS:<public host> to the SAN when it differs from the FQDN, never twice, never for an IP; install_01 27/27"
+- [done] P2C.3: Gate: tests, browser check, dev stack rebuilt, dry run re-shown
+  evidence: scripts/update.sh → "--dry-run reported no newly required variable and no schema change; the live update rebuilt the stack at 02e5424 with all 18 jobs intact; p1_admin_invites 7/7 and p1_password_reset 13/13 (which navigates to the generated link, so the fallback is proven) and conf_01 20/20 still pass; CI green on both jobs; tree scan PASS with no tailnet name in the tree"
+- merged: 02e5424
 
 ## Phase 3: Release
 
