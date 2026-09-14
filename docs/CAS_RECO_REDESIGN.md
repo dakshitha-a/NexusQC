@@ -168,8 +168,8 @@ AVAS should run an entropy pilot. The runner was written for autoCAS on
 `pyscf_runner.py:1312-1314`, which is autoCAS's own design, since the entropy
 screen needs a candidate valence pool and AVAS is the standard way to get one.
 Registry v2's dark-launch declared all three subtypes as taxonomy on 2026-08-18
-(`1637ab8`) without implementing any of them, and the dispatch table a day later
-(`96b6a29`) needed a runner for every declared pair and had exactly one to give.
+(`87a1131`) without implementing any of them, and the dispatch table a day later
+(`1323aca`) needed a runner for every declared pair and had exactly one to give.
 That same commit introduced `NOT_YET_IMPLEMENTED` fifteen lines above the
 mapping; `cas_reco/avas` and `cas_reco/explain` belonged in it. Anything declared
 and unbuilt goes there, not at a neighbouring runner.

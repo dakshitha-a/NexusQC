@@ -82,7 +82,7 @@ second tick, which is "B arrived while the dispatcher was sampling" with the
 timing taken out. The stub `block_reason` holds a global cap of one, so the
 tick has to choose rather than admit both.
 
-- `sched_01-before.log`, run from a worktree at `f6d12c5`: **4 of 6**. The
+- `sched_01-before.log`, run from a worktree at `cde77de`: **4 of 6**. The
   second tick admits `a2`, user A's second job, and B waits.
 - `sched_01-after.log`, the same script against the fixed tick: **6 of 6**. The
   second tick admits `b1`.

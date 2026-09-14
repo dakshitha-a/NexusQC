@@ -40,7 +40,7 @@ python3 scripts/render_tracker_html.py /tmp/tracker.html
 
 ## Why this plan exists
 
-The review recorded 102 open findings against `ca7e0ff` and deliberately fixed
+The review recorded 102 open findings against `0dcb865` and deliberately fixed
 none of them, because changing the system under test mid-run makes findings on
 either side of the change incomparable. That discipline is now over. The user
 asked for all 102 attempted rather than a confirmed-only subset, so the
@@ -101,7 +101,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P0.3 → "api log watch pid 1169987 and health probe pid 1169988 running, both writing here, both in the scratchpad shell ledger"
 - [done] P0.4: The resolution summariser, so the close-out is reproducible
   evidence: docs/evaluation/2026-09-app-review/evidence/summarize_resolution.py → "summarize_resolution.py reports 0 of 102 findings carrying a resolution, which is the correct starting state and confirms the 102 denominator"
-- merged: 6519a63
+- merged: 054ce0a
 
 ## Phase 1: The S1 findings, in containment order
 
@@ -120,8 +120,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 - [done] P1.7: R-011, R-012, R-072, R-056 - the six-hour kill becomes a setting
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.7 → "jobs_04_job_timeout_and_dispatch.py 1/22 before and 27/27 after; the six-hour literal is gone from all five sites and replaced by QC_AGENT_JOB_TIMEOUT_HOURS which defaults to no limit, the orphan watcher polls instead of deadlining, an unloadable spec releases its slot and reports why, and both deploy scripts now separate running from queued"
 - [done] P1.8: Gate 1 - advance the stack, four suites, live S1 re-checks
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.8 → "advanced ca7e0ff to c5e8835 with the data archived first; sec_11 went 11/35 to 35/35, sec_12 20/24 to 27/27, sec_13 5/9 to 8/8; backend 145/149 and frontend 34/42, with every new failure re-run alone and passing except p7_05, which is the host-wide admission gate under a load average of 141 from other tenants and is now a skip; two-sided cleanup clean on jobs, threads, plots and projects"
-- merged: ba97822
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P1.8 → "advanced 0dcb865 to 74d3153 with the data archived first; sec_11 went 11/35 to 35/35, sec_12 20/24 to 27/27, sec_13 5/9 to 8/8; backend 145/149 and frontend 34/42, with every new failure re-run alone and passing except p7_05, which is the host-wide admission gate under a load average of 141 from other tenants and is now a skip; two-sided cleanup clean on jobs, threads, plots and projects"
+- merged: b2416d3
 
 ## Phase 2: Deploy, backup and restore
 
@@ -139,7 +139,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.6 → "the bootstrap command passes all four required arguments, the cron line creates its own log directory, every curl example passes -k, the pointer to the deleted docker-compose.dev.yml is gone, two status rows describing removed features are gone, and nginx.conf's header stops describing a listener and a kill switch that were deleted in August"
 - [done] P2.7: Advance the stack on the fixed scripts, verify, push
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "folded into the merged gate; P3.12's README records the decision and the run it voided"
-- merged: 700b8cc
+- merged: f61604d
 
 ## Phase 3: S2 reliability and correctness
 
@@ -167,7 +167,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.11 → "R-101; agent_02 29/31 before and 36/36 after, a complete draft now raising its own approval card"
 - [done] P3.12: Gate 2 - advance, four suites, live re-checks
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "merged into the single gate at P6.2: the stack sat on one commit through Phases 2 to 5, so running the same four suites three times would have measured the same thing three times"
-- merged: 700b8cc
+- merged: f61604d
 
 ## Phase 4: Settle, then fix
 
@@ -179,7 +179,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.3 → "four identical loads cost 190.7, 17.4, 42.3 and 9.9 MB of RSS in order, so it is a working set filling and not a leak; the 658 threads the review could not explain are two Chroma tokio runtimes sized to this host's 255 cores"
 - [done] P4.4: e2e_13 and M23 - ORCA under load, ENV or CODE
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.4 → "both HARNESS, reproduced identically on an idle stack: M23's two NEB endpoints were the same pyramid so ORCA found no barrier, 4/5 before and 6/6 after; e2e_13's probe carried no task and died at dispatch, 4/10 before, 7/10 with the task, 10/10 once the cap transient is captured as it happens. ORCA's own reason for an exit now reaches the user"
-- merged: ab15209
+- merged: 5a78579
 
 ## Phase 5: The remaining S3 and S4 findings
 
@@ -195,7 +195,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.5 → "plot_04_concurrent_render.py: 6 of 24 concurrent renders came out in the right style before, 24 of 24 after"
 - [done] P5.6: R-100 and the stale specs - the harness stops lying
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P5.6 → "e2e_03, ui_03 and ui_04 no longer fail on panels that work; the toggle-plus-input pattern is written into tests/README.md"
-- merged: 5d16dfe
+- merged: 16014a6
 
 ## Phase 6: Close
 
@@ -209,4 +209,4 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: CHANGELOG.md → "the Unreleased section carries the whole phase written for a reader who did not see the review; HANDOFF gained one entry, that the newly-tracked evidence logs carry this deployment's own job and conversation names and need a human look before any public release; tracker republished and the tailnet URL reported"
 - [done] P6.5: The three deploy_05 failures the gate counted as a pass
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.5 → "deploy_05_deployment_section printed three [FAIL] lines in the Gate 3 frontend run and still exited 0, so the P6.2 close-out never listed it; the same script passes 13 of 13 alone at the same commit, and it now prints which parts of the page were on screen when a check fails instead of guessing at a cause"
-- merged: 0f3d91e
+- merged: 36c49f0

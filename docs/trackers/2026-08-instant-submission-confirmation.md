@@ -76,7 +76,7 @@ its first paragraph.
 - [done] P0.2: Confirmed nothing downstream depends on that turn existing
   evidence: app/agent/graph.py → "messages[-1] is read in exactly one place in app/ and server/ (_should_continue); the client ends a turn on the turn_complete SSE event alone (frontend/src/lib/chatStore.ts), never on token count; draft_status is cleared inside _finish_submission's own Command, so the watcher's held-summary release does not depend on the agent node running"
 
-- merged: 3cc168a
+- merged: 92e7ab3
 
 ## Phase 1: A receipt the app can write a message from
 
@@ -87,7 +87,7 @@ its first paragraph.
 - [done] P1.3: The tool's own message rewritten from an instruction into a record
   evidence: tests/backend/submit_01_confirmation.py → "26/26; the ToolMessage still contains id=<job_id> for e2e_12's grep and now closes with 'do not announce it again', which is what stops the next turn re-announcing the job and moving the narration one turn later instead of removing it"
 
-- merged: 3cc168a
+- merged: 92e7ab3
 
 ## Phase 2: Routing, keyed on tool call ids rather than prose
 
@@ -98,7 +98,7 @@ its first paragraph.
 - [done] P2.3: Auto-chaining preserved through `follow_up_work`
   evidence: tests/backend/submit_01_confirmation.py → "with follow_up_work=True the stub model is called exactly once and the confirmation is still written first, so the user sees it before the chained turn runs; with it false the model is called zero times"
 
-- merged: 3cc168a
+- merged: 92e7ab3
 
 ## Phase 3: The behaviour is pinned and the neighbours still pass
 
@@ -117,7 +117,7 @@ its first paragraph.
 - [done] P3.7: Full backend suite re-run against the rebuilt stack
   evidence: tests/run_backend.sh → "submit_01_confirmation.py 26/26 inside the suite run. Note the runner invokes a bare `python3` and sets no PYTHONPATH, so it must be given both or 39 scripts fail on `No module named 'app'` before executing a single check"
 
-- merged: 8bba83b
+- merged: 32df287
 
 ## Incidental findings
 

@@ -110,7 +110,7 @@ its first paragraph.
 
 - [done] P0.1: Both clobber paths measured against a graph parked at a real interrupt
   evidence: tests/backend/draft_01_summary_defer.py → "starting a turn on an interrupted graph takes interrupts 1→0, next ('tools',)→(), leaves the submit_draft call orphaned and makes a later resume a silent no-op. append_notice's update_state does the same, which is asserted directly so the failure-notice gate cannot be relaxed by accident"
-- merged: 0c54ed0
+- merged: e69f944
 
 ## Phase 1: A drafting exchange is visible in state
 
@@ -120,7 +120,7 @@ its first paragraph.
   evidence: app/agent/state.py → "it claimed submit_draft and start_job_draft write it; nothing ever has. Now says so, and says why a non-empty job_draft must never be read as 'a draft is being assembled'"
 - [done] P1.3: Written at the mechanical points, and only those
   evidence: tests/backend/draft_01_summary_defer.py → "start_job_draft stamps it with a timestamp; both _finish_submission branches clear it; submit_draft with nothing assembled deliberately does not, since that call lands one step before start_job_draft"
-- merged: 0c54ed0
+- merged: e69f944
 
 ## Phase 2: The gate, evaluated under the lock
 
@@ -128,7 +128,7 @@ its first paragraph.
   evidence: tests/backend/draft_01_summary_defer.py → "a turn already inside invoke_turn_if_idle, blocked on the lock, defers when a draft appears while it waits. This is the case that fails without the in-lock re-check"
 - [done] P2.2: Lock-free reads stay lock-free
   evidence: tests/backend/perf_06_lockfree_reads.py → "4/4; read_state 0.018s and pending_approval 0.013s against a 1.0s budget while a turn held the lock"
-- merged: 0c54ed0
+- merged: e69f944
 
 ## Phase 3: The watcher holds, and delivers later
 
@@ -140,7 +140,7 @@ its first paragraph.
   evidence: tests/backend/draft_01_summary_defer.py → "the death notice lands mid-draft with no agent turn; with a card open it waits, the card survives, and the job stays unseen so the notice is not lost"
 - [done] P3.4: An abandoned draft expires
   evidence: tests/backend/draft_01_summary_defer.py → "a draft older than DRAFT_HOLD_SECONDS stops holding, a fresh one on the same thread holds again, and with the window set to 0 the hold never expires"
-- merged: 0c54ed0
+- merged: e69f944
 
 ## Phase 4: Nothing else moved
 
@@ -150,4 +150,4 @@ its first paragraph.
   evidence: tests/backend/p8_02_cas_reco_followup.py → "14/14, after repointing its monkeypatch at invoke_turn_if_idle"
 - [done] P4.3: Draft flow, capability guards and scans unaffected
   evidence: tests/backend/agent_02_draft_flow.py → "35/35; agent_03 12/12, agent_06 18/18, casreco_05 24/24, scan_02 64/64, approval_01 6/6"
-- merged: 0c54ed0
+- merged: e69f944

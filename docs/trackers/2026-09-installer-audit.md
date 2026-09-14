@@ -94,7 +94,7 @@ than a test harness that fakes one.
   fast-forward cannot swap the library mid-run
   evidence: tests/backend/deploy_02_deployed_commit.py → "14/14 against update.sh sourcing the library, up from 11 checks before -- health_urls now lifted from scripts/lib/common.sh via the fixture's existing path= argument, so its five port-discovery cases cover install.sh too"
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## Phase 2: Stop the silent deaths
 
@@ -122,7 +122,7 @@ than a test harness that fakes one.
 - [done] P2.10: `readlink -f` engine paths, and prove the mount inside the container
   evidence: scripts/install.sh → "engine paths go through `readlink -f` before their directory becomes a bind mount, and after the stack is up `docker compose exec -T api test -x <path>` confirms each configured engine is executable inside the container"
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## Phase 3: Preflight that fails in ten seconds, not ten minutes
 
@@ -131,7 +131,7 @@ than a test harness that fakes one.
 - [done] P3.2: The same preflight runs from `update.sh`, which had none
   evidence: scripts/update.sh → "update.sh had no `command -v` check of any kind and now runs the same require_tools/require_docker before it touches the checkout, instead of failing part-way through an update on a host missing curl"
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## Phase 4: Progress indicators
 
@@ -147,7 +147,7 @@ than a test harness that fakes one.
 - [done] P4.4: The build announces its cost; the summary reports elapsed total
   evidence: scripts/install.sh → "the build step states that it takes ten to twenty minutes once, reports its own duration, and the summary reports the whole install's elapsed time via qc_elapsed_human"
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## Phase 5: Fewer questions, and only true statements
 
@@ -164,7 +164,7 @@ than a test harness that fakes one.
   script about prerequisites, prologue length and step count
   evidence: tests/backend/install_01_static.py → "the check 'README's install section names every tool install.sh requires' passes against `require_tools git docker openssl curl`, where README had omitted openssl and curl and listed Ollama as a prerequisite the installer only ever warns about. DEPLOYMENT.md and ARCHITECTURE.md said 'about forty lines come off the pipe' for a prologue the test measures at 192; DEPLOYMENT.md said 'Nothing generates the certificate for you' two sections after recommending the installer that calls gen_intranet_cert.sh, and 'Both nginx listeners' where nginx.conf has one server block. The four step counts that disagreed (header 1-10 plus 5b, README 9, DEPLOYMENT 'steps 1-8', 16 banners emitted) are now one list of ten, matched by name against the script's own `step` calls"
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## Phase 6: A test that runs, and a mode that can be scripted
 
@@ -183,7 +183,7 @@ than a test harness that fakes one.
 
 ---
 
-- merged: 7a6f91c70742513eadf7bf723f333ed41bb7ce11
+- merged: 1b53214f49dc1198d45fc472304144ec3afc6161
 
 ## What the end-to-end run caught that nothing else did
 

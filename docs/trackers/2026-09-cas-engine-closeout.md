@@ -56,8 +56,8 @@ method document from a mid-flight run.
 Three things made a third round necessary rather than optional.
 
 **No committed ledger measures the shipped engine.** `spaces.md` is stamped
-`86b8dc3`, `narrowed.md` `ad4a86e`, `refine.md` and `nevpt2.md` `77b692d`,
-against a `HEAD` of `2049bc5`; `stability` and `excited` have never had one
+`81447e1`, `narrowed.md` `e0d00de`, `refine.md` and `nevpt2.md` `0e4109e`,
+against a `HEAD` of `ced78cb`; `stability` and `excited` have never had one
 committed at all. So every quantitative claim in the method document is
 provisional.
 
@@ -82,11 +82,11 @@ energy carries the reference energy it was taken from.
 ## Phase 0: A baseline that can be trusted
 
 - [done] P0.1: Ledger records a dirty working tree
-  evidence: scripts/casbench/ledger.py -> "stamp reads 2049bc5+dirty with the source edited and 2049bc5 clean; the first attempt reported clean either way, because a pathspec resolves against the cwd it is run in and that is this file's own directory"
+  evidence: scripts/casbench/ledger.py -> "stamp reads ced78cb+dirty with the source edited and ced78cb clean; the first attempt reported clean either way, because a pathspec resolves against the cwd it is run in and that is this file's own directory"
 - [done] P0.3: Ledger records the thread counts in force
   evidence: scripts/casbench/ledger.py -> "header now reads `in 1s, with omp=8, mkl=12`; this host sets the two to different values in its shell profile, which nothing recorded before"
 - [done] P0.2: A baseline at a known commit, for the sets a baseline helps
-  evidence: docs/casbench/spaces.md -> "spaces 31s, stability 406s and excited 1787s all stamped d524f08 with omp=8, mkl=12; stability and excited had never had a committed ledger at all"
+  evidence: docs/casbench/spaces.md -> "spaces 31s, stability 406s and excited 1787s all stamped f12ca27 with omp=8, mkl=12; stability and excited had never had a committed ledger at all"
 - [done] P0.4: Decide which sets a baseline is worth waiting for
   evidence: docs/TRACKER.md -> "nevpt2 abandoned mid-run because P10 changes its protocol, so a before under the old one compares against nothing; refine and narrowed are measured immediately either side of the change that could move them instead"
 - merged: -
@@ -213,7 +213,7 @@ energy carries the reference energy it was taken from.
 ## Phase 12: The final sweep
 
 - [done] P12.1: All six sets measured at the closing commits
-  evidence: docs/casbench/spaces.md -> "spaces and narrowed at 83e1565, stability and refine at 18c84e8, excited and nevpt2 at cb71eaa; the two earlier ones are not re-run because metals were never in EXCITATIONS and neither set reaches the changed code, and the stamps make that checkable"
+  evidence: docs/casbench/spaces.md -> "spaces and narrowed at 6fe97c0, stability and refine at a7879d0, excited and nevpt2 at 83bb915; the two earlier ones are not re-run because metals were never in EXCITATIONS and neither set reaches the changed code, and the stamps make that checkable"
   design as built: the plan said one sweep at one commit with the refinement uncapped. The metals decision landed mid-sweep and invalidated the four sets that scored them, so those four were re-run and the two that provably could not move were not. The refinement cap went to an hour rather than off, which is what let p-benzoquinone produce a row instead of a timeout.
 - merged: -
 
@@ -514,7 +514,7 @@ five random rotations: acetone, acrolein, formaldehyde, formamide,
 p-benzoquinone and uracil. The legacy AVAS pilot returns 0 of 32.
 
 **This is pre-existing, and the Phase 0 baseline is what proves it.** The
-ledger taken at `d524f08`, before any change in this plan, lists exactly the
+ledger taken at `f12ca27`, before any change in this plan, lists exactly the
 same six molecules at exactly the same counts, with uracil the only movement
 since, from 2 to 3. It was never caught because `--set stability` had never had
 a committed ledger; the set existed and its output went to a terminal.

@@ -1,7 +1,7 @@
 # Resolution of the 2026-09 application review
 
 The review closed on 2026-09-13 with 102 open findings recorded against commit
-`ca7e0ff`: 8 S1, 25 S2, 54 S3 and 15 S4. It was deliberately record-only, so
+`0dcb865`: 8 S1, 25 S2, 54 S3 and 15 S4. It was deliberately record-only, so
 none of them had been acted on. This document is what happened to each.
 
 The decision that shaped the phase was to attempt **all 102**, not the 38 the

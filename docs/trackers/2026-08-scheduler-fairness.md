@@ -7,7 +7,7 @@ ahead of another user's single job. Opened and fixed 2026-08-23; two separate
 defects, one per phase.
 
 It is not a new regression. The admission gate and `_running_job_ids` have not
-changed since `fb96f3e`, the commit that introduced both the fair scheduler and
+changed since `1c12efd`, the commit that introduced both the fair scheduler and
 this test. What changed is that the dev stack's `api` container had been up 21
 hours on a stale image, so this was the first suite run against current `main`
 in some time.
@@ -93,7 +93,7 @@ concurrency cap was simply never given the same treatment.
   evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12 in about a second with no engine, container or database, driving _dispatch_tick with stand-in callables; re-run with the two in-flight counts forced back to zero it drops to 5/12, so it genuinely catches the pre-fix behaviour rather than passing either way"
 - [done] P1.3: `_futures` stops growing without bound
   evidence: app/chemistry/jobs/base.py → "nothing in app/ or server/ ever read _futures -- it was written in _on_admit and never removed, so a long-lived backend accumulated one completed Future per job forever; now dropped in _run's finally, the one path every outcome including cancellation passes through"
-- merged: 17042e2
+- merged: 9fb7396
 
 ## Phase 2: Make the rotation rotate
 
@@ -121,4 +121,4 @@ owners behind them are admitted and carry the pointer forward.
   evidence: tests/backend/perf_04_fair_scheduling.py → "5/5 against the live stack, admission order A,B,A,A,A,A,A where it was A,A,B,A,A,A,A -- user B's single job is now admitted in the rotation immediately after user A's first, not behind A's whole burst"
 - [done] P2.2: The fast test covers ordering too, not only the cap arithmetic
   evidence: tests/backend/perf_05_admission_cap_arithmetic.py → "12/12, including a burst-plus-latecomer case that reproduces perf_04's shape in memory: B is admitted second, and A never takes two consecutive slots while B is still queued"
-- merged: 17042e2
+- merged: 9fb7396

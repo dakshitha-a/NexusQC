@@ -29,7 +29,7 @@ unconditionally from the same `RefineResult`, which is constructed at exactly
 one place with `occupations` taken from `state_averaged_occupations(mc)`, one
 number per active orbital. There is no path that produces a summary with the
 rotation trail present and the occupations absent. Both keys were already
-being written at `ca7e0ff`, the commit the review ran against, and the spec
+being written at `0dcb865`, the commit the review ran against, and the spec
 itself has not changed since. So the review's own combination, rotations
 rendering while the occupation table rendered nothing, cannot come from the
 data.

@@ -73,4 +73,4 @@ reader nothing even when it is safe.
 - [done] P1.2: The download check describes the body instead of dumping it
   evidence: tests/backend/proj_03_ownership.py -> "The line now reads '200 <application/zip, 1253 bytes>' rather than 150 characters of zip header. Run through the exact filter that lost it before, proj_03 reports 15/15, and all five scripts in that batch now report: 12/12, 32/32, 15/15, 34/34, 9/9. The escape in check() alone would have made it safe; this makes it useful, since escaped binary tells a reader nothing"
 
-- merged: 45a7305
+- merged: 9c019b0

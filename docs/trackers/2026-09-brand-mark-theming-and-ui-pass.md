@@ -92,7 +92,7 @@ is the case that kills detailed marks.
   evidence: frontend/public/favicon.svg → "the purple scaffold glyph is gone and public/ now holds only the new mark; icons.svg, a Bluesky/Discord/X sprite that grep found referenced nowhere in src, index.html or nginx, is deleted"
 - [done] P1.4: README assets that render without CSS or webfonts
   evidence: docs/logo.svg → "every colour is an explicit hex and there is no text element, so GitHub, which renders SVG with no CSS context and no webfonts, shows the same mark the app does"
-- merged: dd58b80654d32e8a608c33a5db356c84ffc63ae1
+- merged: 9d9c22c6886be02a5dce5bcbab2b4d1d9164e7b2
 
 ## Phase 2: Tokens, type scale, and the appearance store
 
@@ -111,7 +111,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "keyboard focus draws a visible ring: solid 2px, where before only the range inputs had one"
 - [done] P2.6: The 3D viewer follows the theme without remounting
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "the canvas toDataURL differs after a theme switch AND the canvas still carries the marker set on it beforehand, so it repainted rather than being rebuilt"
-- merged: 12adf6a6c1567524fa28fceebd8a7fc9f6c50723
+- merged: 7d726aa1e56639dc4a09db91261c864f1024e319
 
 ## Phase 3: A place to change it
 
@@ -119,7 +119,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "26/26, including that the four theme cards preview in four different real background colours rather than four drawings, and that the sidebar grows from 288 to 389px at the largest text size"
 - [done] P3.2: A palette control beside the cogwheel, in both rail states
   evidence: tests/frontend/ui_11_appearance.spec.mjs → "the palette control is in the sidebar header; it is rendered in the collapsed strip too, independently of UserMenu, which returns null when there is no user"
-- merged: 12adf6a6c1567524fa28fceebd8a7fc9f6c50723
+- merged: 7d726aa1e56639dc4a09db91261c864f1024e319
 
 ## Phase 4: The rail and the dock stop fighting for room
 
@@ -131,7 +131,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_shots.mjs → "shell-balmer-fs1-1920.png: the Knowledge base and Files headers carry a 14px ring instead of a subHeader row each, and the numbers appear as text only above 80 per cent"
 - [done] P4.4: The dock's collapsed strip reaches its own panels
   evidence: tests/frontend/ui_13_collapsed_plus.spec.mjs → "all four icons open the dock with their own section expanded; they were inert divs with tooltips before"
-- merged: 1019a50dfb8d9493530615494205c671775949d1
+- merged: 660fe4299ebc3828fa389a66580e81e0ee599998
 
 ## Phase 5: One search field, and a toolbar that earns its row
 
@@ -141,7 +141,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "33/33, including that the search box does not exist until asked for and that opening it is the only thing that pushes the first job row down"
 - [done] P5.3: The four specs that pinned the old shapes
   evidence: tests/frontend/proj_01_archive_roundtrip.spec.mjs → "40/40; page.check/uncheck needed a real checkbox, so it reads aria-pressed and clicks only when the state has to change"
-- merged: 1019a50dfb8d9493530615494205c671775949d1
+- merged: 660fe4299ebc3828fa389a66580e81e0ee599998
 
 ## Phase 6: Chat, sign-in, welcome, and the bugs found on the way
 
@@ -153,7 +153,7 @@ four themes at the extremes of the text-size range before Phase 3 starts.
   evidence: tests/frontend/ui_15_identity_and_chat_header.spec.mjs → "the unsupported-engine cell is an en dash and no cell is a bare comma; and a walk of every text node and title attribute on the signed-in screen finds no ' -- ', which catches a new one wherever it appears rather than only where grep was pointed"
 - [done] P6.4: The hairline and the engine hues, applied consistently
   evidence: tests/frontend/ui_shots.mjs → "shell-balmer-fs1-1920.png: pyscf teal and orca violet on the job rows, the active conversation carrying the hairline and a faint wash rather than a flat accent tint. The running row's hairline is the only thing in the app that animates unasked"
-- merged: 10684b94cd4074743040e030f4c2330e6eff8924
+- merged: 1bd76c142cbd1826c8a745c7edd33f1e1d56f5c3
 
 ## Phase 7: Proof, docs, and the deployment
 
@@ -164,5 +164,5 @@ four themes at the extremes of the text-size range before Phase 3 starts.
 - [done] P7.3: README, screenshots and the architecture note
   evidence: tests/frontend/docs_shots.mjs → "docs/screenshot.png and docs/screenshot-results.png retaken from the live stack, the first driven through a real agent turn to the approval card; the README leads with the mark, and docs/ARCHITECTURE.md gained the theming contract and the viewer note"
 - [done] P7.4: The dev stack rebuilt onto the new bundle
-  evidence: scripts/extract_frontend.sh → "api image rebuilt and the bundle extracted, stamped 4b2a85087c5a; the extracted bundle is byte-identical to a host npm run build (diff -rq, no differences), and ui_13 23/23, ui_15 10/10 and ui_14 204/204 pass against the recreated stack"
-- merged: a2fabad50b18944ec07f45fbbe78b30def663ec0
+  evidence: scripts/extract_frontend.sh → "api image rebuilt and the bundle extracted, stamped 74e4af3622ff; the extracted bundle is byte-identical to a host npm run build (diff -rq, no differences), and ui_13 23/23, ui_15 10/10 and ui_14 204/204 pass against the recreated stack"
+- merged: 1f6a665ef422da5e8c093ecf30c44222e5324141

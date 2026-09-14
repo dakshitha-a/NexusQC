@@ -88,7 +88,7 @@ leaving clutter behind.
   evidence: tests/backend/zz_99_job_cleanup.py → "2/2 end to end: with one job pre-existing and one created after the baseline, it deleted exactly the created one and the pre-existing job survived; sorts last under run_backend.sh's own find|sort, and verifies against GET /api/jobs rather than trusting the delete responses"
 - [done] P1.4: With no baseline it refuses rather than guessing
   evidence: tests/backend/zz_99_job_cleanup.py → "run with no tests/.jobs_before_run present it reported [SKIP] and deleted nothing, which is the behaviour that makes the sweep safe to ship at all"
-- merged: 22fbf0e
+- merged: a522479
 
 ## Note for whoever writes the next test script
 

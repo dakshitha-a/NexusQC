@@ -109,7 +109,7 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P1.7: The neighbour that asserted the old behaviour was updated, not left to rot
   evidence: tests/backend/submit_01_confirmation.py → "27/27. Its rejection scenario asserted 'a rejection still goes to the model', which this phase inverts, so it now asserts that the two app-authored nodes stay told apart and points at reject_01 for the fuller coverage"
 
-- merged: e6ef39b
+- merged: fd672fa
 
 ## Phase 2: A cancelled job notifies without a turn
 
@@ -122,7 +122,7 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P2.4: The turn buckets and their neighbours still behave
   evidence: tests/backend/fail_01_notice_flow.py -> "20/20"; casreco_05_reporting_hygiene.py -> "24/24"; p8_02_cas_reco_followup.py -> "14 passed, 0 failed"; draft_01_summary_defer.py -> "41/41". _agent_notice lost its cancelled_ids parameter, so the two scripts calling it positionally were updated with it
 
-- merged: f045d07
+- merged: 49fef51
 
 ## Phase 3: A ready draft goes straight to the approval card
 
@@ -139,7 +139,7 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P3.6: The prompt and the fixed surface still fit their budgets
   evidence: tests/backend/agent_01_token_budget.py -> "13/13. The system prompt is 6,122 bytes against a 6 KB cap, helped by retiring the paragraph that existed to push the model over this exact hop, and the fixed surface is 9,874 tokens against a 10,000 cap with the two new arguments on the wire"
 
-- merged: 5790a89
+- merged: 437dbdd
 
 ## Phase 4: Three defects the sweep found
 
@@ -152,7 +152,7 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P4.4: The neighbours still pass
   evidence: tests/backend/draft_01_summary_defer.py -> "41/41, the one that counts notice-carrying messages and so was the real risk in marking an injected HumanMessage"; cancel_01_notice_flow.py -> "11/11"; fail_01_notice_flow.py -> "20/20"
 
-- merged: 7288484
+- merged: e6bf92c
 
 ## Phase 5: The long-conversation cliff
 
@@ -167,7 +167,7 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P5.5: The budget test stops keeping its own copy of the assembly
   evidence: tests/backend/agent_05_context_budget.py -> "0 failures against the real served model. It reproduced _agent_node's prompt building locally, which would have gone on measuring the old shape and reporting it healthy; it now calls build_prompt_messages, the same function the agent node uses"
 
-- merged: 8753ff7
+- merged: e99e3b4
 
 ## Phase 6: Confirmed in a real browser, which is where this is visible
 
@@ -180,4 +180,4 @@ router. Phase 4 is independent. Phase 5 touches nothing the others touch.
 - [done] P6.4: The test data was tracked and left nothing behind
   evidence: a diff of data/jobs and data/threads.json taken before and after both runs -> "no new job directories and no new threads. Both specs delete the account they create, which takes its conversation with it, and submit_02 deletes the job it ran"
 
-- merged: cd585cc
+- merged: 00f474f

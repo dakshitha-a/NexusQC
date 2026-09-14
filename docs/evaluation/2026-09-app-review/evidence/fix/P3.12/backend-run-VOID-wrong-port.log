@@ -1892,13 +1892,13 @@ httpx.ConnectError: [Errno 111] Connection refused
 ==================================================================
   tests/backend/deploy_02_deployed_commit.py
 ==================================================================
-[PASS] a stamped image reports the commit it was built from -- f67f30f3f124ebf89c22fefb20316b52328ff3d0
-[PASS] a short sha in the label is resolved to the full commit -- f67f30f3f124ebf89c22fefb20316b52328ff3d0
+[PASS] a stamped image reports the commit it was built from -- 98774c1481b06122d5cb8c680b9e0ba152c802d0
+[PASS] a short sha in the label is resolved to the full commit -- 98774c1481b06122d5cb8c680b9e0ba152c802d0
 [PASS] an image built outside this script (unknown) reports nothing -- ''
 [PASS] an image with no label at all reports nothing -- ''
 [PASS] a label naming a commit this checkout has never seen reports nothing -- ''
 [PASS] a stack that is down answers 'cannot tell' instead of aborting the update -- ''
-[PASS] a stamped frontend bundle reports the commit it was built from -- f67f30f3f124ebf89c22fefb20316b52328ff3d0
+[PASS] a stamped frontend bundle reports the commit it was built from -- 98774c1481b06122d5cb8c680b9e0ba152c802d0
 [PASS] a bundle with no stamp file reports nothing -- ''
 [PASS] an empty stamp file reports nothing -- ''
 [PASS] a remapped host port is found rather than assumed -- https://127.0.0.1:8444

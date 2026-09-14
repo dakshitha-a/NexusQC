@@ -92,7 +92,7 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P1.2: A user search that exposes no more than it must
   evidence: tests/backend/share_01_user_search.py -> "15/15. The projection is asserted key by key rather than by a no-secrets heuristic: exactly id/username/first_name/last_name, so neither _user_public (email, role) nor get_user_by_login (password_hash) can be swapped in later without failing here. A user is findable by first or last name, not only by handle; the caller is excluded from their own results; a 0- or 1-character query returns [] rather than the roster; '%%' is escaped to a literal; a suspended account is not offerable; anonymous callers get 401"
 
-- merged: 82f2009
+- merged: cdaa323
 
 
 ## Phase 2: The copy primitive
@@ -106,7 +106,7 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P2.4: A master copies as a whole family
   evidence: tests/backend/share_05_master_and_plots.py -> "A real pes_1d scan is copied with every child: fresh ids, parent_job_id repointed at the new master, children.jsonl regenerated, _scan_index preserved so images keep their order. Children are asserted to be deliberately UNOWNED, matching submit -- _job_candidates does not skip child jobs, so an owned child would be an independent eviction candidate and quota pressure could delete one out from under its master. Counts are asserted against the source, not a hardcoded three, because a 3-point scan currently yields five sub-jobs (docs/BACKLOG.md)"
 
-- merged: 82f2009
+- merged: cdaa323
 
 
 ## Phase 3: Quota headroom and the share lifecycle
@@ -118,7 +118,7 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P3.3: Accepting a project share
   evidence: tests/backend/share_03_lifecycle.py -> "The recipient gets their OWN project holding their own copies: the new project's job_ids share no id with the sender's, so neither add_jobs' one-project-per-job rule nor the sender's own archive is disturbed, and the sender still has their original project afterwards"
 
-- merged: 82f2009
+- merged: cdaa323
 
 
 ## Phase 4: The share dialog and the user picker
@@ -130,7 +130,7 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P4.3: Entry points on jobs and projects
   evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "25/25. Reachable from the job manager's selection bar (single selection only, since a share is one offer of one thing), the job drawer's header action row for a finished job, and the project row's hover cluster. Labelled 'Send a copy' rather than 'Share' for two reasons: it says what actually happens, and Playwright's has-text is a case-insensitive SUBSTRING match, so a control named 'Share' would also match 'Shared with me' in the rail"
 
-- merged: 09a02b6
+- merged: aa979e9
 
 
 ## Phase 5: The inbox in the left rail
@@ -142,7 +142,7 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P5.3: A provenance badge on a received job
   evidence: tests/frontend/share_01_share_roundtrip.spec.mjs -> "The copy carries a 'from <sender>' badge in the job manager, the same icon-plus-10px-muted-text shape as the project badge above it, fed by a shared_from field on meta.json surfaced through _job_row. Without it a received copy is indistinguishable from a job the user ran themselves"
 
-- merged: 09a02b6
+- merged: aa979e9
 
 
 ## Phase 6: The whole workflow in a browser, and the docs
@@ -154,4 +154,4 @@ owner, which is the shape of the F-022 and SEC-06 bugs.
 - [done] P6.3: The docs say why a share is a copy
   evidence: docs/ARCHITECTURE.md -> "A Sharing section covering the decisions worth not relitigating: why a copy rather than a grant and the three places a grant collides with the codebase, why spec.json is written last and ownership recorded before it, the two artifact shapes a directory copy gets wrong, why a master's children stay unowned, why accepting refuses instead of evicting, what the picker publishes, and why conversations are excluded. README.md and CHANGELOG.md carry the user-facing version; docs/BACKLOG.md carries two incidental findings"
 
-- merged: 09a02b6
+- merged: aa979e9

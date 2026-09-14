@@ -108,10 +108,10 @@ removed the test user
 ======================================================================
   deploy_05_deployment_section.spec.mjs
 ======================================================================
-[PASS] /api/version answers with a commit -- c5e8835c850f92fe717b2c10389da94a06b1e6a1
+[PASS] /api/version answers with a commit -- 74d3153296e580ba407f167484b82dead0cd4dfd
 [PASS] the Deployment nav entry is rendered in the admin panel
 [PASS] the Deployment section mounts and draws its first heading
-[PASS] the section prints the API commit the deployment actually reports -- looking for c5e8835c850f
+[PASS] the section prints the API commit the deployment actually reports -- looking for 74d3153296e5
 [PASS] it labels one of them as this browser tab's own build
 [PASS] with the tab and the server in step, no stale-build warning is shown -- a reload prompt appeared when both commits agree
 [PASS] with somebody else working, the section names them instead of claiming it is idle -- others_interrupted=1: qatest_cas19_kady7s

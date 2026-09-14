@@ -67,7 +67,7 @@ records its merge hash only once every step in it is done.
 ## Phase 0: harness and environment
 
 - [done] P0.1: record the run manifest (app commit, model tag, temperature, engine versions, host)
-  evidence: rsc_digital_discovery/evaluation/run_manifest.yaml records commit 3d65089, qwen3.8:27b at temperature 0.1, PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2
+  evidence: rsc_digital_discovery/evaluation/run_manifest.yaml records commit a2a58c4, qwen3.8:27b at temperature 0.1, PySCF 2.14.0, ORCA 6.1.1, BAGEL 1.2.2
 - [done] P0.2: harness module driving a real conversational turn end to end
   evidence: rsc_digital_discovery/evaluation/harness/nexus.py opens the event stream before posting, so a turn cannot complete before the harness is listening
 - [done] P0.3: vertical slice on one condition-A task, proving the whole scoring path

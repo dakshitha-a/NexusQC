@@ -42,7 +42,7 @@ from app.config import N_CORES
 # job why it is waiting, which wants a real job directory on disk. These job
 # ids are fictional, and creating directories for them would litter
 # data/jobs with entries no job ever backed -- exactly what
-# "a job directory is only a job if it holds a spec" (1baf140) had to clean
+# "a job directory is only a job if it holds a spec" (087d9b7) had to clean
 # up after. So the write is captured instead, which also makes the reason
 # text assertable.
 PENDING_MESSAGES: list[tuple[str, str]] = []

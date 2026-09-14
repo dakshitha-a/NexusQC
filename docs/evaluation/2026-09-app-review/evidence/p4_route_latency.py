@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """P4.2 and P4.3: route latency and per-tab polling cost, measured against the
-frozen deployment (ca7e0ff).
+frozen deployment (0dcb865).
 
 P4.2 times the read routes a loaded deployment leans on, at whatever job count
 the stack currently holds, and reports p50/p95 over N samples each. It does NOT
@@ -69,7 +69,7 @@ def main():
     threads = user.get("/api/threads").json()
     threads = threads if isinstance(threads, list) else threads.get("threads", [])
     context = {"measured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-               "commit": "ca7e0ff", "jobs_admin_sees": njobs, "threads_qa_review_has": len(threads)}
+               "commit": "0dcb865", "jobs_admin_sees": njobs, "threads_qa_review_has": len(threads)}
 
     rows = []
     # P4.2: the read routes a busy deployment leans on.

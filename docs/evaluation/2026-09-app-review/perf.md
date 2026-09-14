@@ -2,7 +2,7 @@
 
 Every figure here carries the command that produced it and the conditions it
 ran under, per the standing rule, so a reader can reconstruct it. All against
-the frozen commit `ca7e0ff`, on this shared workstation (255 cores, 1 TB RAM,
+the frozen commit `0dcb865`, on this shared workstation (255 cores, 1 TB RAM,
 host load noted where it matters).
 
 ## Time to first token, warm, and under concurrency (P4.1)

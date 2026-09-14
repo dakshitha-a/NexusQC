@@ -9,13 +9,13 @@ when it is attached or tagged into a conversation. Opened 2026-08-24.
 
 ## What is wrong
 
-`e98ba04` made the geometry flyout open by itself for a completed optimization.
+`cdd4df0` made the geometry flyout open by itself for a completed optimization.
 That put the job's main result in an overlay covering the rest of the drawer,
 and left the same geometry reachable from two places at once. An opt job's
 product IS a geometry, so it belongs in the preview pane as its own section,
 the way an interpolated-path scan already shows its path viewer.
 
-`699c70a` made the server-rendered PES plot the preview for an interpolated
+`c86e04b` made the server-rendered PES plot the preview for an interpolated
 scan, which is right, but it left `tests/frontend/scan_03_excited_state_drawer.
 spec.mjs` asserting on a mini chart that no longer renders for a finished scan.
 
@@ -97,7 +97,7 @@ set panels; the fix is to use it rather than to invent a second overlay.
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → "no flyout opens by itself, the embedded panel renders the molecule (canvas read back via toDataURL, several hundred distinct colours), and the .xyz download and coordinates toggle both work inline"
 - [done] P1.2: the header shortcut button stops competing with it
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → "the View geometry button is absent for a job with an optimized geometry, and the interpolation drawer's own Scan path viewer and PES plot are untouched"
-- merged: 3ab94e4
+- merged: bd5f394
 
 ## Phase 2: The specs match what the drawer now does
 
@@ -107,7 +107,7 @@ Both breakages are real and were found by running the suite, not by reading it.
   evidence: tests/frontend/scan_03_excited_state_drawer.spec.mjs → "9/9 against the live stack: the finished scan's preview is the 2400x1800 server-rendered PNG with no mini chart underneath it, and aborting the pes_plot request trips ScanPlot's own onError path, which puts back the three-series chart with its Ground state / State 1 / State 2 legend"
 - [done] P2.2: opt_02 switches drawers deterministically and deletes the jobs it seeds
   evidence: tests/frontend/opt_02_optimization_drawer.spec.mjs → "16/16, up from 9/11: waiting for the first dialog to detach and for the second to show the CI job's own id fixed two failures that were the constrained job's drawer still being on screen; both seeded jobs are gone from data/jobs afterwards"
-- merged: a53c04a
+- merged: 168cfc5
 
 ## Phase 3: An interpolated path's geometries travel with the job
 
@@ -123,7 +123,7 @@ or "run a frequency job at the top of the barrier".
   evidence: tests/backend/attach_01_path_geometries.py → "15/15 in the api container: a 4-image path carries every image's xyz block while still running and after finishing, a plain single point carries the one structure it ran on, a Wigner ensemble is excluded by task, an NEB band reads through the same reader under its own neb_frames key, and past the atom-line limit the endpoints survive and the middle is described"
 - [done] P3.2: the agent can start a new job from one named image of an attached path
   evidence: tests/backend/attach_02_job_from_path_image.py → "13/13: source_geometry_image resolves to that image's own coordinates rather than the master's arbitrary spec molecule, counts from 1, takes charge and multiplicity from the master, refuses image 0, image 99 and an image on a job that is not a path (each saying how to fix it), and both validate_draft passes agree so the approval card cannot describe a different structure than the one that runs"
-- merged: 54b40d3
+- merged: 83ade9a
 
 ## Phase 4: One unit conversion the agent and the plotter share
 
@@ -145,4 +145,4 @@ this project's one-mechanism rule targets.
   evidence: tests/backend/units_01_energy_conversions.py → "22/22: 1 hartree = 27.211386 eV = 219474.63 cm-1, 400 nm = 3.09960 eV, nm and cm-1 both survive round trips, an energy of zero is refused a wavelength rather than given infinity, and app/chemistry/spectrum.py's two private constants now come from the same table"
 - [done] P4.2: custom plots take the same conversion, plus a chosen zero for relative energies
   evidence: tests/backend/units_01_energy_conversions.py → "a real 3-image scan drawn with y_reference_hartree cached the converted values (first point exactly 0.0, axis labelled 'Energy relative to -74.9627 hartree (eV)'); a reference implies eV, refuses nm and cm-1 with the reason, and a field whose name carries no unit is asked about via y_units_from rather than assumed"
-- merged: 518b2d0
+- merged: 9bc8dc2

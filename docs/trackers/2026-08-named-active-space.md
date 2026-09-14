@@ -135,7 +135,7 @@ Format for a step row:
   evidence: tests/backend/active_01_named_orbitals.py → "too few, too many, a repeated orbital and a zero or negative index each stop the draft with the reason named, ask about the orbitals rather than something else, and leave the user's list in the draft instead of discarding it"
 - [done] P1.3: Tell a user on ORCA which engines can do this
   evidence: tests/backend/active_01_named_orbitals.py → "an ORCA draft naming orbitals asks which engine to use, offers bagel and pyscf as the options, and says what dropping the list would mean instead of letting the field vanish because applies_when gated it off"
-- merged: deb4c22
+- merged: c8ce681
 
 ## Phase 2: Both engines that can express it
 
@@ -145,4 +145,4 @@ Format for a step row:
   evidence: tests/backend/active_01_named_orbitals.py → "three real water CAS(4,4) runs: the default space, orbitals 3,4,5,6 and orbitals 3,4,5,7 all give different energies, so sort_mo is really applied and not quietly ignored; base=1 is spelled out in the preview and at the call site, and the optimization path converges its SCF first because geomeTRIC hands it an un-run one and an orbital index into None means nothing"
 - [done] P2.3: Run the user's own active space as a structured job
   evidence: tests/backend/active_01_named_orbitals.py → "every CASSCF-family summary records the named space when there was one and stays silent when there was not, so an ordinary job's summary table gains no empty row; the drawer already renders this key for an active-space recommendation, so the request and the result read in the same vocabulary"
-- merged: deb4c22
+- merged: c8ce681

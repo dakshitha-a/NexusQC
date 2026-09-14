@@ -73,7 +73,7 @@ the file and hoping.
 - [done] P1.5: an export format nothing implements is refused rather than ignored
   evidence: tests/backend/plot_03_style_actually_lands.py → "style 'fmt': svg export is not available yet ...; png still accepted"
 
-- merged: 8649643
+- merged: 28ba51f
 
 ### What P1.3 and P1.4 looked like in practice
 
@@ -118,7 +118,7 @@ rather than a repair.
 - [done] P2.3: `fmt` renders SVG and PDF, and the refusal added in P1.5 goes
   evidence: tests/backend/plot_03_style_actually_lands.py → "png/svg/pdf accepted and carried, case-folded; tiff still refused"
 
-- merged: 93a4a12
+- merged: 6e2a739
 
 **The shape worth keeping.** A vector is rendered ALONGSIDE the PNG, never
 instead of it. The Plots panel, the chat bubble and the job drawer all display
@@ -195,7 +195,7 @@ checked and have been converted; see the commit that did it.
 - [done] P3.8: difference between two spectra
   evidence: _plot_spectra's `difference` flag → "drawn live from two real excited-state jobs; a single job is refused by name rather than subtracting from nothing"
 
-- merged: b40b007
+- merged: f4b1138
 
 **The defect P3.1 turned up, which is the one worth remembering.** A CASSCF
 job exports NATURAL orbitals: occupancies are real, and every active orbital's
@@ -231,7 +231,7 @@ everything around it scaled with `font_size`.
 
 
 
-- merged: 951d749
+- merged: c9a3b8a
 
 **P4.1 and P4.2 turned out to be one thing.** Reserving headroom and choosing
 where a legend goes both belong to the style, not to a renderer, so they moved
@@ -299,4 +299,4 @@ An ensemble that finished before this cannot be repaired in place, since the
 dipole section was never computed at all; it has to be re-run. That is not
 tracked here as work -- the maintainer re-runs such a job directly.
 
-- merged: dbb707d
+- merged: 0f0d560

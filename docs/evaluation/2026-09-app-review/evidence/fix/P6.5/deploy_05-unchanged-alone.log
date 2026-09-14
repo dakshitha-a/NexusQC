@@ -1,8 +1,8 @@
-# deploy_05 as the gate ran it, unchanged, alone on the advanced stack c6eca86, 2026-09-14T02:44-04:00
-[PASS] /api/version answers with a commit -- c6eca866e3ade78b153422f8c94f37b2090be3ec
+# deploy_05 as the gate ran it, unchanged, alone on the advanced stack 856cca6, 2026-09-14T02:44-04:00
+[PASS] /api/version answers with a commit -- 856cca6919650d99e329d9c8ec080490546bab3b
 [PASS] the Deployment nav entry is rendered in the admin panel
 [PASS] the Deployment section mounts and draws its first heading
-[PASS] the section prints the API commit the deployment actually reports -- looking for c6eca866e3ad
+[PASS] the section prints the API commit the deployment actually reports -- looking for 856cca691965
 [PASS] it labels one of them as this browser tab's own build
 [PASS] with the tab and the server in step, no stale-build warning is shown -- a reload prompt appeared when both commits agree
 [PASS] with somebody else working, the section names them instead of claiming it is idle -- others_interrupted=1: dma

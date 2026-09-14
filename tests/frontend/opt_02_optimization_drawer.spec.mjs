@@ -11,7 +11,7 @@
 // `ci_energy_diff_hartree`) that did not exist before Phase 6, and a
 // silently-empty drawer looks identical to a working one in a code read.
 //
-// It also covers how that geometry is shown (3ab94e4): embedded in the
+// It also covers how that geometry is shown (bd5f394): embedded in the
 // preview pane as its own section, with no flyout opening itself over the
 // drawer and no header shortcut competing with it. That needs a real
 // browser twice over -- the panel's content is a WebGL canvas, which a

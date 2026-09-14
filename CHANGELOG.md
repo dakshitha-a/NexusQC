@@ -2186,7 +2186,7 @@ The self-service danger zone logs `purge_own_data` with the user
 ### Fixed
 
 An internal review of the whole application in September 2026 recorded 102
-findings against commit `ca7e0ff` and deliberately fixed none of them, so that
+findings against commit `0dcb865` and deliberately fixed none of them, so that
 the record would not move while it was being written. This block is the fix
 phase for that review. The full register, with what each finding was, how it
 was reproduced and which commit closed it, is

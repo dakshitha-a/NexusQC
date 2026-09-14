@@ -30,10 +30,10 @@ anything that blocked the review itself; none was needed.
 
 ## The frozen system under test
 
-Everything here is measured against **commit `ca7e0ff`**. The deployment was
+Everything here is measured against **commit `0dcb865`**. The deployment was
 brought to it on 2026-09-11 (`scripts/update.sh`, both the api image and the
-frontend bundle stamped `ca7e0ff`), and held there for the whole review;
-`git diff ca7e0ff..HEAD` over `app server frontend scripts docker nginx` is
+frontend bundle stamped `0dcb865`), and held there for the whole review;
+`git diff 0dcb865..HEAD` over `app server frontend scripts docker nginx` is
 empty throughout, so every review commit is docs and tests only and no finding
 is attributed to a moving target.
 

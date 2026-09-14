@@ -73,7 +73,7 @@ Format for a step row:
 - [done] P1.7: Failed-job notice card + Troubleshoot button
   evidence: tests/frontend/fail_01_notice_card.spec.mjs → "ALL CHECKS PASSED (10/10) in headless chromium against a real dev stack; card renders, survives a full page reload, POSTs 202 to the troubleshoot route and becomes one-shot afterwards"
   smoke: one manual conversation against the served qwen3.8:27b → "turn 1 called set_molecule and resolved water (12.2s); a real troubleshooting turn called search_knowledge_base then submit_job (13.3s), i.e. it consulted the manual and proposed a corrected job through the approval card rather than running anything itself -- also confirming submit_job's changed signature still binds"
-- merged: 5a3b1e6
+- merged: f3c5397
 
 ## Phase 2: Agent rebuild: draft workflow, taxonomy switch, context diet
 
@@ -213,7 +213,7 @@ A red result that means "the server is down" teaches people to ignore red result
   have been the sniffer inventing a second stage that is not in the text. The combined
   `! Opt Freq` keyword line ORCA does support is covered by its own hand-written sample.
 - [done] P2.9: e2e suite update + e2e_18_elicitation.py
-  **executed against the live dev stack** (nginx on :8444, running `main` at c4fe1c7).
+  **executed against the live dev stack** (nginx on :8444, running `main` at 80dc2e1).
   The suite is moved onto the rebuilt toolset:
   `set_molecule`→`set_geometry`, `submit_job`→`submit_draft`, the four plot tools→`plot`,
   and `generate_job_input` retired (e2e_06's T03 now asserts the half that mattered. That
@@ -253,7 +253,7 @@ A red result that means "the server is down" teaches people to ignore red result
   unsupported method produces no job with the agent explaining instead of submitting"
   evidence: tests/e2e/e2e_08_job_matrix.py → "first pass 99/116 with ten failing cells,
   which is what produced almost every fix below. A re-run against the fixed stack is in
-  progress and clean through the first ten cells except M10, whose fix (a6be716) was
+  progress and clean through the first ten cells except M10, whose fix (4019ad6) was
   committed after that deploy"
 
   evidence: tests/e2e/e2e_09_plot_tools.py → "11/12 against the live stack. The four plot
@@ -274,7 +274,7 @@ A red result that means "the server is down" teaches people to ignore red result
     labels this cell "the SLOW probe" and could not distinguish "the model stopped" from
     "the 600s turn cap cut it off", so `timed_out` and elapsed time are now reported on
     that failure.
-  - **M20, M24, M26** are the stalled-after-draft shape whose fix (a6be716) is deployed
+  - **M20, M24, M26** are the stalled-after-draft shape whose fix (4019ad6) is deployed
     but unverified on those specific cells.
   - **M23** fails engine-side, ORCA exits 2 on NEB-TS. Tier 3, `XN-09`, already
     documented as unverified territory; NEB belongs to Phase 7.
@@ -339,7 +339,7 @@ A red result that means "the server is down" teaches people to ignore red result
   - **A ready draft did not carry the engine input, though the tracker and the commit that
     removed `generate_job_input` both said it did.** So "show me the input, don't run it"
     had no answer at all: e2e_06's T03 showed the model setting the geometry and stopping,
-    three attempts running, because nothing offered it a way to comply. Fixed in f171bb5,
+    three attempts running, because nothing offered it a way to comply. Fixed in 742bdaa,
     with a prompt line pointing at it. **T03 has not been re-run yet**. The fix is on
     `main` but the stack was not redeployed before the session ended.
 
@@ -352,7 +352,7 @@ A red result that means "the server is down" teaches people to ignore red result
     response renderer: every poll, every drawer open, forever, for a job that had completed
     perfectly well. It is also what stalled the e2e_08 run. The suite sat retrying a job
     detail that could never succeed, 41 polls in two minutes, and would have spun to its
-    own 90-minute timeout. Fixed at the serialization boundary in 9c057d6 rather than at
+    own 90-minute timeout. Fixed at the serialization boundary in 39bb13f rather than at
     the one field that was caught, since the next engine to emit a NaN should not brick a
     job the same way. Regression checks in tax_02 (22/22).
 
@@ -369,10 +369,10 @@ A red result that means "the server is down" teaches people to ignore red result
     TDDFT", one string carrying both a task and a level of theory. These are now read
     apart. `tddft` resolves to both halves at once (excited states, at DFT), which is
     exactly the conflation the v2 taxonomy exists to undo.
-- merged: 3592b5a
+- merged: 7d1a4e1
   note: merged continuously rather than at one gate. The branch was fast-forwarded onto
-  `main` at 54b558d, twelve commits, no merge commit, and then advanced commit by commit
-  as the e2e run found and fixed things; 3592b5a is the commit that closed the last step.
+  `main` at 66d41ac, twelve commits, no merge commit, and then advanced commit by commit
+  as the e2e run found and fixed things; 7d1a4e1 is the commit that closed the last step.
   The hash stayed blank until then on purpose, because
   `scripts/check_tracker.py` treats a recorded hash as the claim that every step is done,
   and filling it in now makes that check fail. The check is right: this phase was merged
@@ -636,7 +636,7 @@ A red result that means "the server is down" teaches people to ignore red result
   (needs a real agent conversation reaching an approval card and a real job completing) and
   e2e_06_agent_tools.py's refusal loop (needs the same). Both are P2B.7's job.
 - [done] P2B.7: Regression pass: backend suite, job matrix, Playwright approval + drawer
-  Run against the real dev stack (`scripts/dev_stack.sh up`, commit 4eaf81f then the fixes below),
+  Run against the real dev stack (`scripts/dev_stack.sh up`, commit 96726b8 then the fixes below),
   not a worktree. The first time this phase's changes have been exercised end to end rather than
   checked in isolation. Three real, pre-existing bugs were found and fixed along the way, all
   invisible until something finally drove the exact path they sat on:
@@ -657,7 +657,7 @@ A red result that means "the server is down" teaches people to ignore red result
     the bug, not `status.json` to match reality -- the tests were asserting the code was
     internally consistent with itself, not that either matched a real job's shape. All three
     fixed (elicitation.py reads `read_status`; both fixtures now write `status.json`). Predates
-    P2B entirely -- unchanged by 96b6a29's own diff to this function, confirmed by `git show`.
+    P2B entirely -- unchanged by 1323aca's own diff to this function, confirmed by `git show`.
     `tests/backend/elic_01_draft_scenarios.py` (201/201), `tax_01_v2_specs.py` (30/30) re-verified
     after the fix.
   - **`tests/backend/sniff_01_pasted_inputs.py`'s own `generated()` helper was never migrated off
@@ -1457,7 +1457,7 @@ any future uploads-storage cleanup pass.
   of after. Written up as a noted idea in docs/PARSER_GAPS.md, not
   implemented -- new elicitation-flow behavior, out of scope for a
   functional-naming check.
-- merged: f4b24b8
+- merged: 6c9ab45
 
 ## Phase 6: Optimization family
 
@@ -1947,7 +1947,7 @@ so `build_input_preview`'s `dispatch.resolve_runner(spec.task or "",
 spec.subtype or "", spec.method)` resolved `resolve_runner("", "",
 method)` -> "No runner is wired up for / yet.", breaking every neb_ts
 approval-card preview outright. Confirmed via `git log -S` to originate
-in 96b6a29 (P2B.2/P2B.4's task/subtype migration), which changed
+in 1323aca (P2B.2/P2B.4's task/subtype migration), which changed
 `JobSpec(method="neb_ts", ...)` to `JobSpec(method=method or "", ...)`
 without adding the `task="neb_ts"` stamp every other bespoke builder in
 the same function already carries. `tests/e2e/e2e_08_job_matrix.py`
@@ -2369,7 +2369,7 @@ every other builder in `_build_spec_or_error`.
   X's geometry" without task-based routing would silently get an arbitrary
   single point instead of refusing -- fixed with a _NO_SINGLE_GEOMETRY_TASKS
   guard checked by task membership before ever reading result data (shipped
-  separately, commit 296d455). Second, once the advisor tool became
+  separately, commit 5dc5939). Second, once the advisor tool became
   unavailable mid-session, the "conversation context" tier was re-derived
   from first principles by direct code reading rather than left as a
   half-verified plan: check_job_status's own existing fallback
@@ -2724,7 +2724,7 @@ every other builder in `_build_spec_or_error`.
   up_01_lifecycle.py, was a genuine regression: it still asserted P9.6's
   OLD behavior ("attaching a non-.xyz upload is refused, 400"), which
   P9.6 deliberately changed (it now succeeds as a chat-context injection,
-  kind="raw_file") -- fixed (commit 40b32e2), re-run confirms 31/31.
+  kind="raw_file") -- fixed (commit 2ab4538), re-run confirms 31/31.
   tests/e2e/run_e2e.sh (18 scripts, live LLM turns + real compute): 16/17
   on run_e2e.sh's own pass/fail gate; only e2e_00_preflight.py's G2a/G2b
   (QC_AGENT_N_CORES expected "8", app/config.py's real default is now
@@ -2755,7 +2755,7 @@ every other builder in `_build_spec_or_error`.
   _build_input's job_type branching had no plain-HF-energy case either,
   despite capabilities.py declaring bagel/hf energy=True. Nothing had
   ever run this exact combination through the full agent pipeline before
-  this regression pass did. Fixed (commit 03ddb12) by deriving a real
+  this regression pass did. Fixed (commit 1d490e1) by deriving a real
   parser from a real BAGEL run (never guessed from documentation, per
   CLAUDE.md's own parser-verification rule) and wiring
   run_single_point into DISPATCH; M20 now passes 6/6 on the first try,
@@ -2786,7 +2786,7 @@ every other builder in `_build_spec_or_error`.
   merge-hash ledger (every Phase 9 commit, in order -- no branch/merge
   step exists under the current main-only workflow, so this is the
   linear commit sequence rather than a merge commit):
-  c692098 (P9.1), b235197 (P9.1 tracker), fd2eead (P9.2), 296d455 (P9.2
-  fix), 25043ff (P9.3), 054d398 (P9.4), 8e73ef8 (P9.5), c68b148 (P9.6),
-  ee4d859 (P9.7), 40b32e2 (P9.8 test fix), 03ddb12 (P9.8 BAGEL fix).
-- merged: 03ddb12
+  37e0474 (P9.1), 3710ec4 (P9.1 tracker), 0a08bb4 (P9.2), 5dc5939 (P9.2
+  fix), b31d4d3 (P9.3), 4fd740d (P9.4), f176ab0 (P9.5), f2f3720 (P9.6),
+  932972b (P9.7), 2ab4538 (P9.8 test fix), 1d490e1 (P9.8 BAGEL fix).
+- merged: 1d490e1

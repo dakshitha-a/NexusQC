@@ -8,17 +8,17 @@
 
 --- resolving what to update to ----------------------------------------
   ..  fetching origin
-  checkout is at:     c5e8835c850f  Record P1.7 resolution hashes
-  api image built from: ca7e0ff13d24  Hand off the one step this session could not take
-  frontend built from:  ca7e0ff13d24  Hand off the one step this session could not take
-  updating to:        c5e8835c850f  Record P1.7 resolution hashes
+  checkout is at:     74d3153296e5  Record P1.7 resolution hashes
+  api image built from: 0dcb8653d11e  Hand off the one step this session could not take
+  frontend built from:  0dcb8653d11e  Hand off the one step this session could not take
+  updating to:        74d3153296e5  Record P1.7 resolution hashes
   ..  the checkout is already at the target; only the build is behind
 
 --- what this will do to the running deployment ------------------------
 
 Update impact report
-  from  ca7e0ff13d24f827732f5ac2efbd3813fd4e3410  ca7e0ff Hand off the one step this session could not take
-  to    c5e8835c850f92fe717b2c10389da94a06b1e6a1  c5e8835 Record P1.7 resolution hashes
+  from  0dcb8653d11e43990bf4ccbd8aa3a0b79bbdc76c  0dcb865 Hand off the one step this session could not take
+  to    74d3153296e580ba407f167484b82dead0cd4dfd  74d3153 Record P1.7 resolution hashes
   stack <repo>
 
 --- changes between the two commits ------------------------------------
@@ -75,7 +75,7 @@ Update impact report
   ok  full backup taken -- <checkouts>/NexusQC-dev-data-backup/20260913-121130
 
 --- leaving the checkout where it is -----------------------------------
-  ok  already at c5e8835; this update is a rebuild
+  ok  already at 74d3153; this update is a rebuild
 
 --- rebuilding ---------------------------------------------------------
 time="2026-09-13T12:11:42-04:00" level=warning msg="Docker Compose requires buildx plugin to be installed"
@@ -381,11 +381,11 @@ Successfully built a4ef3a0484ae
 Successfully tagged nexusqc_dev-api:latest
  Image nexusqc_dev-api Built 
  Image nexusqc_dev-api Built 
-  ok  images built at c5e8835c850f
+  ok  images built at 74d3153296e5
   ..  reading the bundle out of the api image
  Container nexusqc_dev-api-run-3ced2d28a583 Creating 
  Container nexusqc_dev-api-run-3ced2d28a583 Created 
-  ok  frontend/dist installed from the api image, stamped c5e8835c850f
+  ok  frontend/dist installed from the api image, stamped 74d3153296e5
  Container nexusqc_dev-redis-1 Running 
  Container nexusqc_dev-nginx-1 Running 
  Container nexusqc_dev-postgres-1 Running 
@@ -404,9 +404,9 @@ Successfully tagged nexusqc_dev-api:latest
   ..  health check against: https://127.0.0.1:8444 https://100.101.102.103:8444
   ok  healthy at https://127.0.0.1:8444
   ..  no .update-log entry: the checkout did not move, so an entry would
-  ..  name c5e8835c850f as both the new and the previous commit and
+  ..  name 74d3153296e5 as both the new and the previous commit and
   ..  --rollback would resolve it to a no-op.
 
-updated ca7e0ff13d24 -> c5e8835c850f
+updated 0dcb8653d11e -> 74d3153296e5
   the checkout was already there; the build now matches it.
   hard-reload your browser tab if the frontend changed.

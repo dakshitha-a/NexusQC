@@ -101,7 +101,7 @@ its own, ahead of the input builders.
 - [done] P1.3: A named active space reads as something to check
   evidence: app/chemistry/registry2/elicitation.py → "The approval note was a statement of fact ('the active space is the 2 named orbitals [8, 9]'), which gave a reader no reason to look twice at a list the model had inferred from an orbital table. Now phrased as a check, naming the consequence: 'Check this if you did not name them yourself ... Different orbitals are a different calculation'"
 
-- merged: da6c2d0
+- merged: 5d816ef
 
 ## Phase 2: Several states and several pairs
 
@@ -114,7 +114,7 @@ its own, ahead of the input builders.
 - [done] P2.3: nacmtype, and a multiplicity axis on the capability matrix
   evidence: scripts/check_capability_matrix.py → "nacmtype (full/interstate/etf, default full) existed nowhere in the repo and is now emitted in BAGEL's grads entries; scoped to BAGEL, since ORCA hardcodes ETF TRUE and PySCF exposes no equivalent. MethodCaps gains multi_state_gradient and nac_multi_pair -- the matrix had no dimension for 'how many at once' at all"
 
-- merged: da6c2d0
+- merged: 5d816ef
 
 ## Phase 3: The parser, before anything plural is emitted
 
@@ -124,7 +124,7 @@ its own, ahead of the input builders.
 - [done] P3.2: The last-block helper is gone rather than left as a trap
   evidence: git grep _parse_gradient_block → "No callers anywhere after run_gradient and run_nac moved to _gradient_sections, which answered the blast-radius question this raised: nothing else parsed a gradient out of a multi-block output, so the CASPT2 oscillator-strength path was never silently returning the highest state's gradient. Deleted rather than kept, since a helper that quietly picks one of several is what the phase exists to remove"
 
-- merged: da6c2d0
+- merged: 5d816ef
 
 ## Phase 4: Plural inputs, per engine
 
@@ -140,7 +140,7 @@ its own, ahead of the input builders.
 - [done] P4.4: One result shape, built once
   evidence: app/chemistry/jobs/derivatives.py → "Three runners were assembling the same result dict separately, which is what let the parser bug live undetected -- nothing stated what a coupling result was supposed to look like. Now one module builds both shapes; every key is present from every engine, None where an engine does not report it, so .get returning None means 'this engine does not report it' and never 'this result came from the other engine'"
 
-- merged: da6c2d0
+- merged: 5d816ef
 
 ## Phase 5: What a batch can run
 
@@ -153,14 +153,14 @@ its own, ahead of the input builders.
 - [done] P5.3: ...and accepts them, which is a different code path
   evidence: tests/backend/batch_02_child_params.py → "23/23. P5.2 fixed validate_draft (what to ask) and its test wrote answers straight into the draft dict, which walked past update_job_draft's own allow-list -- the thing that decides what may be written. That list still knew only batch's own parameters, so the draft asked 'How many electrons should the active space contain?' and then answered active_electrons 'is not a parameter of batch', listing seven fields and omitting the four it had just asked for. A user hit this within the hour and concluded, reasonably, that a batch could not express a CASSCF calculation at all. _draft_param_names now serves both the acceptance check and the message, so the two cannot disagree, and it reads child_task from the incoming update as well as the stored draft, since the model writes the whole draft in one atomic call. The test drives BOTH halves for every child task and asserts they agree"
 
-- merged: d6340b8
+- merged: f4dc7a9
 
 ## Phase 6: Carrying orbitals along a path
 
 - [done] P6.1: chain_orbitals, off by default and serial when on
   evidence: tests/backend/batch_01_multi_geometry.py → "Off by default and never asked, because turning it on caps the in-flight wave at one and trades the batch's whole concurrency for accuracy nobody requested; the card carries a warning saying so. Child i+1 takes child i's job id as initial_orbitals_job_id. The end-to-end run asserts children.jsonl holds exactly one child per geometry with no duplicates, which is the failure that would corrupt a chain rather than merely waste cores"
 
-- merged: d6340b8
+- merged: f4dc7a9
 
 ## Phase 7: What a finished batch shows
 
@@ -170,7 +170,7 @@ its own, ahead of the input builders.
 - [done] P7.2: The drawer renders every coupling and every gradient
   evidence: tests/frontend/grad_02_gradient_nac_drawer.spec.mjs → "24/24 in chromium against the live stack. A three-pair coupling job shows all three pairs with three DISTINCT norms (0.505944 / 0.289755 / 9.025484), and a two-state gradient job both states (0.140508 / 0.595391), each against its own label -- asserting only that 'a coupling rendered' would have passed against the bug this work exists for. Two defects surfaced here that a code read passed: the generic summary table repeated the structured fields as 'gradients [object Object]' beside a state index formatted '1.0000', and &Vert; -- a valid HTML entity this build's JSX transform does not decode -- rendered to users as the literal text '&Vert;NAC&Vert; = 0.123456'. The latter was pre-existing and had survived because the spec's own assertion carried an || fallback that passed on any six-decimal number anywhere in the drawer"
 
-- merged: 60f5448
+- merged: adbc486
 
 ## Phase 8: Docs and capability tables
 
@@ -180,7 +180,7 @@ its own, ahead of the input builders.
 - [done] P8.2: Architecture and README
   evidence: docs/ARCHITECTURE.md → "A section on why the request shape is uniform across engines while the mechanism is not, why both result shapes are built in one module, and the two state-numbering conventions that differ by one. The batch narrative answers the excluded-subtypes reasoning rather than dropping it. README and the in-app help say a job can cover several states or pairs and what a batch can now run"
 
-- merged: d6340b8
+- merged: f4dc7a9
 
 ## Phase 9: A gradient job that quietly computed the wrong states
 
@@ -215,4 +215,4 @@ this app's ORCA CASSCF gradient builder emits no root selector at all.
 - [done] P9.4: A batch's child defaults reach its approval card
   evidence: tests/backend/batch_02_child_params.py → "defaults_for filters on context['task'], so passing the batch's context to the child's lookup dropped every child default -- the card showed no target_states for a gradient batch. A child context is built instead. The excited-gradient capability guard also moved into _validate_task_params, which the batch path already calls with the child's task, so a widened request is refused once at draft time rather than failing in thirteen separate runners"
 
-- merged: 95701c6
+- merged: 7e71e56

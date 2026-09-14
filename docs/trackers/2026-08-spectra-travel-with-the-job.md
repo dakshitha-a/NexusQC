@@ -115,7 +115,7 @@ the other at raw oscillator-strength scale.
 - [done] P1.2: a tagged spectrum job carries a compact sampled curve
   evidence: tests/backend/spec_01_spectra_overlay.py → "a tagged excited-state job carries a 65-row sampled table that still reaches its own peak of 1.0, says it is normalized, and points at plot(kind=\"spectra\") rather than at rebuilding the curve; an optimization grows no spectrum section"
 
-- merged: d9c5217
+- merged: f8ae358
 
 ## Phase 2: Several methods, one axis
 
@@ -127,4 +127,4 @@ silently converted.
 
 - [done] P2.1: a plot kind that overlays several jobs' spectra, each normalized to its own peak
   evidence: tests/backend/spec_01_spectra_overlay.py → "21/21: two functionals' spectra drawn as one plot, both series reaching exactly 1.0 in the cached table and sharing one resampled grid; x_units=nm gives an ascending wavelength axis; a job with no spectrum is named and left out rather than fatal; an IR and a UV/Vis spectrum are refused as a pair; and an overlay is editable in place, unlike a single-job spectrum"
-- merged: d9c5217
+- merged: f8ae358

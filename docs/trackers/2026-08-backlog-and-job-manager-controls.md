@@ -79,7 +79,7 @@ The five backlog items, in the order they are tackled:
 - [done] P1.2: tax_02 cleans up the job it makes last
   evidence: tests/backend/tax_02_job_rows.py → "21/21 and the job-directory count is unchanged across a run, previously +1 every time. The sweep over MADE was the FIRST statement in the finally block, and the non-finite-number section runs inside that same block after it, so the fixture it creates was never swept. Moved to the end of the block"
 
-- merged: 2443f41
+- merged: 51bffa0
 
 
 ## Phase 2: The account export stops buffering
@@ -87,7 +87,7 @@ The five backlog items, in the order they are tackled:
 - [done] P2.1: download-my-data streams, with the archive unchanged
   evidence: tests/backend/proj_04_zip_streams.py → "14/14. Downloading an account holding a 200 MB artifact grew the api container's total RSS by 0 MB, against a 63 MB threshold. dz_01_self_purge still passes 12/12 with the same three archive paths it always asserted (jobs/, uploads/, kb/), which is the point: the layout is deliberately unchanged and only the assembly moved"
 
-- merged: 2443f41
+- merged: 51bffa0
 
 
 ## Phase 3: The two job-manager controls
@@ -97,7 +97,7 @@ The five backlog items, in the order they are tackled:
 - [done] P3.2: A selection can be cleared
   evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "The button appears only with a selection, its innerText is empty so it is genuinely icon-only, and it still carries an aria-label and a title. Clicking it unticks every row and leaves the other two actions in place, attaching nothing to the prompt on the way out"
 
-- merged: 2443f41
+- merged: 51bffa0
 
 
 ## Phase 4: The collapsed rail reaches its sections
@@ -105,7 +105,7 @@ The five backlog items, in the order they are tackled:
 - [done] P4.1: Each collapsed-rail icon opens the section it names
   evidence: tests/frontend/ui_09_rail_and_jobmanager_controls.spec.mjs → "30/30. All four are BUTTON elements now rather than divs, asserted by tagName, and each expands the rail and opens its own section. Checked after a reload, since leftRailCollapsed is persisted and the collapsed rail is the state a returning user lands in. The three sections' collapse state moved from local useState into the persisted layout store, matching the right dock, so a section opened from the rail is still open after a reload"
 
-- merged: 2443f41
+- merged: 51bffa0
 
 
 ## Phase 5: The concurrency penalty
@@ -115,4 +115,4 @@ The five backlog items, in the order they are tackled:
 - [done] P5.2: Fix it, or write down precisely what it is
   evidence: docs/BACKLOG.md and tests/backend/perf_02_ttft_and_concurrency.py → "Written down, and the script now refuses to attribute when it cannot. Its baseline is measured against a GPU shared with other tenants, and the two samples it now takes within one run came back 3.05x and 0.95x -- the second claiming four concurrent requests beat one, which is a fact about somebody else's job rather than the model server. Across five pooled runs the app's multiplier read 1.05x, 0.99x, 1.06x, 1.86x and 3.52x. When the two baseline samples disagree by more than 1.5x the split is now reported as unavailable rather than asserted, which is a guard on whether the measurement is valid rather than a threshold on its result. Verified live: a run whose baseline moved 2.77x to 1.81x skipped the attribution naming both numbers and kept the raw timings, 3/3 passed with 2 skipped"
 
-- merged: 2443f41
+- merged: 51bffa0

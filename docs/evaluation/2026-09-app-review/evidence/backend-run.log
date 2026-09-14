@@ -1,4 +1,4 @@
-START 2026-09-13T06:48:12Z commit=c9f03c4 stack=ca7e0ff
+START 2026-09-13T06:48:12Z commit=5a53973 stack=0dcb865
 EXIT 1 2026-09-13T08:08:18Z
 
   tests/backend/_00_bootstrap.py

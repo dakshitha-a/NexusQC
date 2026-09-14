@@ -1,4 +1,4 @@
-# against the api image at fb97bbb, before the two-orbital floor
+# against the api image at dc7f339, before the two-orbital floor
 recommendation 5d64b30a9e2e: completed
 refinement     066321579537: completed
 quick space had 6 orbitals; refined to CAS(2, 1)

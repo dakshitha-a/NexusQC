@@ -68,4 +68,4 @@ but is unreachable is a rewritten history.
 - [done] P1.1: Reachability from HEAD, not presence in the object database
   evidence: scripts/check_tracker.py -> "Exercised against all three cases using the real dangling commit this session produced. 9751b85, which exists in the object database but was amended away, is now rejected with 'exists but is NOT reachable from HEAD -- amended or rebased away after the row was written?' where git cat-file -e accepted it and the script passed. A hash that never existed is reported separately as 'does not exist in this repository', because a typo and a rewritten history call for different responses. The correct hash still passes. All 35 archived trackers re-audited under the stricter rule: no unreachable hashes. A shallow clone downgrades unreachable to a note, since it genuinely cannot see far enough back to judge"
 
-- merged: 28480d8
+- merged: 07b54ff

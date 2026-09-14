@@ -20,7 +20,7 @@ The three faults, all confirmed by direct read before any change:
    is deployed. On a host where one checkout is both the working copy and the
    running Docker stack, committing makes the script report "already up to
    date -- nothing to do" while the built image is still on the previous
-   commit. Found on 2026-08-27 updating this host's stack to `008b6c2`.
+   commit. Found on 2026-08-27 updating this host's stack to `ce29c7e`.
    The workaround, running the rebuild by hand, skips the backup, the
    destructive-change report and the drain, which is every gate the script
    exists to enforce.
@@ -79,7 +79,7 @@ its first paragraph.
 ## Phase 1: The update asks the deployment what it is running
 
 - [done] P1.1: The false "already up to date" reproduced before being fixed
-  evidence: scripts/update.sh --dry-run HEAD → "reported 'currently running: c3e5c90e6f15' and 'already up to date -- nothing to do', while `docker compose exec api sha256sum /app/scripts/backup.sh` disagreed with `git show HEAD:scripts/backup.sh` -- the running image predates e2a14be by two commits"
+  evidence: scripts/update.sh --dry-run HEAD → "reported 'currently running: 67846046a689' and 'already up to date -- nothing to do', while `docker compose exec api sha256sum /app/scripts/backup.sh` disagreed with `git show HEAD:scripts/backup.sh` -- the running image predates 6a1483d by two commits"
 - [done] P1.2: The image records the commit it was built from
   evidence: docker compose config --format json → "the api service's build args resolve to GIT_COMMIT=unknown with nothing set and to the exported value when QC_AGENT_BUILD_COMMIT is present, which is what update.sh sets before `compose up --build`. The Dockerfile turns that arg into org.opencontainers.image.revision; `docker inspect --format '{{index .Config.Labels ...}}'` was confirmed to read a populated revision label off a real local image, and to return an empty string rather than an error when the label is absent"
 - [done] P1.3: `update.sh` reads that commit back and acts on it
@@ -106,18 +106,18 @@ its first paragraph.
 - [done] P4.2: The build is checked against what ends up running
   evidence: scripts/update.sh → "the stamp is read back off the container after `compose up -d --build` and compared with the target. compose recreates a container whose image changed, but that is compose's behaviour rather than a promise this script can make, and if it does not the build succeeds while the old container keeps serving the old code -- a failure whose only symptom is the next update reporting the deployment still behind. Named at the moment it happens instead, with the force-recreate command to fix it"
 - [done] P4.1: Verified end to end against this host's live stack
-  evidence: scripts/update.sh HEAD → "ran the whole path on 2026-08-28. It took the backup (36M archive, dump verified), reported 'the checkout is already at the target; only the build is behind', left the checkout alone, rebuilt and stamped both halves, and recreated the containers. Afterwards the container label, frontend/dist/.build-commit and HEAD all read ec9e7f0, no .update-log entry was written (correct for a rebuild-only update), and the post-build stamp check stayed quiet, so compose did recreate the container as expected"
+  evidence: scripts/update.sh HEAD → "ran the whole path on 2026-08-28. It took the backup (36M archive, dump verified), reported 'the checkout is already at the target; only the build is behind', left the checkout alone, rebuilt and stamped both halves, and recreated the containers. Afterwards the container label, frontend/dist/.build-commit and HEAD all read abdf168, no .update-log entry was written (correct for a rebuild-only update), and the post-build stamp check stayed quiet, so compose did recreate the container as expected"
 
-A second run, after the health fix below moved HEAD to `8a1ec51` while the
-image was stamped `ec9e7f0`, exercised the case the first could not: the
-script reported `api image built from: ec9e7f0` rather than `unknown`,
-measured the impact report across the real `ec9e7f0..8a1ec51` diff (correctly
+A second run, after the health fix below moved HEAD to `0f21849` while the
+image was stamped `abdf168`, exercised the case the first could not: the
+script reported `api image built from: abdf168` rather than `unknown`,
+measured the impact report across the real `abdf168..0f21849` diff (correctly
 flagging that the backup/restore/update tooling itself had changed), came up
 `healthy at https://127.0.0.1:8444`, and summarised as
-`updated ec9e7f0c9a8e -> 8a1ec5187f0b`, naming what was deployed rather than
+`updated abdf16827eb6 -> 0f21849e2fc4`, naming what was deployed rather than
 where HEAD had been. A `--dry-run` afterwards said `already up to date --
 nothing to do` with the container label, the frontend stamp and HEAD all
-reading `8a1ec51`. That sentence is the one this whole tracker exists to make
+reading `0f21849`. That sentence is the one this whole tracker exists to make
 true rather than merely reassuring.
 
 ## What the verification run found

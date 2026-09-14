@@ -183,4 +183,4 @@ including the one that exposed this, will still take a full copy on the next
 attach. That is the deliberate choice everywhere else in this project: no
 adapter for content already on disk. The token budget is what protects those
 conversations, and it does so regardless of how many copies they carry.
-- merged: 275a7b9
+- merged: c369139

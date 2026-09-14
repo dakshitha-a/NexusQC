@@ -1,7 +1,7 @@
 # Shared context for every NexusQC audit agent
 
 You are one of six agents doing a **read-only static audit** of NexusQC, a
-conversational computational-chemistry app, at commit `ca7e0ff`. Repo root:
+conversational computational-chemistry app, at commit `0dcb865`. Repo root:
 `<repo>`.
 
 ## Absolute rules

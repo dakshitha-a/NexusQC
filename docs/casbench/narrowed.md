@@ -1,6 +1,6 @@
 # casbench: narrowed
 
-Produced at commit `e84b4e1` on 2026-09-06 07:09, in 2041s, with omp=8, mkl=12.
+Produced at commit `09e13f5` on 2026-09-06 07:09, in 2041s, with omp=8, mkl=12.
 
 Written by `scripts/casbench/run_bench.py`. Do not edit by hand: the
 next run overwrites it. Interpretation belongs in

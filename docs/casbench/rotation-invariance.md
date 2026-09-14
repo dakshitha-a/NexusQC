@@ -5,7 +5,7 @@ Supporting material for §3.6 and §4.4 of
 the story; this carries the per-molecule numbers, the derivation of the
 mechanism, and the checks that the repair moved nothing else.
 
-Measured 2026-09-06 at commit `e84b4e1`.
+Measured 2026-09-06 at commit `09e13f5`.
 
 ## What "orientation independence" means here, and how it is measured
 

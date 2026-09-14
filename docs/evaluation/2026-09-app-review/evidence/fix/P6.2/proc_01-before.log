@@ -1,4 +1,4 @@
-# against the api at 700b8cc, before init: true
+# against the api at f61604d, before init: true
 [FAIL] tini is PID 1 of the api container, so orphaned engine processes have something to reap them (docker-compose.yml's `init: true` on the api service) -- PID 1 is 'python'; if that is the app itself then nothing reaps what ORCA leaves behind
 zombies in the api container before: 20
 submitted and cancelled 3 ORCA job(s): ['completed', 'cancelled', 'cancelled']

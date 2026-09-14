@@ -8,17 +8,17 @@
 
 --- resolving what to update to ----------------------------------------
   ..  fetching origin
-  checkout is at:     f6d12c513c2d  Fix the MoCubeViewer import that broke the frontend build
-  api image built from: c5e8835c850f  Record P1.7 resolution hashes
-  frontend built from:  c5e8835c850f  Record P1.7 resolution hashes
-  updating to:        f6d12c513c2d  Fix the MoCubeViewer import that broke the frontend build
+  checkout is at:     cde77deb1cd5  Fix the MoCubeViewer import that broke the frontend build
+  api image built from: 74d3153296e5  Record P1.7 resolution hashes
+  frontend built from:  74d3153296e5  Record P1.7 resolution hashes
+  updating to:        cde77deb1cd5  Fix the MoCubeViewer import that broke the frontend build
   ..  the checkout is already at the target; only the build is behind
 
 --- what this will do to the running deployment ------------------------
 
 Update impact report
-  from  c5e8835c850f92fe717b2c10389da94a06b1e6a1  c5e8835 Record P1.7 resolution hashes
-  to    f6d12c513c2dc26fc2a75594f5e59d2f928580d5  f6d12c5 Fix the MoCubeViewer import that broke the frontend build
+  from  74d3153296e580ba407f167484b82dead0cd4dfd  74d3153 Record P1.7 resolution hashes
+  to    cde77deb1cd56dbe4eaa34551a0f5403132dcf80  cde77de Fix the MoCubeViewer import that broke the frontend build
   stack <repo>
 
 --- changes between the two commits ------------------------------------
@@ -116,7 +116,7 @@ comm: input is not in sorted order
   ok  full backup taken -- <checkouts>/NexusQC-dev-data-backup/20260913-170053
 
 --- leaving the checkout where it is -----------------------------------
-  ok  already at f6d12c5; this update is a rebuild
+  ok  already at cde77de; this update is a rebuild
 
 --- rebuilding ---------------------------------------------------------
 time="2026-09-13T17:01:03-04:00" level=warning msg="Docker Compose requires buildx plugin to be installed"
@@ -1092,7 +1092,7 @@ Successfully built 9dcf31dbd03e
 Successfully tagged nexusqc_dev-api:latest
  Image nexusqc_dev-api Built 
  Image nexusqc_dev-api Built 
-  ok  images built at f6d12c513c2d
+  ok  images built at cde77deb1cd5
  Container nexusqc_dev-redis-1 Running 
  Container nexusqc_dev-nginx-1 Running 
  Container nexusqc_dev-postgres-1 Running 
@@ -1113,11 +1113,11 @@ Successfully tagged nexusqc_dev-api:latest
   ..  reading the bundle out of the api image
  Container nexusqc_dev-api-run-cb31dbcf4ee4 Creating 
  Container nexusqc_dev-api-run-cb31dbcf4ee4 Created 
-  ok  frontend/dist installed from the api image, stamped f6d12c513c2d
+  ok  frontend/dist installed from the api image, stamped cde77deb1cd5
   ..  no .update-log entry: the checkout did not move, so an entry would
-  ..  name f6d12c513c2d as both the new and the previous commit and
+  ..  name cde77deb1cd5 as both the new and the previous commit and
   ..  --rollback would resolve it to a no-op.
 
-updated c5e8835c850f -> f6d12c513c2d
+updated 74d3153296e5 -> cde77deb1cd5
   the checkout was already there; the build now matches it.
   hard-reload your browser tab if the frontend changed.

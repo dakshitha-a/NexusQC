@@ -42,7 +42,7 @@ is why all three fail together: they are one observation, not three.
 ## The measurement
 
 The same script, unchanged, run alone against the same stack at commit
-`c6eca86`:
+`856cca6`:
 
 ```
 QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
@@ -100,7 +100,7 @@ No app code changed. `deploy_05` gained three things:
 ## Verification
 
 - `deploy_05-unchanged-alone.log`: 13/13 with the script exactly as the gate
-  ran it, at `c6eca86`. This is the measurement the triage above rests on.
+  ran it, at `856cca6`. This is the measurement the triage above rests on.
 - `deploy_05-alone.log`: 13/13 again with the patched script at the same
   commit, which is what says the changes below did not break it.
 - `deploy_05-negative-control.log`: the same script with

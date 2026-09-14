@@ -114,7 +114,7 @@ against capture rather than against the literature count:
 
 Monotonic, and steeply so on uracil. The $1/\sqrt{3}$ that shipped when this
 was measured is the worst usable end of the range for this metric; commit
-`1c09bdb`, later the same day, moved `LONE_PAIR_S_AMPLITUDE` to 0.20, which
+`2632c0b`, later the same day, moved `LONE_PAIR_S_AMPLITUDE` to 0.20, which
 is the column in bold. This page is left as the dated record that decided
 that change rather than restated around it, so "shipped" below means shipped
 on 2026-09-04 before the change, not shipped now.

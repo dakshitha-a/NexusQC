@@ -1,6 +1,6 @@
 # audit:deploy — the deployment surface
 
-Read-only static audit at `ca7e0ff`. Nothing was executed against the stack;
+Read-only static audit at `0dcb865`. Nothing was executed against the stack;
 `install.sh`, `update.sh`, `backup.sh`, `restore.sh` and `--dry-run` were all
 left alone. Three things were run: `shellcheck` in a throwaway container
 (read-only bind mount); one `git merge --ff-only` experiment in a scratch
@@ -658,7 +658,7 @@ refiled here.
   and nothing for INT or TERM. The drain then prints, at
   `scripts/update.sh:519`, `info "waiting for ${INFLIGHT} in-flight job(s);
   Ctrl-C is safe, admission is restored on exit"`.
-- expected: commit `a91e352` ("Trap the interrupt, and stop the override diff
+- expected: commit `4faa632` ("Trap the interrupt, and stop the override diff
   being a date change", 2026-09-10) fixed exactly this in `install.sh`, and its
   message records the behaviour as observed rather than reasoned: "The
   installer trapped only EXIT, and bash does not reliably run an EXIT trap when
@@ -667,7 +667,7 @@ refiled here.
   appeared." `install.sh` now carries `trap 'on_signal 2' INT` and
   `trap 'on_signal 15' TERM` alongside its EXIT trap.
 - evidence: `scripts/update.sh:504,519`; `scripts/install.sh` `on_signal()` and
-  its three traps; `git show a91e352`
+  its three traps; `git show 4faa632`
 - pointer: in `install.sh` the consequence was a missing message. Here it is
   persistent state in the database. `job_admission_paused` left set means every
   new job queues as `pending` forever, and the script's own comment
@@ -987,7 +987,7 @@ Recorded because "no finding here" is a result.
   (`update.sh:504`), both handlers idempotent and guarded by their own state
   variable, and the drain's timeout path calls `restore_admission` explicitly
   before dying. What is missing is INT/TERM, which this repository established
-  empirically in `a91e352` that bash does not reliably cover through EXIT.
+  empirically in `4faa632` that bash does not reliably cover through EXIT.
   Filed above; I had this entry down as clean until that commit corrected me.
 - **nginx and SSE.** `proxy_buffering off`, `proxy_read_timeout 3600s`,
   `proxy_http_version 1.1`, `proxy_set_header Connection ""` and

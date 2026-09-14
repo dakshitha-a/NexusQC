@@ -1,6 +1,6 @@
 # casbench: excited
 
-Produced at commit `e84b4e1` on 2026-09-06 02:33, in 1690s, with omp=8, mkl=12.
+Produced at commit `09e13f5` on 2026-09-06 02:33, in 1690s, with omp=8, mkl=12.
 
 Written by `scripts/casbench/run_bench.py`. Do not edit by hand: the
 next run overwrites it. Interpretation belongs in

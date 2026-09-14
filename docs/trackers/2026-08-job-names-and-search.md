@@ -105,8 +105,8 @@ Recorded rather than fixed, because both need their own decision.
   should put user B's single job in the rotation immediately after user A's
   first, not after all of A's. This is a genuine failure of the scheduler
   against its own stated contract, and it predates this session: nothing in
-  `git diff 87d3f12..HEAD` touches `app/chemistry/jobs/scheduler.py`, whose
-  last change was `17042e2`. Its own closed tracker is
+  `git diff a6e6d58..HEAD` touches `app/chemistry/jobs/scheduler.py`, whose
+  last change was `9fb7396`. Its own closed tracker is
   `trackers/2026-08-scheduler-fairness.md`.
 - **`perf_02_ttft_and_concurrency` fails on timing**: time-to-first-token
   under four users came in at 5.70x the single-user median against a 3x

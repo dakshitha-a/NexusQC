@@ -7,8 +7,8 @@ the same four suites three times against it would have measured the same thing
 three times. `P3.12/README.md` records that decision at the point it was made,
 including the run it voided.
 
-Everything here ran against the api image stamped `700b8cc`, then the fixes
-below were made and the affected scripts re-run against `f6381d0`.
+Everything here ran against the api image stamped `f61604d`, then the fixes
+below were made and the affected scripts re-run against `6143cf5`.
 
 ## Why the whole run was nearly voided, and the one variable that matters
 

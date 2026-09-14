@@ -1,6 +1,6 @@
 # Phase 1 baseline: the existing suites at the frozen commit
 
-What the standing test suites report at `ca7e0ff`, before any exploratory work,
+What the standing test suites report at `0dcb865`, before any exploratory work,
 so the review starts from a known state. Every figure here says what the test
 did, what its denominator counts, what a pass means, and what the result means,
 per the repository's standing rule. Where a number differs from the last full
@@ -60,7 +60,7 @@ the quarantine of the three purging scripts held.
 
 **What it is.** `node tests/frontend/run_frontend.mjs`, 42 raw Playwright specs
 (chromium, no test runner) against the same stack and the frontend build on
-disk, which the specs themselves confirm is the frozen bundle (`ca7e0ff13d24`).
+disk, which the specs themselves confirm is the frozen bundle (`0dcb8653d11e`).
 
 **Result: 38 of 42 specs report all checks passing.** The four that do not:
 

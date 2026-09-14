@@ -95,7 +95,7 @@ children were always ground state, and it is Phase 2's whole subject.
   evidence: tests/backend/scan_02_excited_state_scans.py → "every child of a real 3-image scan is single_point/ee carrying the root count, for both dft and casscf; one shared scan_child_subtype helper backs both the orchestrator and the approval card's preview so the card cannot show a ground-state input for a job that runs excited states"
 - [done] P1.5: Docs, capability matrix and changelog
   evidence: scripts/generate_capability_docs.py → "the generated matrix now carries pes_1d/ee and interp_pes/ee rows, which p7_02_bagel_pes1d_denial.py checks against the registry and which failed until it was regenerated; README gains one row and CHANGELOG an Unreleased entry, both in a chemist's words rather than task identifiers"
-- merged: 2edbe1c
+- merged: 60837d6
 
 ## Phase 2: The result can be read back
 
@@ -110,7 +110,7 @@ merely running.
   evidence: tests/backend/scan_02_excited_state_scans.py → "an ee scan is labelled 'PES scan'/'Path scan' rather than falling through to the raw pes_1d/interp_pes identifier, which is what the label lookup does on a miss and which would have reached every download filename; state_energies_per_image renders as one bracketed group per image instead of a flat run of numbers with the per-image structure lost"
 - [done] P2.4: The drawer chart picks up the new data
   evidence: tests/frontend/scan_03_excited_state_drawer.spec.mjs → "6/6 in chromium against the compose stack, for all three of PySCF TDDFT, ORCA TDDFT and PySCF CASSCF: three series paths and a Ground state / State 1 / State 2 legend, rather than the single-series fallback ScanPlot lands on when it cannot read the per-image states. No frontend logic changed; the row gained a data-testid because rows display a job's label, not its id, so a test could not address the job it had seeded"
-- merged: 2edbe1c
+- merged: 60837d6
 
 ## Queued behind this
 

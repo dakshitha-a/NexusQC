@@ -1,4 +1,4 @@
-# the scheduler as it was: worktree at f6d12c5, before the _dispatch_tick fix
+# the scheduler as it was: worktree at cde77de, before the _dispatch_tick fix
 [PASS] the first tick admits user A, the only owner with anything queued -- admitted ['a1']
 [PASS] and the rotation pointer has moved past user A, so the next turn is not theirs -- _rr_pos is 1
 [PASS] user B has queued nothing yet, so there is nothing for the pointer to reach -- queued ids are ['a2']

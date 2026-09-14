@@ -30,7 +30,7 @@ and again after it.
 
 ## Before
 
-`before.log`, taken against the stack on `f6d12c5`, which is the code as it
+`before.log`, taken against the stack on `cde77de`, which is the code as it
 stood before this step: **24 of 30 checks passed, and the six that failed are
 exactly the six route checks**.
 
@@ -47,7 +47,7 @@ exactly the six route checks**.
   refused, against a budget that is meant to be twelve an hour (R-052)
 
 The twenty-four structural checks passed on the before-run because the commit
-that carries the fixes, `5d16dfe`, was already in the tree when the log was
+that carries the fixes, `16014a6`, was already in the tree when the log was
 taken; what it was not yet in was the container. That is the shape rule 1 of
 the plan describes for a route test, and the six failures above are the honest
 before-state.
@@ -55,7 +55,7 @@ before-state.
 ## After
 
 The after-log is the gate's own run of the same script, in `P6.2`, taken once
-`scripts/update.sh` has put `5d16dfe` and everything after it into the api
+`scripts/update.sh` has put `16014a6` and everything after it into the api
 image. All thirty checks pass there or the step does not close.
 
 One note for anyone re-running the rate-limit section on its own: the budget is

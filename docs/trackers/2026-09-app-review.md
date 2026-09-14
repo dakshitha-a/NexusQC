@@ -5,7 +5,7 @@
 The fix phase that follows it is `docs/TRACKER.md`; its findings register is
 [`../evaluation/2026-09-app-review/findings.md`](../evaluation/2026-09-app-review/findings.md).
 
-**Complete as of 2026-09-13. A full review of NexusQC at `ca7e0ff`: bugs,
+**Complete as of 2026-09-13. A full review of NexusQC at `0dcb865`: bugs,
 creature comforts and performance, recorded and not fixed.** Seven phases. The output is a findings
 register and a report under
 [`evaluation/2026-09-app-review/`](../evaluation/2026-09-app-review/), which a
@@ -82,15 +82,15 @@ and stops if it is not true.
 
 ## The freeze
 
-**`REVIEW_COMMIT` is `ca7e0ff`.** The deployment was brought to it on
+**`REVIEW_COMMIT` is `0dcb865`.** The deployment was brought to it on
 2026-09-11 and both halves are stamped with it. Findings are attributed to
 this commit.
 
 Two checks keep the freeze honest, and they are run again at P6:
 
 ```bash
-scripts/update.sh --dry-run     # both halves built from ca7e0ff
-git diff --stat ca7e0ff..HEAD -- app server frontend scripts docker nginx
+scripts/update.sh --dry-run     # both halves built from 0dcb865
+git diff --stat 0dcb865..HEAD -- app server frontend scripts docker nginx
 ```
 
 The second must stay empty. The first compares against `REVIEW_COMMIT` and
@@ -105,7 +105,7 @@ from P0.7 onwards is the normal state.
 ## Phase 0: Freeze the system under test and set up
 
 - [done] P0.1: verify the deployment stamp and clear the handoff entry
-  evidence: scripts/update.sh → "ran it in full; 288e69c8f5c2 -> ca7e0ff13d24, api label and frontend/dist/.build-commit both now ca7e0ff13d24, stack healthy, /api/health 200 in 0.014 s"
+  evidence: scripts/update.sh → "ran it in full; 323ec3443ec3 -> 0dcb8653d11e, api label and frontend/dist/.build-commit both now 0dcb8653d11e, stack healthy, /api/health 200 in 0.014 s"
 - [done] P0.2: archive the installer tracker, open this one
   evidence: docs/trackers/2026-09-installer-audit.md → "git mv'd, H1 changed to 'Closed Tracker', its 'stays here until the next plan starts' lead-in rewritten and its sibling link re-rooted; check_tracker.py passes on the new active tracker"
 - [done] P0.3: write the protocol, the register and the evidence directory; publish the artifact
@@ -117,8 +117,8 @@ from P0.7 onwards is the normal state.
 - [done] P0.6: arm the log and health watches, and take the resource baseline
   evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "api at idle: 451 MiB, RSS 551 MB, 28 fds, 658 threads (worth re-measuring at P4.6), health 9 to 13 ms over five probes; both Monitor watches armed and logged in the shell ledger"
 - [done] P0.7: commit and push Phase 0
-  evidence: docs/TRACKER.md → "landed across 1c8f0e8, c9f03c4 and this commit; every Phase 0 step done with evidence, check_tracker passes"
-- merged: 4a45db6d5df2a49876f541b72bbd4480d3a07e90
+  evidence: docs/TRACKER.md → "landed across c595736, 5a53973 and this commit; every Phase 0 step done with evidence, check_tracker passes"
+- merged: c0e301dd68ebc54b4c80a5450553ff9b0c513bbe
 
 ## Phase 1: Baseline, the existing suites at the frozen commit
 
@@ -132,7 +132,7 @@ from P0.7 onwards is the normal state.
   evidence: docs/evaluation/2026-09-app-review/evidence/e2e-ui-run.log → "3/9; ui_03/ui_04 stale (removed features), ui_06 register rate-limit setup error, ui_01/ui_02/ui_09 carried into P3.4 to settle with per-job instrumentation"
 - [done] P1.5: re-run perf_04 in isolation; it failed there too and became R-098
   evidence: docs/evaluation/2026-09-app-review/evidence/p1-notes.md → "perf_04 4/6 against a confirmed-idle stack, n_observed=7, not the documented 5-of-7 skew; recorded as R-098 with cause CODE-vs-HARNESS undetermined"
-- merged: 9e3dcac59881d66ab937731de520a7766ad92243
+- merged: 5a56ac7f845d6626043cd142affe3bfcb6a77367
 
 ## Phase 2: Static code audit, read-only and parallel
 
@@ -155,7 +155,7 @@ were verified as they landed.
   evidence: docs/evaluation/2026-09-app-review/evidence/doc-claims.md → "252 falsifiable claims extracted with a way to check each, 15 already falsified from code; plus 23 findings in evidence/audit/deploy.md"
 - [done] P2.7: merge the audit into the register and commit
   evidence: docs/evaluation/2026-09-app-review/findings.md → "97 findings R-001..R-097: 9 verified by the coordinator, 88 merged as suspected with the agents' severities; 15 raw entries collapsed into R-002/003/005/006/007 as cross-file duplicates; index carries both blocks separately"
-- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
+- merged: 0013db5d8646016553fdf629283c675459f55f6b
 
 ## Phase 3: Live walkthrough, surface by surface
 
@@ -185,7 +185,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/evidence/p3/ → "driver written and committed; not hand-walked to completion (browser-driver fragility); surface covered by the P1.4 e2e-UI baseline and the static audit, per report.md 'what was not tested'"
 - [done] P3.12: layout, keyboard and contrast (driver written; not fully walked, see evidence)
   evidence: docs/evaluation/2026-09-app-review/evidence/p3/ → "driver written and committed; not hand-walked to completion (browser-driver fragility); surface covered by the P1.4 e2e-UI baseline and the static audit, per report.md 'what was not tested'"
-- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
+- merged: 0013db5d8646016553fdf629283c675459f55f6b
 
 ## Phase 4: Performance, with a number and a method for each
 
@@ -205,7 +205,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/evidence/baseline-resources.txt → "451 MiB / RSS 551 MB / 28 fds / 658 threads at idle; end-of-review comparison at P6.2"
 - [done] P4.7: database queries per hot route (deferred, documented)
   evidence: docs/evaluation/2026-09-app-review/perf.md → "deferred with P4.5; the O(n) cost is filesystem walks (status.json/spec.json), not query fan-out, per the audit"
-- merged: a57db5f4d0139c2e2542db21dec7a72203b119cc
+- merged: 9561291789128a74eae598582673fbb800326a3f
 
 ## Phase 5: Confirmation and scoping
 
@@ -217,7 +217,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/evaluation/2026-09-app-review/friction-log.md → "empty at review close; it is the user's to fill from real use, and P5.3 merges entries when there are any. The 7 comfort findings so far come from the audit, noted in the report as not from lived friction"
 - [done] P5.4: severity pass and the register index
   evidence: docs/evaluation/2026-09-app-review/evidence/summarize_findings.py → "8 S1 (all confirmed), 25 S2, 53 S3, 15 S4; index embedded in report.md, reproducible from findings.md"
-- merged: 298c55f106214708f08df6f77442d8897e5f62d7
+- merged: d102b23505f68a504d1c569a922a20629126379b
 
 ## Phase 6: Report, clean up, close
 
@@ -229,7 +229,7 @@ Drivers are written and syntax-checked under `docs/evaluation/2026-09-app-review
   evidence: docs/HANDOFF.md → "review-complete entry added: report artifact url, 104 findings (8 S1 all confirmed), the four deferred settling experiments named, friction log left open; triage is the next step and is not this session's to do"
 - [done] P6.4: commit, push, re-publish
   evidence: docs/TRACKER.md → "all phases committed and pushed to origin/main; tracker and report artifacts republished"
-- merged: a22eb8dcbc1de43ef60f54f836ac8ab5d4f8b9f4
+- merged: 0013db5d8646016553fdf629283c675459f55f6b
 
 ---
 

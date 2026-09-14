@@ -89,7 +89,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P1.3: Settle the oscillator-strength question, which gates Wigner support
   evidence: scripts/spikes/spike_pyscf_caps.py → "neither an L-PDFT nor a state-averaged MC-PDFT object has trans_moment, and the NEVPT object has no dipole attribute at all; pyscf.prop.trans_dip_moment implements TransitionDipole for CMS-PDFT only"
 
-- merged: 7bdb4ee
+- merged: bdae57b
 
 ## Phase 2: The capability rows and everything derived from them
 
@@ -100,7 +100,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P2.3: Parameters -- active space for all three, on-top functional for two
   evidence: app/chemistry/registry2/params.py → "_MULTIREF gains all three so active_electrons/active_orbitals become required by derivation; ot_functional is a separate spec rather than a widened `functional`, since tPBE is not a name the Kohn-Sham resolver can resolve; want_oscillator_strengths hides itself for the three methods that cannot deliver it"
 
-- merged: 7bdb4ee
+- merged: bdae57b
 
 ## Phase 3: Runners
 
@@ -111,7 +111,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P3.3: NEVPT2 refuses optimization and frequencies with a reason, not a traceback
   evidence: a direct run of run_geometry_optimization/run_frequency at method='nevpt2' → "both raise ValueError naming the missing NEVPT2 gradient and pointing at CASSCF, MC-PDFT or L-PDFT instead"
 
-- merged: 7bdb4ee
+- merged: bdae57b
 
 ## Phase 4: The surfaces a user actually sees
 
@@ -122,7 +122,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P4.3: pyscf-forge declared, since MC-PDFT and L-PDFT are not optional
   evidence: requirements.txt → "pyscf-forge added with a note that the distribution name and the import path (pyscf.mcpdft) differ, so a failing `import pyscf_forge` is not evidence of a broken install"
 
-- merged: 034d40c
+- merged: b918b55
 
 ## Phase 5: Documentation
 
@@ -133,7 +133,7 @@ claim as unroutable. Every row below was written after the spike, not before.
 - [done] P5.3: README, for the user-visible capability change
   evidence: README.md → "capability table cells derived from the registry rather than edited by hand, which also corrected a pre-existing wrong cell claiming PySCF could produce a nuclear-ensemble spectrum at EOM-CCSD or CASSCF"
 
-- merged: 034d40c
+- merged: b918b55
 
 ## Phase 6: What review found that the live runs could not
 
@@ -148,14 +148,14 @@ them.
 - [done] P6.3: orbital reuse works on pair-density objects, as the README claims
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "run_orbital_reuse seeds a second job from a first one's orbitals.molden across a stretched geometry, for MC-PDFT and CMS-PDFT, and asserts the source id is recorded in the summary. project_init_guess and sort_mo had never been exercised on a multi-state wrapper, and later not on one carrying a replaced CSF solver either"
 
-- merged: 1456cc4
+- merged: 874a6e2
 
 ## Phase 7: A standing test
 
 - [done] P7.1: Backend script covering the three methods end to end
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "103 passed, 0 failed; drives the registry and the runners directly so it creates no jobs and no threads. Asserts the Wigner refusal names the oscillator-strength gap, that L-PDFT demands a state count on every task while nothing else does, and that every preview uses only names it defines"
 
-- merged: 034d40c
+- merged: b918b55
 
 ## Phase 8: CMS-PDFT, the variant that has intensities
 
@@ -170,7 +170,7 @@ used rather than of pair-density theory.
 - [done] P8.3: The full task range, and a Wigner ensemble that actually pools
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "149 passed, 0 failed; CMS-PDFT gets single-point gs/ee/grad/nac, opt, freq and opt_freq, and is the one multireference method whose wigner_spectra is offered rather than refused. Six Wigner-like distorted geometries pooled 12 transitions with a peak f of 0.033"
 
-- merged: 4eae364
+- merged: a9da61f
 
 ## Phase 9: What the intensity work uncovered in plain CASSCF
 
@@ -179,7 +179,7 @@ used rather than of pair-density theory.
 - [done] P9.2: Optimization and frequencies now follow one state
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "state-averaged CASSCF frequencies went from [0.0, 0.0, 5001.0] cm-1, two spurious zero modes on the average surface, to [0.0, 2150.7, 4820.1] on the ground state's own; the Gibbs energy moved from the -74.700 mean to -74.977, and the job now records which state it followed. Single-root CASSCF is byte-for-byte unaffected"
 
-- merged: 4eae364
+- merged: a9da61f
 
 ## Phase 10: What review caught after CMS-PDFT landed
 
@@ -193,7 +193,7 @@ nothing exercised the paths that had quietly gone stale.
 - [done] P10.3: Two parameter-card mismatches
   evidence: app/chemistry/registry2/params.py → "want_oscillator_strengths is no longer offered for cmspdft, which computes intensities unconditionally and would otherwise show 'Oscillator strengths: no' on a job that produces them; a warning says they are coming instead. The mcpdft capability note now records that a single-state MC-PDFT has no state average to spin-constrain, so its energy need not equal the first root of a state-averaged one"
 
-- merged: b7e0205
+- merged: 2a792c2
 
 ## Phase 11: CASSCF and CASPT2 made spin-pure too
 
@@ -209,7 +209,7 @@ ones.
   evidence: tests/backend/mrpdft_01_multireference_methods.py → "six call sites: _build_casscf, _build_mcpdft, NEVPT2's own multi-root CASCI and the AutoCAS entropy pilot among them. run_every_state_average_is_spin_pure reads <S^2> off the converged CI vectors rather than trusting construction, and checks a declared triplet gets triplet roots rather than assuming closed shell"
 - [done] P11.4: Every CASSCF-family path still runs
   evidence: a direct run of all sixteen CASSCF paths → "run_casscf 1 and 3 roots, gradient, NAC, optimization, frequencies, NEVPT2's excited path, the AutoCAS recommendation, the AVAS space, an open-shell state average, and all four CASSCF approval-card previews executing as scripts. The 3-root frequency job's spurious zero modes are gone entirely now that the average is three singlets"
-- merged: ebce895
+- merged: 1270a71
 
 ## Incidental findings, not part of this plan
 

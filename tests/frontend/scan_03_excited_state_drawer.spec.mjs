@@ -5,7 +5,7 @@
  * are still running there is no server-rendered plot yet, so ScanPlot draws
  * the live MiniLineChart from `job.summary.state_energies_per_image`; once
  * every image is terminal, ScanOrchestrator renders `artifacts.pes_plot` and
- * the drawer shows that PNG instead (699c70a). This spec checks both, because
+ * the drawer shows that PNG instead (c86e04b). This spec checks both, because
  * both are real states of the same panel and the earlier version of this file
  * only knew about the first one -- it asserted on the mini chart against a
  * FINISHED scan, which passed only for as long as the PNG was download-only.

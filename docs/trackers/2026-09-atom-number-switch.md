@@ -93,7 +93,7 @@ set. Toggling the numbers must not either.
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "with the numbers on, an isovalue drag then a toggle still changes the orbital canvas, and a mode change then a toggle still changes the vibration canvas; both would be byte-identical if the rebuild had already wiped the labels"
 - [done] P1.5: The exports follow the switch
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "the PNG the browser actually saved differs with the numbers on and off, 250931B against 245088B, read from the downloaded file rather than from the canvas; the 40-frame animated PNG still exports with the numbers off at 1007544B rather than hitting captureApng's timeout"
-- merged: 6a6d850
+- merged: c939bc3
 
 ## Phase 2: The frame viewers name what they captured
 
@@ -109,7 +109,7 @@ spinning.
 
 - [done] P2.1: A captured frame is named after its job and its frame
   evidence: frontend/src/jobs/ScanFrameViewer.tsx → "all four frame viewers now pass filenameBase=jobFilenameStem(job) and a per-frame descriptor (image4_view, sample7_view, geometry2_view) to MoleculeViewer, which takes a descriptor prop defaulting to the previous hardcoded 'view'; each already received the job row, so nothing new is threaded from the drawer"
-- merged: 6a6d850
+- merged: c939bc3
 
 ---
 
@@ -117,7 +117,7 @@ spinning.
 
 - [done] P3.1: Every spec that deletes its test account now actually deletes it
   evidence: tests/frontend/ui_10_atom_label_toggle.spec.mjs → "a full 21/21 run now leaves no qatest thread and no qatest account on the stack; before the fix each run left one account behind, and 13 had accumulated over this session's runs alone"
-- merged: 182b818
+- merged: 9ee97c0
 
 ---
 

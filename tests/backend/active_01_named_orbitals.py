@@ -106,7 +106,7 @@ def main() -> int:
     # not used for some time -- it says "set to the N specific orbitals [...]
     # rather than letting the engine choose N around the HOMO" instead. The
     # check was therefore failing against the wording rather than the
-    # behaviour, and had been for a while: confirmed failing at 2f1f58d, before
+    # behaviour, and had been for a while: confirmed failing at 6318316, before
     # the active-space rebuild touched anything. It now asserts what the note
     # has to convey rather than one phrasing of it.
     note_text = " ".join(v.notes)

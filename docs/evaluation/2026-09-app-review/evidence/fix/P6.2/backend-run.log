@@ -1712,13 +1712,13 @@ restarting api container to force a cold pool/redis-client singleton...
 ==================================================================
   tests/backend/deploy_02_deployed_commit.py
 ==================================================================
-[PASS] a stamped image reports the commit it was built from -- 700b8cc7c894fc34492891dcc4105983a44bde2b
-[PASS] a short sha in the label is resolved to the full commit -- 700b8cc7c894fc34492891dcc4105983a44bde2b
+[PASS] a stamped image reports the commit it was built from -- f61604da143cecde7c2ab7bbea94bba18c503fcd
+[PASS] a short sha in the label is resolved to the full commit -- f61604da143cecde7c2ab7bbea94bba18c503fcd
 [PASS] an image built outside this script (unknown) reports nothing -- ''
 [PASS] an image with no label at all reports nothing -- ''
 [PASS] a label naming a commit this checkout has never seen reports nothing -- ''
 [PASS] a stack that is down answers 'cannot tell' instead of aborting the update -- ''
-[PASS] a stamped frontend bundle reports the commit it was built from -- 700b8cc7c894fc34492891dcc4105983a44bde2b
+[PASS] a stamped frontend bundle reports the commit it was built from -- f61604da143cecde7c2ab7bbea94bba18c503fcd
 [PASS] a bundle with no stamp file reports nothing -- ''
 [PASS] an empty stamp file reports nothing -- ''
 [PASS] a remapped host port is found rather than assumed -- https://127.0.0.1:8444
@@ -1749,12 +1749,12 @@ restarting api container to force a cold pool/redis-client singleton...
 ==================================================================
   tests/backend/deploy_04_deployment_activity.py
 ==================================================================
-[PASS] GET /api/version answers without a session -- 200 {"commit":"700b8cc7c894fc34492891dcc4105983a44bde2b"}
-[PASS] /api/version reports a commit field -- '700b8cc7c894fc34492891dcc4105983a44bde2b'
-[PASS] GET /api/admin/deployment answers for an admin -- 200 {"api_commit":"700b8cc7c894fc34492891dcc4105983a44bde2b","api_commit_known":true,"runner":{"installed":false,"alive":false,"last_seen":null},"history"
-[PASS] the deployment route and /api/version report the same commit -- deployment='700b8cc7c894fc34492891dcc4105983a44bde2b' version='700b8cc7c894fc34492891dcc4105983a44bde2b'
-[PASS] api_commit_known agrees with whether the commit is a real sha -- known=True commit='700b8cc7c894fc34492891dcc4105983a44bde2b'
-[PASS] a known commit is a full 40-character sha, not a truncated one -- 700b8cc7c894fc34492891dcc4105983a44bde2b
+[PASS] GET /api/version answers without a session -- 200 {"commit":"f61604da143cecde7c2ab7bbea94bba18c503fcd"}
+[PASS] /api/version reports a commit field -- 'f61604da143cecde7c2ab7bbea94bba18c503fcd'
+[PASS] GET /api/admin/deployment answers for an admin -- 200 {"api_commit":"f61604da143cecde7c2ab7bbea94bba18c503fcd","api_commit_known":true,"runner":{"installed":false,"alive":false,"last_seen":null},"history"
+[PASS] the deployment route and /api/version report the same commit -- deployment='f61604da143cecde7c2ab7bbea94bba18c503fcd' version='f61604da143cecde7c2ab7bbea94bba18c503fcd'
+[PASS] api_commit_known agrees with whether the commit is a real sha -- known=True commit='f61604da143cecde7c2ab7bbea94bba18c503fcd'
+[PASS] a known commit is a full 40-character sha, not a truncated one -- f61604da143cecde7c2ab7bbea94bba18c503fcd
 [PASS] GET /api/admin/activity answers for an admin -- 200 {"users":[{"id":"47ba5ff5-ff44-4a22-ab4d-b603419fe56d","username":"dakshitha","email":"dakshitha-a@users.noreply.github.com","role":"admin","is_active":true,"last_login
 [PASS] activity carries a 'users' block -- totalsunownedusers
 [PASS] activity carries a 'unowned' block -- totalsunownedusers

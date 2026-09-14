@@ -54,7 +54,7 @@ update.
 
 ## Phase 1: one command installs it
 
-- merged: 0eb76a26d768821006bef9c54189137f3be19711
+- merged: 142e320a2008bb4ee6c52a2d3082e5a87b43fc83
 
 
 - [done] P1.1: POSIX bootstrap prologue, two modes in one file
@@ -90,15 +90,15 @@ update.
   the file's shape without changing its behaviour"
 - [done] P1.8: full piped install into a scratch checkout, on a real pty
   evidence: scripts/extract_frontend.sh → "a piped `dash` install of commit
-  5036ce8 into a fresh clone built the images, installed the bundle from the
+  c268a11 into a fresh clone built the images, installed the bundle from the
   image, came up healthy on 127.0.0.1:8443, and bootstrapped an admin who then
   logged in (200, role admin). frontend/dist/.build-commit and the container's
-  org.opencontainers.image.revision both read 5036ce8860, and no file under
+  org.opencontainers.image.revision both read c268a1195b, and no file under
   frontend/ is root-owned"
 
 ## Phase 2: the deployment tells you what it is running
 
-- merged: 0eb76a26d768821006bef9c54189137f3be19711
+- merged: 142e320a2008bb4ee6c52a2d3082e5a87b43fc83
 
 
 - [done] P2.1: `/api/version`, and the frontend learns its own build sha
@@ -125,7 +125,7 @@ update.
 
 ## Phase 3: the execution channel
 
-- merged: 0eb76a26d768821006bef9c54189137f3be19711
+- merged: 142e320a2008bb4ee6c52a2d3082e5a87b43fc83
 
 
 - [done] P3.1: host-side runner, triggered through `data/deploy/`
@@ -155,7 +155,7 @@ update.
 
 ## Phase 4: nobody loses work to an update
 
-- merged: 0eb76a26d768821006bef9c54189137f3be19711
+- merged: 142e320a2008bb4ee6c52a2d3082e5a87b43fc83
 
 
 - [done] P4.1: pause admission, then drain, then maintenance, in that order

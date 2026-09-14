@@ -57,5 +57,5 @@ One gate against a stack and a tree that agree is a better measurement than two
 half-valid ones.
 
 The before-logs that genuinely needed the pre-Phase-5 deployment were taken
-first, while the stack was still on `f6d12c5`; they are in the `P5.2` and `P5.3`
+first, while the stack was still on `cde77de`; they are in the `P5.2` and `P5.3`
 directories. The combined gate's logs are in `P6.2`.

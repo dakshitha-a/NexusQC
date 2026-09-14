@@ -1,11 +1,11 @@
 # Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
 #  02:22:19 up 295 days,  3:17,  6 users,  load average: 36.39, 37.34, 37.89
-[PASS] GET /api/version answers without a session -- 200 {"commit":"f6381d0b5d3586763d741d8f663c3c7f24c6c7b5"}
-[PASS] /api/version reports a commit field -- 'f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
-[PASS] GET /api/admin/deployment answers for an admin -- 200 {"api_commit":"f6381d0b5d3586763d741d8f663c3c7f24c6c7b5","api_commit_known":true,"runner":{"installed":false,"alive":false,"last_seen":null},"history"
-[PASS] the deployment route and /api/version report the same commit -- deployment='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5' version='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
-[PASS] api_commit_known agrees with whether the commit is a real sha -- known=True commit='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
-[PASS] a known commit is a full 40-character sha, not a truncated one -- f6381d0b5d3586763d741d8f663c3c7f24c6c7b5
+[PASS] GET /api/version answers without a session -- 200 {"commit":"6143cf55d4e094715f426357287fc10a63239d1f"}
+[PASS] /api/version reports a commit field -- '6143cf55d4e094715f426357287fc10a63239d1f'
+[PASS] GET /api/admin/deployment answers for an admin -- 200 {"api_commit":"6143cf55d4e094715f426357287fc10a63239d1f","api_commit_known":true,"runner":{"installed":false,"alive":false,"last_seen":null},"history"
+[PASS] the deployment route and /api/version report the same commit -- deployment='6143cf55d4e094715f426357287fc10a63239d1f' version='6143cf55d4e094715f426357287fc10a63239d1f'
+[PASS] api_commit_known agrees with whether the commit is a real sha -- known=True commit='6143cf55d4e094715f426357287fc10a63239d1f'
+[PASS] a known commit is a full 40-character sha, not a truncated one -- 6143cf55d4e094715f426357287fc10a63239d1f
 [PASS] GET /api/admin/activity answers for an admin -- 200 {"users":[{"id":"47ba5ff5-ff44-4a22-ab4d-b603419fe56d","username":"dakshitha","email":"dakshitha-a@users.noreply.github.com","role":"admin","is_active":true,"last_login
 [PASS] activity carries a 'users' block -- totalsunownedusers
 [PASS] activity carries a 'unowned' block -- totalsunownedusers

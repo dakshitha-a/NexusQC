@@ -29,7 +29,7 @@ three rounds because a race that does not happen once proves nothing.
 
 | | serial renders agreeing | concurrent renders matching their own style |
 |---|---|---|
-| before (`f6d12c5`) | 4/4 loud, 4/4 plain | **6 of 24** (1/8, 3/8, 2/8 by round) |
+| before (`cde77de`) | 4/4 loud, 4/4 plain | **6 of 24** (1/8, 3/8, 2/8 by round) |
 | after | 4/4 loud, 4/4 plain | **24 of 24** (8/8, 8/8, 8/8) |
 
 So three quarters of concurrent renders came out in the wrong style. The

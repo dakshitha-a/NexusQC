@@ -135,4 +135,4 @@ does not exist. The deployment runs main and cannot say so, which a later
 `scripts/update.sh` reads as stale.
 
 - [done] P7.1: Deploy through the stamped path and confirm the stamp
-  evidence: scripts/update.sh --yes HEAD → "both halves report 62e18155b755 now where each said `unknown`; a later --dry-run measures the impact report from what is deployed rather than from the checkout"
+  evidence: scripts/update.sh --yes HEAD → "both halves report 0b38acde692c now where each said `unknown`; a later --dry-run measures the impact report from what is deployed rather than from the checkout"

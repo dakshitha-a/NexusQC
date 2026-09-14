@@ -1,6 +1,6 @@
 # Coordinator's own verification, 2026-09-11
 
-Checks run by the main session against the working tree at `ca7e0ff`, on
+Checks run by the main session against the working tree at `0dcb865`, on
 claims raised by the audit agents. Read-only; no exploit was executed and no
 file was written outside this scratchpad. These upgrade the confidence field
 but are still short of a live reproduction, which P5 owns.

@@ -1,4 +1,4 @@
-# P4.4 bundle composition, read from the deployed frontend/dist (stamp ca7e0ff13d24)
+# P4.4 bundle composition, read from the deployed frontend/dist (stamp 0dcb8653d11e)
 # measured 2026-09-13T07:13:54Z. raw = bytes on disk; gz = gzip -9 of the same bytes, which is what nginx serves
 
 file                                                            raw         gz

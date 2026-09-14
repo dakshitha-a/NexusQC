@@ -3,7 +3,7 @@
 Getting the battery from a closed card audit to a clean execution. Run 1 is
 finished and archived; every fix it prompted has landed, which is exactly why
 its numbers describe a system that no longer exists. Run 2 measures the system
-as it stands at `cb25208`, and the two are never pooled.
+as it stands at `9ca0d2b`, and the two are never pooled.
 
 The design is `rsc_digital_discovery/EVALUATION.md`, reworked by the author on
 2026-08-26. Phase 0 of that design, the card audit, is already closed: 82 cards,

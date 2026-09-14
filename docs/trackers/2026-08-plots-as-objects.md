@@ -62,7 +62,7 @@ from a numeric summary field and only ever drew a connected line.
   evidence: tests/e2e/e2e_09_plot_tools.py → "P-custom-levels added; a live invoke_turn with the original request and no hint about the spec emitted style='levels', omitted x_field, and wrote x_labels distinguishing the TDDFT and TDA runs, which the auto-generated job names cannot"
 - [done] P1.7: Legend never covers data, on linear or log axes
   evidence: app/chemistry/spectrum.py → "explicit headroom before the legend, multiplicative on a log axis; the CASSCF ORCA S2 level at 11.98 eV is clear in both, having been covered in the first render"
-- merged: 8dd6ecb
+- merged: 4056ed2
 
 ## Phase 2: Plot identity and conversational editing
 
@@ -81,7 +81,7 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: frontend/src/chat/MessageBubble.tsx → "zero remaining job_id/key emitters; marker is plot_id+version, tsc --noEmit clean"
 - [done] P2.6: Version numbering survives pruning
   evidence: app/plots/store.py → "a monotonic counter, not len(versions): eight renders at MAX_VERSIONS=5 kept v4..v8 with five distinct files, where deriving from the list length had produced v4,v5,v6,v6,v6 and silently overwrote versions older messages still pointed at"
-- merged: b0ea975
+- merged: 76cfb10
 
 ## Phase 3: The Plots panel
 
@@ -95,7 +95,7 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: frontend/src/app-shell/RightDock.tsx → "plotsCollapsed added to the persisted layout store and an icon added to the hand-maintained collapsed strip, without which the section disappears when the dock is collapsed"
 - [done] P3.5: The job drawer's spectrum panels still serve, now that a spectrum PNG lives in the plot store
   evidence: tests/frontend/plots_01_panel.spec.mjs → "GET /api/jobs/<id>/artifacts/uvvis_spectrum returns 200 against the compose stack; the artifact route's containment check had to admit the plot store as a second root, and until it did every spectrum panel in the drawer would have 403'd"
-- merged: f0220d4
+- merged: d4a7909
 
 ## Phase 4: Attach and ask
 
@@ -103,4 +103,4 @@ demand, so an edit is a patch and a re-render rather than a fresh image.
   evidence: tests/frontend/plots_01_panel.spec.mjs → "attaching a plot renders composer-detach-plot-<id>; plot_ids travels MessageIn to _run_turn as its own branch beside job_ids and frame_id"
 - [done] P4.2: plot_context_summary emits the spec plus the resolved numbers as a table
   evidence: app/plots/store.py → "an attached seven-method level diagram renders as a markdown table of S1/S2 against the seven method names, from the record's cached numbers rather than a description of an image the model cannot see"
-- merged: f0220d4
+- merged: d4a7909

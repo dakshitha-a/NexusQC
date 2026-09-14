@@ -90,7 +90,7 @@ narrow wrong answers.
 - [done] P1.4: Every reader moved, including stored plot specs
   evidence: scripts/backfill_job_facts.py → "6/6 job results and 0/2 plot records need rewriting; a second run reports 0/6, so it is idempotent"
 
-- merged: 2d7396e
+- merged: 57bd4fa
 
 ## Phase 2: Retrieve fields, not documents
 
@@ -106,7 +106,7 @@ refetch.
 - [done] P2.3: The addition stays inside the tool-surface budget
   evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,971 against the 10,000 cap, 13/13 checks passed"
 
-- merged: 2d7396e
+- merged: 57bd4fa
 
 ## Phase 3: A turn may not lose what it just fetched
 
@@ -120,7 +120,7 @@ and nothing told it a hole was there.
 - [done] P3.2: Over budget, a result is blanked with a marker, never silently
   evidence: tests/backend/agent_06_job_retrieval.py → "an over-budget turn blanks results with an explicit marker, 2 of 4 blanked; at realistic payload sizes nothing has to be blanked"
 
-- merged: 2d7396e
+- merged: 57bd4fa
 
 ## Phase 4: Every plot restyleable, conversationally
 
@@ -139,7 +139,7 @@ argument, so `plot(kind="edit")` refused them outright.
 - [done] P4.5: One reply can carry several charts
   evidence: frontend/src/chat/MessageBubble.tsx → "every leading PLOT_ARTIFACT line is parsed, not one anchored marker; uvvis and ir now emit the marker every other kind emits"
 
-- merged: 61385e2
+- merged: b9ef90c
 
 ## Phase 6: One state count, for every method
 
@@ -164,7 +164,7 @@ not a probabilistic one.
 - [done] P6.3: Every tool that asks for a state count asks the same question
   evidence: tests/backend/agent_01_token_budget.py → "prompt_tokens = 9,963, 13/13 checks passed, with search_active_space_literature and explain_active_space converted too"
 
-- merged: 3e43805
+- merged: d335e52
 
 ## Phase 7: Room on the fixed surface
 
@@ -186,7 +186,7 @@ schemas were 8,595, so the schemas were the whole question.
 - [done] P7.4: A field table can never label two jobs the same
   evidence: verified against three probe jobs on disk → "two jobs that auto-name identically render as (aaaa1111) and (cccc5555) via _default_column_labels, the helper the comparison chart already used"
 
-- merged: 9bc1a7f
+- merged: 3e94e12
 
 ## Phase 8: The rest of the consolidations, evaluated rather than assumed
 
@@ -203,7 +203,7 @@ measured against the real model and kept.
 - [done] P8.4: The other two are closed as not worth doing, with reasons in the backlog
   evidence: docs/BACKLOG.md → "convert_energy_units converts values that never came from a job; the ensemble window pools across sub-jobs and filters, which no field path expresses"
 
-- merged: c15e310
+- merged: 681869f
 
 ## Phase 5: Verified end to end
 
@@ -218,4 +218,4 @@ measured against the real model and kept.
 - [done] P5.5: The backfill is not needed
   evidence: docs/BACKLOG.md → "every job was purged on request instead, so there is nothing on disk written in the old vocabulary; the script stays for any deployment that does need it, verified idempotent on copies of the six real jobs"
 
-- merged: 8742391
+- merged: 6400a6a

@@ -3,7 +3,7 @@
 Every user-visible, falsifiable claim I could extract from `README.md`,
 `docs/CONFIGURATION.md`, `docs/QM_CAPABILITIES.md`, `docs/DEPLOYMENT.md`,
 `frontend/src/app-shell/HelpFlyout.tsx` and
-`frontend/src/chat/WelcomeMessage.tsx`, at commit `ca7e0ff`.
+`frontend/src/chat/WelcomeMessage.tsx`, at commit `0dcb865`.
 
 **How to use this.** Work down the `high` rows first: those are claims a user
 acts on and is misled by if false. `medium` rows are worth doing and cheap.

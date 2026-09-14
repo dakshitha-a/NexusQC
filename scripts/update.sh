@@ -550,7 +550,7 @@ EOF
     }
     # INT and TERM as well as EXIT, and R-023 is why. Bash does not reliably
     # run an EXIT trap when it is killed by a signal it does not handle: it
-    # re-raises and dies. install.sh learned that the hard way (commit a91e352)
+    # re-raises and dies. install.sh learned that the hard way (commit 4faa632)
     # and grew on_signal; update.sh did not get the same treatment, and here
     # the consequence is not a missing message but persistent state. A Ctrl-C
     # during the drain -- which the script itself invites, printing "Ctrl-C is

@@ -1,6 +1,6 @@
 # P5.6, R-100: three e2e specs that failed on working panels
 
-Committed as `5e3163a`. No before/after log pair of its own, because the
+Committed as `10b42f2`. No before/after log pair of its own, because the
 "before" is the review's own e2e and e2e-UI runs, recorded in
 `docs/evaluation/2026-09-app-review/baseline.md`, and the "after" is the Gate 3
 run of the same suites. Nothing in the application changed in this step; all

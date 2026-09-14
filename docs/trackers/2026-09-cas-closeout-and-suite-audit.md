@@ -123,7 +123,7 @@ evaluation sweeps are fair use and neither is a reason to narrow a phase.
 - [done] P9.3: The `tests/e2e` scenarios
   evidence: tests/e2e/e2e_08_job_matrix.py → preflight 16 of 16 and the tier-1 job matrix 69 of 73, from 56 before the stale `submit_draft` requirement went. The UI specs under tests/e2e/ui are the same Playwright harness as tests/frontend and are covered by P9.2
 - [done] P9.4: The CAS benchmark's six sets, ledgers committed
-  evidence: docs/casbench/refine.md → all six produced by one `--set all` run in 6 h 11 m, every ledger stamped `e84b4e1`, so the caveat about two sets lagging a commit is retired
+  evidence: docs/casbench/refine.md → all six produced by one `--set all` run in 6 h 11 m, every ledger stamped `09e13f5`, so the caveat about two sets lagging a commit is retired
 - [done] P9.5: The standalone validators, each run or given a stated reason
   evidence: docs/evaluation/2026-09-06-full-pass.md → `validate_orbital_character` and `validate_wigner_sampling` both pass. The latter checks three independent things: it reproduces pyscf's own reduced masses to 6.18e-16 over 3 modes and 8.11e-16 over 6, it matches the analytic harmonic mean potential to 1.13% and 1.11% against a 3% tolerance, and it shows 0.000000 Angstrom of centre-of-mass drift once translational modes are excluded. The remaining three need engines or long runs and are covered by the full pass
 - [done] P9.6: A results record under `docs/evaluation/`

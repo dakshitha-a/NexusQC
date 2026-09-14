@@ -1,4 +1,4 @@
-# Frontend audit (`frontend/src`), commit `ca7e0ff`
+# Frontend audit (`frontend/src`), commit `0dcb865`
 
 Read `docs/ARCHITECTURE.md` lines 1688-2082 ("The frontend") in full before
 filing, plus `docs/BACKLOG.md`'s Open section and

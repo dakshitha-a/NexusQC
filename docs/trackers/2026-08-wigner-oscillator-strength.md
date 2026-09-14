@@ -96,7 +96,7 @@ one of several places carrying it.
   evidence: tests/backend/wig_01_oscillator_strength_requirement.py → "want_oscillator_strengths forced True for all five (method, engine) pairs tested, each with a param_note naming the engine and method actually running; the old _ENSEMBLE_JOB_TYPES_NEEDING_OSC_FORCE/_ALLOWED_ENSEMBLE_JOB_TYPES sets (keyed on method, not the engine+method capability pair) are removed from app/agent/tools.py"
 - [done] P1.4: docs regenerated and updated to match
   evidence: scripts/check_capability_matrix.py → "[PASS] capability matrix consistent with the golden table, no dangling references, docs in sync (after scripts/generate_capability_docs.py regenerated docs/QM_CAPABILITIES.md's wigner_spectra row); docs/CONFIGURATION.md and docs/ARCHITECTURE.md's wigner_ensemble section updated to describe the requirement instead of the old per-method force"
-- merged: 4ff7ffe
+- merged: 54b7a40
 
 ## Phase 2: The live spectrum preview matches the finished figure's scale
 
@@ -109,4 +109,4 @@ number is.
 
 - [done] P2.1: the preview panel normalizes to the in-window peak, dividing curve and sticks by the same divisor
   evidence: tests/frontend/p8_03_wigner_broadening.spec.mjs → "22/22 checks passed against the real docker-compose stack: y-axis reads 'Norm. intensity', no longer 'f (FWHM ...)'; the normalized curve reaches within 3% of the plot's own top, i.e. its peak is genuinely ~1"
-- merged: 4ff7ffe
+- merged: 54b7a40

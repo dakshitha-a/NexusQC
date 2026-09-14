@@ -67,7 +67,7 @@ Decisions the user made on 2026-09-14, recorded so they are not re-asked:
 - [done] P1.2: Redact the evaluation tree completely
   evidence: docs/evaluation/2026-09-app-review/evidence/redact_paths.py → "--check reports 0 identifiers in 0 files after 27 were replaced across 16 files (.md, .mjs, .log); the table is derived at runtime and the hostname, tailnet address, email and scratchpad path come from the untracked redact_terms.local"
 - [done] P1.3: Scanner: /data safe-list, commit-email check, honest truncation
-  evidence: scripts/check_public_safe.sh → "tree scan PASS on 1006 files; --range on one hostname-authored commit (8b40b06) fails with 'commit author/committer email at an institutional host'; clip prints 'showing 25 of 30' on 30 lines and nothing on 0"
+  evidence: scripts/check_public_safe.sh → "tree scan PASS on 1006 files; --range on one hostname-authored commit (0aa4122) fails with 'commit author/committer email at an institutional host'; clip prints 'showing 25 of 30' on 30 lines and nothing on 0"
 - [in-progress] P1.4: release.sh: placeholder gate, history gate, push order, confirmation
 - [done] P1.5: Docs, CHANGELOG 1.1.0, commit email config
   evidence: CHANGELOG.md → "## [1.1.0] - 2026-09-14 heads the release notes with an empty Unreleased above it and the 1.0.0 heading annotated; DEVELOPMENT.md, WORKFLOW.md and CLAUDE.md describe the new gates; this checkout's git user.email is the noreply address"

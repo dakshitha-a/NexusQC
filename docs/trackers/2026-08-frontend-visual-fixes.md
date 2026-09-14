@@ -90,7 +90,7 @@ to fit the pair the way an auto one silently did.
   evidence: tests/frontend/ui_06_row_and_viewer_controls.spec.mjs → "the name line really does overflow its box, computed mask-image is a linear-gradient and text-overflow is clip rather than ellipsis, so the two truncation styles are not stacked on each other"
 - [done] P1.3: The whole name on hover
   evidence: tests/frontend/ui_06_row_and_viewer_controls.spec.mjs → "the name cell's title attribute carries the full seeded label; in the Job Manager it reads label first and the double-click-to-rename hint second, so the existing affordance survives"
-- merged: e920ce9
+- merged: 6008fc9
 
 ## Phase 2: The control row belongs to the viewer, not the section
 
@@ -116,7 +116,7 @@ down into a sub-viewer.
   evidence: tests/frontend/ui_06_row_and_viewer_controls.spec.mjs → "both states pass: collapsed the pair is inside a 224px-tall viewer box, expanded inside the 640px one, side by side rather than stacked, and no console errors in either"
 - [done] P2.4: The tables get their padding back
   evidence: frontend/src/jobs/JobDetailDrawer.tsx → "the pr-7 that kept the frequency and orbital tables clear of the floating control cluster is gone from both panels, since there is no longer a cluster floating over them; grep for pr-7 in frontend/src returns nothing"
-- merged: e920ce9
+- merged: 6008fc9
 
 ## Phase 3: The isosurface is smooth
 
@@ -137,4 +137,4 @@ fetch. The cost is stated in the code, because it is real rather than free.
   evidence: frontend/src/jobs/MoCubeViewer.tsx → "rendering one benzene HOMO cube headlessly at smoothness 1, 3, 5 and 10 shows the corrugation plainly at the 3Dmol default of 1, nearly gone at 5 and gone at 10; 6 is the chosen value. Laplacian smoothing shrinks the surface, measured on rendered lobe area as 1.4% for water and 3.1% for benzene, i.e. one to two percent in linear extent"
 - [done] P3.2: Confirmed in the real viewer, not just a private harness
   evidence: frontend/src/jobs/MoCubeViewer.tsx → "a benzene HF/STO-3G single point seeded on the dev stack, its HOMO opened in the app's own MO panel and the canvas read back with toDataURL (page.screenshot cannot capture WebGL): the pi lobes render clean, with no trace of the ripples"
-- merged: e920ce9
+- merged: 6008fc9

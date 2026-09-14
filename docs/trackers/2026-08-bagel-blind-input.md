@@ -135,7 +135,7 @@ Format for a step row:
 
 - [done] P1.3: Read the same root count on ORCA
   evidence: tests/backend/sniff_01_pasted_inputs.py → "the suite's own ORCA_CASSCF sample, nroots 3, was asserted as single_point/gs and is now ee; nroots is found in a block written on one line as well as across several, and a %mecp input carrying its own roots stays opt/ci"
-- merged: dc74201
+- merged: b6381fc
 
 ## Phase 2: A job keeps the files it wrote
 
@@ -145,13 +145,13 @@ Format for a step row:
   evidence: tests/backend/blind_01_bagel_artifacts.py → "orbitals.archive survives a structured job's broad sweep, so orbital reuse has a source; job 8c5fd55d5566, a real completed BAGEL CASSCF excited-state run, is the before picture with its molden kept and no archive at all"
 - [done] P2.3: A blind job's molden becomes an artifact and an orbital table
   evidence: tests/backend/blind_01_bagel_artifacts.py → "a truncated molden degrades to no table instead of raising, which matters because run_custom calls _add_orbital_table outside _safe_parse and would otherwise have turned a completed blind job into a failed one"
-- merged: dc74201
+- merged: b6381fc
 
 ## Phase 3: The run the user asked for
 
 - [done] P3.1: Rebuild the image and redo the uracil CASSCF with the named active space
   evidence: tests/backend/blind_01_bagel_artifacts.py → "job 8030d89f0604, the same input rerun against the rebuilt image, kept orbitals.molden (506 KB) and orbitals.archive (1.1 MB); both are in the download zip, the artifact route serves the molden, and an active orbital renders a cube through the lazy MO route. Energies reproduce the first run exactly, since the active space is the same set"
-- merged: 13f7bbf
+- merged: 61702f3
 
 ## Phase 4: The classifier reads what each program really writes
 
@@ -172,4 +172,4 @@ unconfident result is for, rather than being forced into the nearest task.
   evidence: tests/backend/sniff_01_pasted_inputs.py → "a 'force' section is a gradient like 'forces'; a PySCF script's method is read by precedence too, since a CASSCF script builds scf.RHF before mcscf.CASSCF and reading the first would report the starting guess"
 - [done] P4.5: The root count read on all three programs
   evidence: tests/backend/sniff_01_pasted_inputs.py → "state_average and nroots both make a PySCF CASSCF script excited-state; EOM-CCSD is excited-state on ORCA and PySCF without a count, having nothing else to compute; every PySCF case still reports executable=False"
-- merged: 13f7bbf
+- merged: 61702f3

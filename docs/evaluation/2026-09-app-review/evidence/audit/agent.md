@@ -1,6 +1,6 @@
 # code:agent — static audit of `app/agent/` + `server/routes/chat.py`/`threads.py`
 
-Commit `ca7e0ff`. Read-only. Read before filing: `docs/ARCHITECTURE.md`
+Commit `0dcb865`. Read-only. Read before filing: `docs/ARCHITECTURE.md`
 "The agent graph" (275-336), "The approval gate" (338-716) in full, and
 `docs/MODEL_CONTEXT_BUDGET.md` in full.
 

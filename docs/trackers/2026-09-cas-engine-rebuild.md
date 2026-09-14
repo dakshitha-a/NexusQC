@@ -170,7 +170,7 @@ depends on it.
   evidence: tests/backend/cas_02_projector_invariance.py → "the stock-AVAS contrast is asserted, not just described: CAS(6,5) aligned vs CAS(10,7) rotated"
 - [done] P1.5: Open shells reach the projector
   evidence: tests/backend/cas_04_open_shell.py → "13/13; O2, NO, CH3, CH2 all give spaces with the right unpaired count; ROHF basis-stable where UHF is not"
-- merged: 41aba52
+- merged: f67ef93
 
 ## Phase 2: Legacy relocation and the evaluation harness
 
@@ -184,7 +184,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/run_bench.py → "four sets: spaces, stability, excited, nevpt2; runs in process so it creates no jobs or conversations to purge"
 - [done] P2.4: A recorded legacy baseline
   evidence: scripts/casbench/run_bench.py → "legacy matches the literature space on 1 of 14 molecules against the new engine's 8, refuses O2 outright, and changes its answer with the basis on 2"
-- merged: 43007fd
+- merged: 696d7f3
 
 ## Phase 3: Ranking, balancing and sizing
 
@@ -196,7 +196,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: app/chemistry/cas/feasibility.py → "Weyl-Paldus CSF counts; CAS(6,6) singlet = 175 CSFs / 400 determinants; (80e,80o) reports a cost instead of raising"
 - [done] P3.4: The orchestrator, ground-state path end to end
   evidence: tests/backend/cas_05_tiers.py → "benzene (6,6), butadiene (4,4), formaldehyde (6,4), water (8,6) via the sigma fallback; identical in cc-pVDZ and def2-TZVP; 0.1-1.0s"
-- merged: f95df13
+- merged: 7871169
 
 ## Phase 4: The excited-state branch
 
@@ -208,13 +208,13 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/run_bench.py → "augment() is called from the refinement loop when a predicted state is missing and its character has NOT left; exercised on valence states only, since no benchmark molecule has a Rydberg reference below its valence pi->pi*, so the Rydberg skip is structurally right but unmeasured"
 - [done] P4.4: Bright, dark and mixed-character states
   evidence: tests/backend/cas_06_excited_character.py → "acrolein's dark n->pi* and bright pi->pi* both identified, dark below bright as the reference has it"
-- merged: 83a3137
+- merged: 893f8d2
 
 ## Phase 5: The verification tier
 
 - [done] P5.1: Confirm the states are really there
   evidence: tests/backend/cas_07_verification.py → "12/12; formaldehyde's predicted n->pi* is found, a mutilated space fails by name, and an oversized space reports 'not verified' rather than passing"
-- merged: 7f208aa
+- merged: a32ecc2
 
 ## Phase 2B: A gap the benchmark found
 
@@ -222,7 +222,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/run_bench.py → "N2 and O2 reached their literature full valence spaces (10e,8o) and (12e,8o); literature match rose from 8/14 to 10/14"
 - [done] P2B.2: Reference states are matched to roots by character, not by index
   evidence: scripts/casbench/run_bench.py → "SC-NEVPT2 MAE over the same states fell from 1.36 eV to 0.43 eV; the difference was mis-assignment, not the spaces"
-- merged: 0dd377e
+- merged: d918321
 
 ## Phase 6: Wire the engine into the app
 
@@ -238,7 +238,7 @@ Built early, because it is what produces the evidence for deleting legacy.
   evidence: scripts/casbench/legacy_cas_reco.py → "14 symbols and 1026 lines moved out of app/; nothing under app/ imports them, and the harness still runs both sides"
 - [done] P6.6: The prompt names tools that do not exist
   evidence: tests/backend/cas_08_prompt_names_real_tools.py → "11/11; five stale tool names removed from prompts.py and a guard added so any name written as a call must be a bound tool"
-- merged: 3a42b08
+- merged: 2546191
 
 ## Phase 7: The portable handoff
 
@@ -252,7 +252,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: app/chemistry/jobs/pyscf_runner.py → "summary carries a handoff block saying the counts apply on any engine and the orbital identity transfers only to PySCF; the molden-to-ORCA route is not claimed because it was never validated"
 - [done] P7.4: The same space, three basis sets, one job chain
   evidence: tests/backend/cas_09_portable_spec.py → "14/14 across four basis sets, with the MO-index handoff measured alongside as the contrast"
-- merged: 83a3137
+- merged: 893f8d2
 
 ## Phase 8: Tests, frontend and docs
 
@@ -260,7 +260,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: tests/backend/casreco_01_capability_axis.py → "four scripts testing removed internals deleted; casreco_01/04/05, active_01, tax_01, elic_01 and reg2_01 rewritten and green"
 - [done] P8.3: Docs follow the code
   evidence: scripts/check_capability_matrix.py → "docs in sync after regeneration; CAS_RECO_REDESIGN.md carries a superseded banner, README and CHANGELOG rewritten, no stale autoCAS/entropy-pilot prose left"
-- merged: 83a3137
+- merged: 893f8d2
 
 ## Phase 9: Evaluate, then decide
 
@@ -268,7 +268,7 @@ Without this, basis-agnosticism is only a claim in a summary table.
   evidence: scripts/casbench/run_bench.py → "new matches the literature space 10/14 vs legacy 1/14; 0/14 vs 2/14 basis-dependent; SC-NEVPT2 MAE 0.43 eV over 18 states, 11/11 CASSCF converged"
 - [done] P9.2: The verdict, and legacy's fate
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8.9: no axis on which legacy is ahead; deletion recommended but kept one release so the benchmark stays runnable"
-- merged: d430c18
+- merged: a1a083e
 
 ## Phase 11: A CASSCF-based refinement pass
 
@@ -284,7 +284,7 @@ opt-in, after the quick recommendation, on approval.
   evidence: scripts/check_capability_matrix.py → "791 assertions across 19 rows and 20 tasks pass; cas_reco/refine dispatches to cas_refinement"
 - [done] P11.4: Tests, including the negative control
   evidence: tests/backend/cas_10_refinement.py → "16/16; an occupation cut takes uracil's lone pairs at four AND six roots, so the state audit is what protects them; the subspace measure is invariant to a random unitary where per-orbital labels flip"
-- merged: 83a3137
+- merged: 893f8d2
 
 Three bugs were found by running this loop rather than by reading it, and all
 three changed the design.
@@ -323,7 +323,7 @@ answer.
   evidence: docs/CAS_ENGINE_METHOD.md → "section 9.7: 17/17 inside a 10-minute cap, 11 unchanged, pyrrole and p-benzoquinone reach their literature spaces, two ground-state-only cases move away from it"
 - [done] P12.3: The other four sets re-run and section 8 restated
   evidence: docs/CAS_ENGINE_METHOD.md → "17 molecules: 10/15 literature spaces, 0/15 basis-dependent against legacy 2/15, 23/24 states located at 0.23 eV, SC-NEVPT2 0.29 eV over 20 states with 12/12 CASSCF converged"
-- merged: 83a3137
+- merged: 893f8d2
 
 ## Phase 10: The method, written up
 
@@ -331,7 +331,7 @@ answer.
   evidence: docs/CAS_ENGINE_METHOD.md → "616 lines: projector formalism, APC entropy, NTO decomposition and the <r^2> criterion, what is AVAS/APC/AEGISS and what is not, 18 references"
 - [done] P10.2: The benchmarks, in the writeup
   evidence: docs/CAS_ENGINE_METHOD.md → "section 8, every number from the harness including the formaldehyde V-state failure and a section on what is not established"
-- merged: ec7c134
+- merged: 99c1f1e
 
 ---
 
@@ -388,7 +388,7 @@ yet the path a user's job takes.
 `tests/backend/elic_01_draft_scenarios.py` scenario 5 (single_point/grad ends
 up carrying `target_states: [1]` when it should carry only the basis) and
 scenario 6 (single_point/nac asks for `n_excited_states` at step 2 where the
-test expects something else) both fail identically at `2f1f58d`, the commit
+test expects something else) both fail identically at `6318316`, the commit
 this plan branched from. They are nothing to do with the active space and were
 left alone rather than folded into an unrelated change; the rest of that file
 is green.
@@ -402,7 +402,7 @@ matrix's contents.
 **`active_01_named_orbitals.py` was asserting a phrase the note stopped
 using.** It looked for "named orbitals" where the note says "set to the N
 specific orbitals ... rather than letting the engine choose N around the HOMO".
-Also failing at `2f1f58d`. Fixed here, for the same reason: the file had to be
+Also failing at `6318316`. Fixed here, for the same reason: the file had to be
 touched anyway, and the assertion now checks what the note has to convey rather
 than one phrasing of it.
 
@@ -427,7 +427,7 @@ something narrower than what a lone pair is.
   evidence: app/chemistry/cas/refine.py → "reseed_lost_character recomputes nelec from donor/acceptor roles; uracil's 7 occupied + 2 virtual had only two pi* acceptors, too few for two pi->pi* states and an n->pi* together"
 - [done] P13.5: The reported table and the handed-over orbitals are the same set
   evidence: app/chemistry/jobs/pyscf_runner.py → "natural_orbitals.molden written alongside orbitals.molden; occupations and characters describe the natural set while the restart set spans the same space with different orbitals"
-- merged: 83a3137
+- merged: 893f8d2
 
 **Why an oriented hybrid and not a bare valence s.** Three variants were
 measured. A bare valence s detects as well as anything (0.715 on the orbital
@@ -473,7 +473,7 @@ looks like from a singlet ground state.
   evidence: tests/backend/cas_10_refinement.py → "characters_compatible treats mixed as a wildcard on the side it appears; treating it as a mismatch made the benchmark match acrolein's 6.68 eV reference to a root three electronvolts away"
 - [done] P14.5: The rebalance cannot fire on an ambiguous occupation
   evidence: app/chemistry/cas/refine.py → "donor counting is gated on every kept orbital being outside [0.8, 1.2]; the bare >1.0 test was safe only under the contaminated solver, where triplet averaging left singly-occupied orbitals at 1.5-1.8"
-- merged: 83a3137
+- merged: 893f8d2
 
 **Why this was invisible for so long.** The production job runner has
 constrained spin since the overhaul, with a CSF solver rather than `fix_spin_`,
@@ -504,7 +504,7 @@ uses is CAS(12e,9o).
   evidence: scripts/casbench/run_bench.py → "uracil's tier fits the budget so it never reached the trim; the trim is 248,430 root-CSFs against 29,700, and 11 of 14 finished molecules now match their literature space exactly"
 - [done] P15.4: The ground-state prune guard is scale-free as well as absolute
   evidence: app/chemistry/cas/refine.py → "a second test on the fraction of correlation lost; water's (8,6)->(4,4) costs 1.887 mHartree and keeps 96.4% of the correlation energy, so it is a legitimate reduction rather than a loose tolerance"
-- merged: 83a3137
+- merged: 893f8d2
 
 **Two rules were measured and rejected**, and both are recorded in §9.5 because
 neither failure is visible from the outside. Coverage of the hole fails because

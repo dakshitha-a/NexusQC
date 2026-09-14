@@ -133,10 +133,10 @@ Format for a step row:
   evidence: tests/frontend/ui_07_row_click_target.spec.mjs → "with the column widened from w-14 to w-20 the list still reports scrollWidth 419 = clientWidth 419, and rename (1230-1250) and delete (1252-1272) both measure 20x20 inside a panel spanning 861-1280"
 - [done] P1.3: Nothing the neighbouring layout spec pinned down moved
   evidence: tests/frontend/ui_06_row_and_viewer_controls.spec.mjs → "21/21, including both lists' no-sideways-scroll checks and the delete button staying inside the Job Manager panel, unchanged by the wider column"
-- merged: 31c9f56
+- merged: 4f03b04
 
 ## Phase 2: An open preview survives a dropped poll
 
 - [done] P2.1: The list's loading, error and empty states stop unmounting the drawer
   evidence: frontend/src/jobs/JobManagerPanel.tsx → "the three states are a listBody variable rather than early returns, with the drawer a sibling of it. The Job Manager list polls every 4s and TanStack Query sets status to error on a failed refetch while keeping the data it already had, so as early returns one dropped poll replaced the whole panel, drawer included, with the error line and shut a preview the user was reading"
-- merged: 31c9f56
+- merged: 4f03b04

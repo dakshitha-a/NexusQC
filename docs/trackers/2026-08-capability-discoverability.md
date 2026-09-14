@@ -166,4 +166,4 @@ Format for a step row:
   evidence: tests/backend/agent_04_old_thread_resume.py → "open_fixture pins a SqliteSaver over its own probe copy instead of assigning CHECKPOINT_DB, and a new first check fails loudly if the fixture's conversation did not load; 15/15 on the host and in the container, where it was 7/14"
 - [done] P1.3: A turn with no history answers instead of returning a 500
   evidence: tests/backend/agent_06_capability_params_and_guards.py → "_agent_node returns a plain sentence and logs a warning rather than sending a system prompt alone, a conversation holding one real message is untouched by the guard, and the phantom-continuation cleanup now names the thread and the number of messages it erased while still erasing them"
-- merged: f607214
+- merged: 42d4b27

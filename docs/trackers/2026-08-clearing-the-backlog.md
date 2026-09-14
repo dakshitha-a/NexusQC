@@ -1,7 +1,7 @@
 # Closed Tracker: clearing the backlog
 
 **Closed 2026-08-26. Twenty-eight steps across nine phases, all done**, landed
-in commits `507e939` and `63f920f`. Everything that was open in `BACKLOG.md`
+in commits `7d3d4e1` and `86cddd6`. Everything that was open in `BACKLOG.md`
 on 2026-08-25, plus two phases (2B and 2C) that opened mid-plan because a fix
 revealed something wider than the item that prompted it.
 

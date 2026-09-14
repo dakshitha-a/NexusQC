@@ -2,7 +2,7 @@
 
 `ui_15_row_keyboard.spec.mjs` (R-070 and R-065) and
 `perf_08_transcript_render.spec.mjs` (R-067), before and after, in this
-directory. "Before" is the deployment on `f6d12c5`, which is the code as the
+directory. "Before" is the deployment on `cde77de`, which is the code as the
 review found it plus Phases 1 to 3; "after" is the same specs against the
 deployment carrying this step. `ui_10_atom_label_toggle.spec.mjs` (R-064) is
 part of the gate's frontend suite rather than a standalone pair, for the reason

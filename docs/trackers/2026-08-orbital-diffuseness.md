@@ -193,7 +193,7 @@ its own.
 - [done] P1.2: the standing check covers aug-cc-pVDZ and a non-augmented control
   evidence: scripts/validate_orbital_character.py → "water/cc-pVDZ flags nothing, max fraction 0.22; ethylene/aug-cc-pVDZ keeps every occupied orbital at or below 0.01 while still finding diffuse virtuals, so the measure does not scale with the molecule"
 
-- merged: a76a54c
+- merged: 72a9c7b
 
 ## Phase 2: Say it where a chemist and the agent can see it
 
@@ -215,4 +215,4 @@ jobs showing an unexplained column.
 - [done] P2.3: the orbital table shows diffuseness, verified in a real browser
   evidence: tests/frontend/orbital_08_diffuse_column.spec.mjs → "4/4 against a real aug-cc-pVDZ water job: the Diffuse column renders between Character and Localized on, every row shows a two-decimal fraction, the maximum is 0.94, and every flagged row reports no atom"
 
-- merged: 6eadcc6
+- merged: 25fdb99

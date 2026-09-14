@@ -145,4 +145,4 @@ Format for a step row:
   evidence: tests/backend/ci_01_reference_determinant.py → "both now choose from the pre-aggregation determinant rows; ORCA passes its own already-spin-adapted rows through the same function, which is the selection its max() always made, so its behaviour is unchanged"
 - [done] P1.3: Re-derive the reported job's table from the output it already has
   evidence: tests/backend/ci_01_reference_determinant.py → "job 51a14d838f5b's own CI vectors now give [none, 28->30 (0.87), 29->30 (0.68)] where they gave [30->28 (0.74) 29->28 (0.18), none, 29->28 (0.68) 30->28 (0.14)]; nothing is described as an excitation into orbital 28 any more, which is doubly occupied in the real reference and can accept nothing"
-- merged: 4d2316a
+- merged: 16f0b3c

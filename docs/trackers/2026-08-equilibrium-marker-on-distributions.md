@@ -116,10 +116,10 @@ is the point at which it belongs in one place.
 
 - [done] P1.1: one helper resolving an ensemble's equilibrium geometry, with both existing call sites using it
   evidence: tests/backend/wig_02_equilibrium_marker.py → "for an opt_freq source the rule picks the optimized geometry (O-H 0.9894 A) and not the pre-optimization input (1.1715 A), and an ensemble finds the same value through its own recorded source_frequency_job_id; ensemble_orchestrator.py and both call sites in tools.py now call it instead of repeating the branch"
-- merged: 7184fd2
+- merged: b0111bb
 
 ## Phase 2: The line, on the plot
 
 - [done] P2.1: each histogram panel marks the equilibrium value as a labelled red dashed line
   evidence: tests/backend/wig_02_equilibrium_marker.py → "10/10: the line is drawn and labelled on every panel, the reply names it and quotes the same number the plot does through one shared formatter, and a batch histogram draws no line at all since its children can start from unrelated structures; confirmed by eye on a real uracil ensemble, where the marker sits mid-distribution and a planar ring's dihedral reads 0"
-- merged: 7184fd2
+- merged: b0111bb
