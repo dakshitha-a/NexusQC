@@ -206,4 +206,4 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: CHANGELOG.md → "the Unreleased section carries the whole phase written for a reader who did not see the review; HANDOFF gained one entry, that the newly-tracked evidence logs carry this deployment's own job and conversation names and need a human look before any public release; tracker republished and the tailnet URL reported"
 - [done] P6.5: The three deploy_05 failures the gate counted as a pass
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.5 → "deploy_05_deployment_section printed three [FAIL] lines in the Gate 3 frontend run and still exited 0, so the P6.2 close-out never listed it; the same script passes 13 of 13 alone at the same commit, and it now prints which parts of the page were on screen when a check fails instead of guessing at a cause"
-- merged: a3fa515
+- merged: 0f3d91e
