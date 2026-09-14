@@ -68,16 +68,23 @@ Decisions the user made on 2026-09-14, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/redact_paths.py → "--check reports 0 identifiers in 0 files after 27 were replaced across 16 files (.md, .mjs, .log); the table is derived at runtime and the hostname, tailnet address, email and scratchpad path come from the untracked redact_terms.local"
 - [done] P1.3: Scanner: /data safe-list, commit-email check, honest truncation
   evidence: scripts/check_public_safe.sh → "tree scan PASS on 1006 files; --range on one hostname-authored commit (0aa4122) fails with 'commit author/committer email at an institutional host'; clip prints 'showing 25 of 30' on 30 lines and nothing on 0"
-- [in-progress] P1.4: release.sh: placeholder gate, history gate, push order, confirmation
+- [done] P1.4: release.sh: placeholder gate, history gate, push order, confirmation
+  evidence: scripts/release.sh → "rehearsed end to end in a scratch clone against two local bare remotes seeded with the real two-commit placeholder: --dry-run passed all ten gates including the minute-long history scan; end-of-input on the prompt aborted with nothing pushed and no tag; 'RELEASE' stamped CITATION.cff 1.1.0, replaced the placeholder and landed main plus v1.1.0 on both remotes, public first"
 - [done] P1.5: Docs, CHANGELOG 1.1.0, commit email config
   evidence: CHANGELOG.md → "## [1.1.0] - 2026-09-14 heads the release notes with an empty Unreleased above it and the 1.0.0 heading annotated; DEVELOPMENT.md, WORKFLOW.md and CLAUDE.md describe the new gates; this checkout's git user.email is the noreply address"
-- [todo] P1.6: Gate A: tree scan passes, touched tests pass, pushed to origin
+- [done] P1.6: Gate A: tree scan passes, touched tests pass, pushed to origin
+  evidence: scripts/check_public_safe.sh → "PASS on 1006 tracked files; deploy_02 14/14 and deploy_03 11/11; check_tracker PASS; pushed as 8cede57, which the rewrite below renamed to 98ccc87"
+- merged: 98ccc87
 
 ## Phase 2: Rewrite history
 
-- [todo] P2.1: Mirror backup of the checkout
-- [todo] P2.2: Rehearse in a scratch clone until three checks are clean
-- [todo] P2.3: Apply to the checkout, remap tracker merged rows, force-push origin
+- [done] P2.1: Mirror backup of the checkout
+  evidence: docs/DEVELOPMENT.md → "git clone --mirror of the checkout at 8cede57 (791 commits, 63 MB) written to a sibling directory named NexusQC-dev-repo-pre-rewrite.git before anything was rewritten; yours to delete once satisfied"
+- [done] P2.2: Rehearse in a scratch clone until three checks are clean
+  evidence: scripts/check_public_safe.sh → "on the rewritten clone: tree PASS (1007 files), --range HEAD PASS over all 791 commits (4631 files materialised), raw grep over every reachable blob finds only the published contact addresses, github URLs and account usernames; 1581 of 1582 author/committer emails are the noreply address and the other is GitHub's own"
+- [done] P2.3: Apply to the checkout, remap tracker merged rows, force-push origin
+  evidence: scripts/check_tracker.py → "checkout reset to the rewritten tip with a byte-identical tree; 165 merged: rows and 307 hash citations across 103 files remapped by unique prefix through the commit-map, all reachable from HEAD; origin/main force-pushed with lease from 8cede57 to 78b712e"
+- merged: 78b712e
 
 ## Phase 3: Release
 
