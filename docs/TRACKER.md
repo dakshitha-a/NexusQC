@@ -1,3 +1,4 @@
+<!-- artifact: https://claude.ai/code/artifact/2bff34bb-0c8e-4d5b-b38d-0887df7d20fe -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
 # Tracker: the first public release
 
 **Publishing NexusQC 1.1.0 to the public repository.** Three phases: clean the
@@ -101,13 +102,16 @@ in-app reports).
 
 - [done] P2B.1: Inbound: issue forms, intake and CI workflows, CONTRIBUTING, SECURITY, README
   evidence: .github/workflows/ci.yml → "the four checks it runs (bash -n over 12 scripts, compileall over app/server/scripts/tests, the public-safety scan, check_tracker) all pass locally the way the job runs them; the frontend job's `npm ci && npm run build` is the same command tsc -b passed on here; issue-intake is gated on the event's repository being public and the sender not being the owner; blank issues off"
-- [in-progress] P2B.2: Version identity: git describe stamped into the image, /api/version, Help About
-- [in-progress] P2B.3: In-app bridge: bug_reports captures build and browser; prefilled GitHub links
+- [done] P2B.2: Version identity: git describe stamped into the image, /api/version, Help About
+  evidence: tests/frontend/gh_01_version_and_issue_links.spec.mjs → "after scripts/update.sh rebuilt the dev stack, /api/version answers {commit: 938d633..., version: 938d633} and the image carries org.opencontainers.image.version; Help → About renders 'NexusQC 938d633 (938d6332f93f)', the copy button puts exactly that on the clipboard and reads Copied, and both links open the public forms with template= and version= set; screenshot looked at"
+- [done] P2B.3: In-app bridge: bug_reports captures build and browser; prefilled GitHub links
+  evidence: tests/frontend/gh_01_version_and_issue_links.spec.mjs → "a report filed through the flyout comes back from the admin inbox with build_commit and build_version equal to the server's and a HeadlessChrome user agent; the inbox shows Build and Browser and File on GitHub carries the body and build; Open on GitHub in the flyout carries the typed text; the report is deleted in a finally block; conf_01 20/20 and sec_16 30/30 still pass; update.sh --dry-run reported the three columns with matching ALTERs and the live update added them"
 - [done] P2B.4: Working an issue: /issue skill, scripts/issues.sh, labels, workflow docs
   evidence: scripts/issues.sh → "ensure-labels created triage, needs-info and fixed-on-main on dakshitha-a/NexusQC (gh label list shows all three with their descriptions); list on the empty tracker prints nothing and exits 0; the skill, WORKFLOW's 'Working a public issue' section, DEVELOPMENT's tracker paragraph, CLAUDE.md's bullet and tests/README's issue_ row all name the same vocabulary"
 - [done] P2B.5: Outbound: release_announce.sh wired into release.sh, deploy_08 test
   evidence: tests/backend/deploy_08_release_announce.py → "27/27: previous tag ignores a non-release tag and, with HEAD itself tagged, still answers the earlier one; range and referenced issues exclude NexusQC-dev#n and a pre-tag reference; a Fixes #5 is warned about; a 140,035-byte section is cut to 185 bytes of head plus the link under GitHub's cap; dry run makes no gh call; live order is create, comment, unlabel, close with pr commands for a PR; a second run repeats nothing; one failing comment still closes the next item and exits 1 with the re-run line. Against the real checkout the dry run reports 794 commits, a 143,362-byte section to be cut, no issues, no closing keywords"
-- [todo] P2B.6: Gate: scans, suites, browser check, dev stack rebuilt, dry run re-shown
+- [done] P2B.6: Gate: scans, suites, browser check, dev stack rebuilt, dry run re-shown
+  evidence: scripts/release.sh → "tree scan PASS; deploy_01/02/03/08 and install_01/02 pass; CI green on the private repo for both jobs on the first real run (46 s) and the intake workflow parses and is skipped there (a throwaway issue produced a 'skipped' run, then deleted); issues.sh exercised on a public throwaway (new, list, needs-info, fixed; deleted); dev stack rebuilt with all 18 jobs intact; release.sh 1.1.0 --dry-run green with the announcement plan showing 143,362-byte notes to be cut, no issues, no closing keywords"
 
 ## Phase 3: Release
 

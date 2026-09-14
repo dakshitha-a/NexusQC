@@ -12,7 +12,7 @@
 // The last part files a real in-app report and reads it back from the admin
 // inbox, which is what proves the server stamps build_commit, build_version
 // and user_agent on it. The report is deleted at the end.
-import { newBrowser, newContext, adminApiLogin, adminPassword, ADMIN_USER, check, summary, LOGGED_IN, BASE_URL, openUserMenu, randSuffix } from "./_helpers.mjs";
+import { newBrowser, newContext, adminApiLogin, check, summary, LOGGED_IN, BASE_URL, openUserMenu, randSuffix } from "./_helpers.mjs";
 
 const PUBLIC = "https://github.com/dakshitha-a/NexusQC/issues/new?";
 
@@ -24,12 +24,10 @@ async function main() {
   const browser = await newBrowser();
   const ctx = await newContext(browser);
   await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE_URL });
+  // Logged in as the admin so one session can do all three surfaces.
+  await adminApiLogin(ctx);
   const page = await ctx.newPage();
   await page.goto(BASE_URL);
-  await page.waitForSelector('input[placeholder="Username"]', { timeout: 15000 });
-  await page.fill('input[placeholder="Username"]', ADMIN_USER);
-  await page.fill('input[placeholder="Password"]', adminPassword());
-  await page.click('button[type="submit"]');
   await page.waitForSelector(LOGGED_IN, { timeout: 15000 });
 
   const server = await page.evaluate(async () => (await fetch("/api/version")).json());
@@ -82,9 +80,10 @@ async function main() {
   await page.keyboard.press("Escape");
 
   // --- Admin inbox -------------------------------------------------------------
-  const adminCtx = await newContext(browser);
-  await adminApiLogin(adminCtx);
-  const reports = await (await adminCtx.request.get(`${BASE_URL}/api/admin/bug-reports`)).json();
+  // Through the same context: a second admin login elsewhere would end this
+  // page's session (one live session per account), which is what logged the
+  // first version of this spec out halfway through.
+  const reports = await (await ctx.request.get(`${BASE_URL}/api/admin/bug-reports`)).json();
   const mine = reports.find((r) => r.body === text);
   check("the report is in the admin inbox", Boolean(mine));
   if (mine) {
@@ -93,7 +92,13 @@ async function main() {
 
     await openUserMenu(page);
     await page.click('[data-testid="admin-open"]');
+    await page.waitForSelector("text=Admin console", { timeout: 10000 });
+    // The panel's badge query re-renders the nav once the report count lands;
+    // wait for the row's section to settle before clicking into it.
+    await page.waitForSelector('[data-testid="admin-nav-reports"]', { timeout: 10000 });
+    await page.waitForTimeout(1000);
     await page.click('[data-testid="admin-nav-reports"]');
+    await page.waitForSelector(`[data-testid="admin-report-row-${mine.id}"]`, { timeout: 10000 });
     await page.click(`[data-testid="admin-report-row-${mine.id}"]`);
     await page.waitForSelector('[data-testid="admin-report-github"]', { timeout: 5000 });
     const build = (await page.locator('[data-testid="admin-report-build"]').textContent()).trim();
@@ -103,17 +108,32 @@ async function main() {
       fileHref.startsWith(PUBLIC) && params(fileHref).get("description") === text && params(fileHref).get("version") === expectedLabel, fileHref);
     await page.screenshot({ path: "/tmp/gh_01_admin.png" });
 
-    const del = await adminCtx.request.delete(`${BASE_URL}/api/admin/bug-reports/${mine.id}`);
-    check("the test's report is deleted afterwards", del.status() === 204, `${del.status()}`);
   }
 
   check("nothing navigated to github.com", !page.url().includes("github.com"), page.url());
-  await browser.close();
-  const ok = summary();
-  process.exit(ok ? 0 : 1);
+  return { ctx, browser, text };
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Cleanup runs whether the checks passed or a wait timed out halfway: an
+// earlier version of this spec left one report per crashed run in the inbox.
+let handle = null;
+main()
+  .then((h) => { handle = h; })
+  .catch((e) => { console.error(e); })
+  .finally(async () => {
+    let ok = false;
+    try {
+      if (handle) {
+        const { ctx, text } = handle;
+        const reports = await (await ctx.request.get(`${BASE_URL}/api/admin/bug-reports`)).json();
+        for (const r of reports.filter((r) => r.body === text)) {
+          const del = await ctx.request.delete(`${BASE_URL}/api/admin/bug-reports/${r.id}`, { headers: { Origin: BASE_URL } });
+          check("the test's report is deleted afterwards", del.status() === 204, `${del.status()}`);
+        }
+        await handle.browser.close();
+      }
+    } finally {
+      ok = summary();
+      process.exit(ok ? 0 : 1);
+    }
+  });
