@@ -91,7 +91,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 ## Phase 0: Open the fix tracker
 
 - [done] P0.1: Archive the review tracker, write this one, clear the handoff
-  evidence: docs/trackers/2026-09-app-review.md → "review tracker archived and retitled Closed Tracker, its artifact restored at 9ae8d698; this tracker published at 5739e72d; the triage entry is out of HANDOFF.md; check_tracker.py passes with 45 steps"
+  evidence: docs/trackers/2026-09-app-review.md → "review tracker archived and retitled Closed Tracker, its artifact restored at 9ae8d698; this tracker published at 5739e72d; the triage entry is out of HANDOFF.md; check_tracker.py passes with the plan's 45 steps, to which P6.5 was later added"
 - [done] P0.2: Accounts, snapshot, and the R-001 backfill target list
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P0.2 → "8 listed jobs, 16 on disk (8 of them unowned children of 186fe458ec9e), 9 threads, 0 plots, 0 projects, 3 users snapshotted; qa_fix and qa_fix_2 registered"
 - [done] P0.3: Arm the log and health watches
@@ -201,7 +201,9 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 - [done] P6.2: Gate 3 - advance, four suites, tear down the test accounts
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.2 → "backend 158/165, e2e 13/18, frontend 38/44, e2e UI 5/9; R-101 measured at 15 of 15 fresh threads reaching the card and ui_10 at 21/21; three real defects found and fixed, thirteen stale checks corrected, two-sided cleanup diff +0 -0"
 - [done] P6.3: resolution.md, published, and the backlog updated
-  evidence: docs/evaluation/2026-09-app-review/resolution.md → "102 of 102 findings carry an outcome: 100 fixed, 2 not reproduced with the measurement that says so; BACKLOG's Open section rewritten with seven entries, each naming its next experiment, and the ui_10 entry closed"
+  evidence: docs/evaluation/2026-09-app-review/resolution.md → "102 of 102 findings carry an outcome: 100 fixed, 2 not reproduced with the measurement that says so; BACKLOG's Open section rewritten with an entry per open question, each naming its next experiment, and the ui_10 entry closed"
 - [done] P6.4: Changelog, handoff, push, republish
   evidence: CHANGELOG.md → "the Unreleased section carries the whole phase written for a reader who did not see the review; HANDOFF gained one entry, that the newly-tracked evidence logs carry this deployment's own job and conversation names and need a human look before any public release; tracker republished and the tailnet URL reported"
+- [done] P6.5: The three deploy_05 failures the gate counted as a pass
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.5 → "deploy_05_deployment_section printed three [FAIL] lines in the Gate 3 frontend run and still exited 0, so the P6.2 close-out never listed it; the same script passes 13 of 13 alone at the same commit, and it now prints which parts of the page were on screen when a check fails instead of guessing at a cause"
 - merged: a3fa515

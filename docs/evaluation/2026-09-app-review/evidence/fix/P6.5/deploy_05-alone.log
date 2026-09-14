@@ -1,0 +1,16 @@
+# deploy_05 alone on the advanced stack, c6eca86, 2026-09-14T02:46:17-04:00
+[PASS] /api/version answers with a commit -- c6eca866e3ade78b153422f8c94f37b2090be3ec
+[PASS] the Deployment nav entry is rendered in the admin panel
+[PASS] the Deployment section mounts and draws its first heading
+[PASS] the section prints the API commit the deployment actually reports -- looking for c6eca866e3ad
+[PASS] it labels one of them as this browser tab's own build
+[PASS] with the tab and the server in step, no stale-build warning is shown -- a reload prompt appeared when both commits agree
+[PASS] with somebody else working, the section names them instead of claiming it is idle -- others_interrupted=1: dma
+[PASS] the counters on screen match the ones the API reports -- api totals: {"running_jobs":0,"pending_jobs":0,"open_streams":1,"users_interrupted":1,"others_interrupted":1}
+[PASS] a running job appears in the table without reloading the page
+[PASS] and the idle message is gone while somebody would be interrupted
+[PASS] the update controls render either way
+[PASS] with no runner, the panel names the host command instead of offering a button
+[PASS] the staged job was cleaned up -- qatestdc187c
+
+13/13 checks passed in this script.

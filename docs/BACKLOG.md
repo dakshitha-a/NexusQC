@@ -51,6 +51,26 @@ Everything here came out of the 2026-09 fix phase's final gate. Each entry says
 what was observed, what has been ruled out, and the next experiment, because an
 entry with no next step is a note rather than a backlog item.
 
+**The Deployment admin section loses three checks under a four-suite load.**
+`tests/frontend/deploy_05_deployment_section.spec.mjs` reported 9 of 12 in the
+Gate 3 frontend run, all three failures downstream of one wait: a job staged
+directly into `JOBS_DIR` never appeared in the "Who is working right now" table
+within twenty seconds, and the two checks that read the same page snapshot
+afterwards found neither the update controls nor the `scripts/update.sh` line.
+Run alone against the same stack at the same commit the script passes 13 of 13,
+twice. Ruled out: the app code, which did not change between the two runs, and
+a global logout on a failed poll, which `lib/api.ts:222-247` does not do (only a
+401, and only outside `/api/auth/me`). Not ruled out: what the page actually
+looked like, because the log recorded only that an assertion did not hold. The
+script now prints a `pageState()` line naming which of the section, the
+activity table, the update controls, the admin panel and the login screen were
+on screen, plus the last failing `/api/` responses. **Next experiment:** run
+`deploy_05` alone with `QC_AGENT_TEST_DEPLOY05_WAIT_MS` left at its default
+while a synthetic load drives the same stack (the four suites concurrently is
+what produced it, load average 39 with nginx returning intermittent 502s), and
+read the `pageState()` line. Full triage in
+`docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md`.
+
 **The approval resume no longer shows a tool chip.**
 `tests/e2e/e2e_04_harness_gate.py`'s H12 asserts that resuming a turn after the
 user clicks Approve publishes an `agent_step` event, and it did: at the Phase 1

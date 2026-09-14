@@ -57,6 +57,44 @@ async function main() {
   check("/api/version answers with a commit", Boolean(apiCommit), String(apiCommit));
 
   const page = await ctx.newPage();
+
+  // Kept so a failure can say what the page was doing rather than only that
+  // an assertion did not hold. Three of the checks below read the same page
+  // state, so when the section is not on screen they all fail together and
+  // each one's message describes a cause that may not be the real one. The
+  // full-suite run of 2026-09-14 hit exactly that: 9/12 here while the same
+  // script passed 13/13 alone minutes later. See
+  // docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md.
+  const consoleErrors = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200));
+  });
+  page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 200)}`));
+  const failedRequests = [];
+  page.on("response", (r) => {
+    if (r.status() >= 400 && r.url().includes("/api/")) {
+      failedRequests.push(`${r.status()} ${r.url().replace(BASE_URL, "")}`);
+    }
+  });
+
+  // What the page looks like at the moment a check fails, in one line, so a
+  // log read months later does not need the browser back.
+  async function pageState() {
+    const bits = [];
+    for (const [label, sel] of [
+      ["section", "text=What is running"],
+      ["activity", "text=Who is working right now"],
+      ["controls", "text=Updating"],
+      ["admin-panel", '[data-testid="admin-nav-deployment"]'],
+      ["login-screen", 'input[name="password"]'],
+    ]) {
+      bits.push(`${label}=${(await page.locator(sel).count()) > 0 ? "yes" : "no"}`);
+    }
+    if (failedRequests.length) bits.push(`failed=[${failedRequests.slice(-4).join(", ")}]`);
+    if (consoleErrors.length) bits.push(`console=[${consoleErrors.slice(-2).join(" | ")}]`);
+    return bits.join(" ");
+  }
+
   await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
 
@@ -155,17 +193,25 @@ async function main() {
   ).split("\n").pop().trim();
 
   let sawBusy = false;
+  const busyWaitMs = Number(process.env.QC_AGENT_TEST_DEPLOY05_WAIT_MS || 60000);
   try {
     // The section polls every 5s, so this is waiting for its own refresh
     // rather than for a page reload -- which is also the assertion that the
     // polling works.
-    await page.waitForSelector("text=1 running", { timeout: 20000 });
+    //
+    // The budget is 60s rather than the 5s the poll nominally needs, because
+    // this script also runs inside the full frontend suite while three other
+    // suites drive the same stack. In that run the api answers some polls
+    // through nginx with a 502 and a 20s window is not enough to see one
+    // land. A generous budget costs nothing when the poll works and is the
+    // difference between "the panel does not poll" and "the host was busy".
+    await page.waitForSelector("text=1 running", { timeout: busyWaitMs });
     sawBusy = true;
   } catch { /* reported by the check below */ }
   check(
     "a running job appears in the table without reloading the page",
     sawBusy,
-    "the section never showed the staged job within 20s",
+    sawBusy ? "" : `no '1 running' row within ${busyWaitMs}ms -- ${await pageState()}`,
   );
 
   if (sawBusy) {
@@ -189,7 +235,11 @@ async function main() {
   const runnerAlive = Boolean(dep.runner?.alive);
   const afterText = await page.textContent("body");
 
-  check("the update controls render either way", afterText.includes("Updating"), "");
+  check(
+    "the update controls render either way",
+    afterText.includes("Updating"),
+    afterText.includes("Updating") ? "" : `no update controls on screen -- ${await pageState()}`,
+  );
 
   if (runnerAlive) {
     check(
@@ -207,11 +257,18 @@ async function main() {
       );
     }
   } else {
+    // Two distinct ways to fail, and they mean opposite things: the command
+    // is missing (the controls did not render at all, usually because the
+    // section is not on screen) or an Apply button is there with no runner
+    // behind it (a real defect). Saying which one happened is the point.
+    const namesCommand = afterText.includes("scripts/update.sh");
+    const offersButton = (await page.locator('[data-testid="deploy-update-phrase"]').count()) > 0;
     check(
       "with no runner, the panel names the host command instead of offering a button",
-      afterText.includes("scripts/update.sh")
-        && (await page.locator('[data-testid="deploy-update-phrase"]').count()) === 0,
-      "an Apply button was offered with nothing on the host to answer it",
+      namesCommand && !offersButton,
+      offersButton
+        ? "an Apply button was offered with nothing on the host to answer it"
+        : namesCommand ? "" : `the host command is not on screen -- ${await pageState()}`,
     );
   }
 

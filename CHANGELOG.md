@@ -104,6 +104,15 @@ note saying what changed.
 - **A prompt printed a literal `\n` on screen.** `printf '%s'` does not process
   escapes, so the DMRG question showed its own line break as two characters.
 
+- **A frontend spec could fail three checks and still be counted as a pass.**
+  `deploy_05_deployment_section` reports per check but exits on the suite's
+  aggregate, so three `[FAIL]` lines in the final gate never reached the
+  close-out's list of what was still failing. The script passes 13 of 13 when
+  it is not competing with three other suites for the same host, and it now
+  prints which parts of the admin panel were on screen when a check fails,
+  along with the last failing API responses, so the next occurrence explains
+  itself instead of needing a re-run to interpret.
+
 #### The four questions the 2026-09 review would not answer from a suite run
 
 The review deliberately left four results unlabelled, because a suite run

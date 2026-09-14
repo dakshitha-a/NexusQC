@@ -1,0 +1,15 @@
+# negative control: QC_AGENT_TEST_DEPLOY05_WAIT_MS=1 so the poll cannot land, 2026-09-14T02:46:38-04:00
+[PASS] /api/version answers with a commit -- c6eca866e3ade78b153422f8c94f37b2090be3ec
+[PASS] the Deployment nav entry is rendered in the admin panel
+[PASS] the Deployment section mounts and draws its first heading
+[PASS] the section prints the API commit the deployment actually reports -- looking for c6eca866e3ad
+[PASS] it labels one of them as this browser tab's own build
+[PASS] with the tab and the server in step, no stale-build warning is shown -- a reload prompt appeared when both commits agree
+[PASS] with somebody else working, the section names them instead of claiming it is idle -- others_interrupted=1: dma
+[PASS] the counters on screen match the ones the API reports -- api totals: {"running_jobs":0,"pending_jobs":0,"open_streams":1,"users_interrupted":1,"others_interrupted":1}
+[FAIL] a running job appears in the table without reloading the page -- no '1 running' row within 1ms -- section=yes activity=yes controls=yes admin-panel=yes login-screen=no failed=[404 /api/plots/p2e06103b66a/versions/v2.png] console=[Failed to load resource: the server responded with a status of 404 ()]
+[PASS] the update controls render either way
+[PASS] with no runner, the panel names the host command instead of offering a button
+[PASS] the staged job was cleaned up -- qatestff6880
+
+11/12 checks passed in this script.
