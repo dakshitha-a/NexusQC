@@ -1,4 +1,4 @@
-# deploy_05 alone on the advanced stack, c6eca86, 2026-09-14T02:46:17-04:00
+# deploy_05 with the corrected login-screen selector, alone on the advanced stack, a43fcf1, 2026-09-14T02:56:12-04:00
 [PASS] /api/version answers with a commit -- c6eca866e3ade78b153422f8c94f37b2090be3ec
 [PASS] the Deployment nav entry is rendered in the admin panel
 [PASS] the Deployment section mounts and draws its first heading
@@ -11,6 +11,6 @@
 [PASS] and the idle message is gone while somebody would be interrupted
 [PASS] the update controls render either way
 [PASS] with no runner, the panel names the host command instead of offering a button
-[PASS] the staged job was cleaned up -- qatestdc187c
+[PASS] the staged job was cleaned up -- qatest3fdeac
 
 13/13 checks passed in this script.

@@ -165,7 +165,8 @@ the spec that called it. It says what the request actually answered now.
 **This list was incomplete when it was written, and P6.5 says why.** It was
 built from the suites' exit codes, and `deploy_05_deployment_section` printed
 three `[FAIL]` lines while still exiting 0, so it never reached the list. Run
-alone against the same stack minutes later the same script passes 13 of 13.
+alone about eighty minutes later, on the same stack at the same commit with
+nothing else driving it, the same script passes 13 of 13.
 The triage, the measurement and the three changes that stop a repeat from being
 this hard to read are in `evidence/fix/P6.5/README.md`.
 

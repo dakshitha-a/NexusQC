@@ -49,12 +49,17 @@ QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
   node tests/frontend/deploy_05_deployment_section.spec.mjs
 ```
 
-**13 of 13 checks passed** (`deploy_05-alone.log`). Thirteen rather than the
+**13 of 13 checks passed** (`deploy_05-unchanged-alone.log`, taken with the
+script exactly as the gate ran it, before any of the changes below). Thirteen
+rather than the
 gate's twelve because check 10, "and the idle message is gone while somebody
 would be interrupted", only runs when check 9 saw the staged row, so a failure
 at 9 removes a check from the denominator as well as adding one to the failures.
 That is the whole difference between `9/12` and `13/13`: four checks, all
 downstream of one twenty-second wait.
+
+That run was at 02:44, about eighty minutes after the gate's frontend suite
+started, on the same commit and the same stack with nothing else driving it.
 
 The difference between the two runs is the machine, not the code. The gate ran
 all four suites concurrently: `frontend-run.log`'s own header records
@@ -94,7 +99,10 @@ No app code changed. `deploy_05` gained three things:
 
 ## Verification
 
-- `deploy_05-alone.log`: 13/13 with the patched script at `c6eca86`.
+- `deploy_05-unchanged-alone.log`: 13/13 with the script exactly as the gate
+  ran it, at `c6eca86`. This is the measurement the triage above rests on.
+- `deploy_05-alone.log`: 13/13 again with the patched script at the same
+  commit, which is what says the changes below did not break it.
 - `deploy_05-negative-control.log`: the same script with
   `QC_AGENT_TEST_DEPLOY05_WAIT_MS=1`, so the poll cannot possibly land inside
   the window. 11/12, and the one failure now reads
@@ -107,6 +115,12 @@ No app code changed. `deploy_05` gained three things:
   were both on screen, so this failure is the wait and nothing else. Had the
   gate's run carried this line, the triage above would have taken a minute
   instead of an hour.
+
+  `login-screen=no` is correct here rather than an unwired probe. The selector
+  is `[data-testid="auth-submit"]`, the submit button
+  `LoginScreen.tsx:194-200` renders unconditionally inside the auth form, and
+  five other specs in `tests/frontend/` already drive the login screen through
+  it. The session was logged in, so its absence is the truthful answer.
 
 ## One thing the diagnostic turned up, which is not a defect
 

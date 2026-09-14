@@ -63,7 +63,8 @@ async function main() {
   // state, so when the section is not on screen they all fail together and
   // each one's message describes a cause that may not be the real one. The
   // full-suite run of 2026-09-14 hit exactly that: 9/12 here while the same
-  // script passed 13/13 alone minutes later. See
+  // script passed 13/13 alone about eighty minutes later on the same idle
+  // stack and the same commit. See
   // docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md.
   const consoleErrors = [];
   page.on("console", (m) => {
@@ -86,7 +87,7 @@ async function main() {
       ["activity", "text=Who is working right now"],
       ["controls", "text=Updating"],
       ["admin-panel", '[data-testid="admin-nav-deployment"]'],
-      ["login-screen", 'input[name="password"]'],
+      ["login-screen", '[data-testid="auth-submit"]'],
     ]) {
       bits.push(`${label}=${(await page.locator(sel).count()) > 0 ? "yes" : "no"}`);
     }
