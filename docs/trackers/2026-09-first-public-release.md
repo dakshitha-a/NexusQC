@@ -1,10 +1,13 @@
 <!-- artifact: https://claude.ai/code/artifact/2bff34bb-0c8e-4d5b-b38d-0887df7d20fe -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: the first public release
+# Closed Tracker: the first public release
+
+**Closed 2026-09-14. Twenty-one steps across six phases, all done; v1.1.0 is published.**
+No tracker is active until the next plan begins.
 
 **Publishing NexusQC 1.1.0 to the public repository.** Three phases: clean the
 tip and fix the release tooling, rewrite history a second time, then release.
 The tracker this replaces is
-[`trackers/2026-09-fixing-what-the-review-found.md`](trackers/2026-09-fixing-what-the-review-found.md),
+[`2026-09-fixing-what-the-review-found.md`](2026-09-fixing-what-the-review-found.md),
 which closed with all 102 review findings resolved. **Exactly one tracker is
 active at a time.**
 
@@ -136,5 +139,8 @@ the browser's own origin as the fallback that keeps today's behaviour.
 
 - [done] P3.1: Dry run shown to the user, re-run after Phase 2B changed release.sh
   evidence: scripts/release.sh → "--dry-run at 42f4c50, after Phases 2B and 2C: ten gates green, the two-commit placeholder recognised, the history scan clean over all 801 commits, and the announcement plan: 148,872-byte notes to be cut at 100,000 with a link, no public issues referenced, no closing keywords; would publish v1.1.0 to the public remote"
-- [todo] P3.2: Live release on the user's go
-- [todo] P3.3: Verify the public remote, rebuild the dev stack, clear the handoff
+- [done] P3.2: Live release on the user's go
+  evidence: CITATION.cff → "stamped version 1.1.0 and date-released 2026-09-14 by scripts/release.sh, run on the user's instruction: every gate green, the two-commit placeholder replaced with --force-with-lease, main and v1.1.0 pushed to the public remote first and the private one second, the GitHub release created with the CHANGELOG section cut to 99,716 bytes plus the link, no issues to close; release commit 961431d"
+- [done] P3.3: Verify the public remote, rebuild the dev stack, clear the handoff
+  evidence: docs/HANDOFF.md → "git ls-remote public shows main at 961431d and v1.1.0; gh release view v1.1.0 is a published release; the raw install.sh URL answers 200; CI green on the public repository (32 s); a throwaway issue showed the intake workflow evaluating there and skipping for the owner as designed (the acknowledge path needs a non-owner reporter), then deleted; update.sh --dry-run reports the dev stack up to date, everything since its build being documentation; the handoff's release entries were cleared before the release and only the watchdog entry remains"
+- merged: 961431d
