@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Archive, ArchiveRestore, Paperclip } from "lucide-react";
+import { Archive, ArchiveRestore, ExternalLink, Paperclip } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
+import { bugReportUrl, versionLabel } from "../lib/github";
 import type { AdminBugReport } from "../lib/api";
 import { ConfirmButton } from "./ConfirmButton";
 import { DetailField, ExpandableRow } from "./ExpandableRow";
@@ -161,6 +162,25 @@ export function BugReportsSection({
                       {row.archived_at &&
                         ` · archived ${new Date(row.archived_at).toLocaleString()}`}
                     </DetailField>
+                    {/* What the server was running when the report was filed,
+                        stamped by the server itself. Reports from before the
+                        columns existed say so rather than guessing. */}
+                    <DetailField label="Build">
+                      {row.build_commit || row.build_version ? (
+                        <code data-testid="admin-report-build" className="font-mono">
+                          {versionLabel(row.build_version ?? "unknown", row.build_commit ?? "unknown")}
+                        </code>
+                      ) : (
+                        <span className="italic">not recorded</span>
+                      )}
+                    </DetailField>
+                    <DetailField label="Browser">
+                      {row.user_agent ? (
+                        <span className="break-all">{row.user_agent}</span>
+                      ) : (
+                        <span className="italic">not recorded</span>
+                      )}
+                    </DetailField>
 
                     <div className="mt-2">
                       <div className="mb-1 text-text-muted">Report</div>
@@ -225,6 +245,24 @@ export function BugReportsSection({
                         {row.archived_at ? <ArchiveRestore size={11} /> : <Archive size={11} />}
                         {row.archived_at ? "Unarchive" : "Archive"}
                       </button>
+                      {/* Forward to the public tracker: opens GitHub's bug form
+                          with the report text and the build it was filed
+                          against. The admin reads it over and files it under
+                          their own account; screenshots go by hand. */}
+                      <a
+                        href={bugReportUrl({
+                          version: row.build_version ?? "unknown",
+                          commit: row.build_commit ?? "unknown",
+                          description: row.body,
+                        })}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="admin-report-github"
+                        title="Open the public bug form with this report's text and build filled in"
+                        className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-raised hover:text-text"
+                      >
+                        <ExternalLink size={11} /> File on GitHub
+                      </a>
                       <ConfirmButton
                         label="Delete report"
                         confirmLabel="Delete report"

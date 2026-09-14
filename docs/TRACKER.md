@@ -86,9 +86,31 @@ Decisions the user made on 2026-09-14, recorded so they are not re-asked:
   evidence: scripts/check_tracker.py → "checkout reset to the rewritten tip with a byte-identical tree; 165 merged: rows and 307 hash citations across 103 files remapped by unique prefix through the commit-map, all reachable from HEAD; origin/main force-pushed with lease from 8cede57 to 78b712e"
 - merged: 78b712e
 
+## Phase 2B: The issue pipeline, before the release
+
+Added on 2026-09-14 after the dry run passed: the user wants users to report
+bugs and request features on the public repository, the maintainer to work
+them in sessions here, and releases to close them, and the same flow to serve
+maintainer-originated features. It ships in 1.1.0 so the public repository
+lands with its templates, CI and contributor docs on day one. Decisions the
+user made: PRs are accepted and land through the development repository with
+authorship preserved; issues close at release, not when fixed; CI runs on both
+repositories; all three in-app bridges (version in Help with prefilled issue
+links, an admin "File on GitHub" action, build and browser captured on
+in-app reports).
+
+- [done] P2B.1: Inbound: issue forms, intake and CI workflows, CONTRIBUTING, SECURITY, README
+  evidence: .github/workflows/ci.yml → "the four checks it runs (bash -n over 12 scripts, compileall over app/server/scripts/tests, the public-safety scan, check_tracker) all pass locally the way the job runs them; the frontend job's `npm ci && npm run build` is the same command tsc -b passed on here; issue-intake is gated on the event's repository being public and the sender not being the owner; blank issues off"
+- [in-progress] P2B.2: Version identity: git describe stamped into the image, /api/version, Help About
+- [in-progress] P2B.3: In-app bridge: bug_reports captures build and browser; prefilled GitHub links
+- [done] P2B.4: Working an issue: /issue skill, scripts/issues.sh, labels, workflow docs
+  evidence: scripts/issues.sh → "ensure-labels created triage, needs-info and fixed-on-main on dakshitha-a/NexusQC (gh label list shows all three with their descriptions); list on the empty tracker prints nothing and exits 0; the skill, WORKFLOW's 'Working a public issue' section, DEVELOPMENT's tracker paragraph, CLAUDE.md's bullet and tests/README's issue_ row all name the same vocabulary"
+- [done] P2B.5: Outbound: release_announce.sh wired into release.sh, deploy_08 test
+  evidence: tests/backend/deploy_08_release_announce.py → "27/27: previous tag ignores a non-release tag and, with HEAD itself tagged, still answers the earlier one; range and referenced issues exclude NexusQC-dev#n and a pre-tag reference; a Fixes #5 is warned about; a 140,035-byte section is cut to 185 bytes of head plus the link under GitHub's cap; dry run makes no gh call; live order is create, comment, unlabel, close with pr commands for a PR; a second run repeats nothing; one failing comment still closes the next item and exits 1 with the re-run line. Against the real checkout the dry run reports 794 commits, a 143,362-byte section to be cut, no issues, no closing keywords"
+- [todo] P2B.6: Gate: scans, suites, browser check, dev stack rebuilt, dry run re-shown
+
 ## Phase 3: Release
 
-- [done] P3.1: Dry run shown to the user
-  evidence: scripts/release.sh → "--dry-run against the real remotes: ten gates green, the two-commit placeholder recognised, the history scan over every commit clean, would publish v1.1.0; the public repository has no branch protection or rules and the token has push; the three release-gated handoff entries were cleared because their decisions are now made"
+- [todo] P3.1: Dry run shown to the user, re-run after Phase 2B changed release.sh
 - [todo] P3.2: Live release on the user's go
 - [todo] P3.3: Verify the public remote, rebuild the dev stack, clear the handoff

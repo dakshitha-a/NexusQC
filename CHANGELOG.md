@@ -16,6 +16,62 @@ note saying what changed.
 together here; the `[1.0.0]` section below was written before the public
 repository existed and was never published on its own.
 
+### Added
+
+- **Reporting bugs and requesting features, from the app to the public
+  repository and back.** The public repository has issue forms (a bug report
+  asks for the version, what happened, steps, the engine and log output; a
+  feature request asks for the chemistry before the interface), blank issues
+  are off, and a workflow acknowledges every new issue or pull request and
+  labels it `triage`. `CONTRIBUTING.md` says how a report moves (`triage`,
+  `needs-info`, `fixed-on-main`, closed at release) and that pull requests
+  land through the development repository with the contributor's authorship
+  kept; `SECURITY.md` says where a vulnerability goes instead. A lean CI
+  workflow runs the checks a session runs by hand on every push to either
+  repository.
+- **The app knows its version and says so.** The image is stamped with what
+  `git describe` calls the commit it was built from (`v1.1.0`, or
+  `v1.1.0-7-gabc1234` past a release), alongside the commit, and
+  `/api/version` reports both. **Help → About** shows `NexusQC v1.1.0
+  (0123456789ab)` with a copy button, because the bug form asks for exactly
+  that string, and links to the bug and feature forms with it filled in.
+- **Two ways to report, told apart.** The in-app **Report a bug** panel still
+  goes to the deployment's administrator, screenshots and all, and now
+  records which build the server was running and which browser filed it,
+  stamped by the server so a report cannot claim another build. Beside its
+  send button, **Open on GitHub instead** opens the public form with the text
+  and version already in it, for problems with the software rather than with
+  the server. The admin inbox shows the build and browser on each report and
+  has **File on GitHub** to forward one the same way. Nothing is ever posted
+  to GitHub automatically; the browser opens the form and the person files
+  it.
+- **Working an issue is a session command.** `/issue <n>` reads the issue,
+  writes the regression test first (`tests/backend/issue_<n>_<slug>.py` or
+  `tests/frontend/issue_<n>_<slug>.spec.mjs`, picked up by the runners by
+  name) and shows it failing, fixes on `main`, references the issue in the
+  commit as `Refs: dakshitha-a/NexusQC#<n>`, and after the push tells the
+  reporter it is fixed on the development branch. `/issue new "<title>"`
+  files the issue first for work the maintainer originates; `/issue pr <n>`
+  applies a contributor's pull request with `git am`. `scripts/issues.sh`
+  carries the vocabulary so every reporter reads the same sentence at the
+  same step, and `scripts/issues.sh list` prints the queue at the start of a
+  session.
+- **A release closes what it ships.** After both pushes, `scripts/release.sh`
+  runs `scripts/release_announce.sh`, which creates the GitHub release with
+  the CHANGELOG section as its notes (cut under GitHub's 125,000-character
+  cap with a link to the full section when needed; this first section is
+  over it) and comments "Released in vX.Y.Z" on, unlabels and closes every
+  public issue and pull request the released commits reference. Closing is
+  defined to the reporter as "you can install it", and this is the only
+  place it happens. The step is idempotent, continues past any single
+  failure and prints the re-run command, and is never allowed to turn a
+  successful publication into a reported failure. The dry run shows its plan
+  too, including a warning for any closing keyword (`Fixes #n`) in a released
+  commit, which GitHub would act on by itself when the public push lands.
+  `tests/backend/deploy_08_release_announce.py` covers it against a scratch
+  history and a stubbed `gh`, including the case that only exists after the
+  live release, when HEAD itself carries the new tag.
+
 ### Changed
 
 - **The release tooling was made to work, by trying to use it.** The first

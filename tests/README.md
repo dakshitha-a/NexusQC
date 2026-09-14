@@ -176,6 +176,8 @@ actually there right now.
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
 | `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate. **Excluded from `run_backend.sh`: it purges every job on the stack** |
 | `deploy_01`..`deploy_03` | `scripts/update.sh`'s own logic, tested by lifting the shell out of it: what it believes is deployed, what it writes to `.update-log`, and what it tells an operator to do when an update fails |
+| `deploy_08` | `scripts/release_announce.sh` against a scratch git history and a stubbed `gh`: which issues a release closes (and which it must not), the previous-tag lookup after HEAD itself is tagged, release notes cut under GitHub's limit, dry-run makes no call, a re-run repeats nothing |
+| `issue_<n>_<slug>` | the regression test for public issue or pull request `n`, one per issue, written before the fix and shown failing; named so the number is greppable from the test, the CHANGELOG entry and the commit's `Refs:` trailer (`.claude/skills/issue/SKILL.md`) |
 | `install_01`, `install_02` | `scripts/install.sh` and the library it shares with `update.sh`. `install_01` is static: it parses, its prologue is still POSIX (a bashism there kills `curl \| sh` on every Debian-family machine), `--help` answers through a real `dash` pipe without cloning anything, every refusal names what to do instead, and README still documents the tools the script enforces. `install_02` runs the shared helpers against input built to break them. Neither installs anything |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
 | `elic_01` | draft elicitation, twenty-one scenarios, every task walked from empty to `ready` |
@@ -198,15 +200,17 @@ actually there right now.
 | `ui_13` | a drawer's `+` button while the drawer is shut opens the drawer *and* shows the form, and the collapsed instrument dock's icons reach their own panels |
 | `ui_14` | every colour pair the interface draws, checked numerically in all four themes: AA, and AAA on the Contrast theme. Status hues and the accent are checked as text, not only as fills |
 
-`deploy_01`..`deploy_03` and `install_01`..`install_02` are the five scripts
-here that need no stack at all. They read and run shell out of
-`scripts/update.sh`, `scripts/install.sh` and `scripts/lib/common.sh`, so they
-work in a bare checkout with nothing running.
+`deploy_01`..`deploy_03`, `deploy_08` and `install_01`..`install_02` are the
+six scripts here that need no stack at all. They read and run shell out of
+`scripts/update.sh`, `scripts/install.sh`, `scripts/lib/common.sh` and
+`scripts/release_announce.sh`, so they work in a bare checkout with nothing
+running.
 
 ```
   frontend/
     run_frontend.mjs              runs tests/frontend/*.spec.mjs
     fe_sec_*.spec.mjs             bug-proving Playwright scenarios
+    issue_*.spec.mjs              regression tests for public issues, one per issue
     p1_*.spec.mjs                 admin console (invites) + account panel
     draft_01, fail_01, grad_02,   one script each, added alongside the
     opt_02, p7_05, p8_03, up_02,  feature they cover

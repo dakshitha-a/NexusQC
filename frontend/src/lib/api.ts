@@ -696,6 +696,11 @@ export interface AdminConfig {
 
 export interface VersionInfo {
   commit: string;
+  // The same commit as `git describe` names it: a release tag, a tag plus a
+  // distance, or a short sha before the first release. Shown under Help ->
+  // About and prefilled into a GitHub bug report; 'unknown' on an unstamped
+  // build, like the commit.
+  version: string;
 }
 
 // Unauthenticated and outside the admin surface on purpose: it has to answer
@@ -1016,6 +1021,13 @@ export interface AdminBugReport {
   archived_at: string | null;
   created_at: string;
   attachments: BugReportAttachment[];
+  // What the SERVER was running when the report was filed, stamped from the
+  // api's own environment rather than sent by the browser, so it names the
+  // build the bug was seen on and cannot be forged. NULL on reports filed
+  // before these columns existed.
+  build_commit: string | null;
+  build_version: string | null;
+  user_agent: string | null;
 }
 
 export const listAdminBugReports = () => request<AdminBugReport[]>("/api/admin/bug-reports");

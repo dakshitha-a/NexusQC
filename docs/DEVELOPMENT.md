@@ -186,6 +186,29 @@ scripts/release.sh 1.1.0
 Because history gets published, the asymmetry is worth keeping in mind: a
 private push is reversible, and a public one really isn't.
 
+## The public issue tracker
+
+Issues and pull requests live on the public repository, because that is the
+only one a user can see. The fix lives here. Since the reporter cannot watch
+the branch, the issue itself carries the state: `triage` on filing (an
+Actions workflow in `.github/workflows/issue-intake.yml`, which also posts
+the acknowledgement), `needs-info` or `fixed-on-main` from
+`scripts/issues.sh` as the work moves, and closed by
+`scripts/release_announce.sh` when a release that carries the fix is pushed.
+[WORKFLOW.md](WORKFLOW.md#working-a-public-issue) has the session side;
+[CONTRIBUTING.md](../CONTRIBUTING.md) has the reporter's.
+
+Pull requests are accepted and never merged there. A contributor's commits
+are applied here with `git am`, which keeps them as the author, and the pull
+request is closed at release like an issue. That is the only way to honour
+both the contribution and the one-history rule below.
+
+CI (`.github/workflows/ci.yml`) runs the checks a session runs by hand
+(`bash -n`, `compileall`, the public-safety scan, the tracker check, a
+frontend build) on every push to either repository. It needs no stack and
+finishes in a few minutes; the real suites still run locally against a
+deployment.
+
 ## Why the public repository has to stay a separate repository
 
 `NexusQC-dev` and `NexusQC` are two repositories, not one repository with

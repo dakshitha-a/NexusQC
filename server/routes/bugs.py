@@ -2,10 +2,11 @@
 (list/archive/delete) lives in server/routes/admin.py."""
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.auth import models, rate_limit
 from app.auth.deps import get_current_user
@@ -86,6 +87,7 @@ def _validate_body(body: str) -> str:
 
 @router.post("")
 def submit_bug_report(
+    request: Request,
     body: str = Form(...),
     files: list[UploadFile] = File(default=[]),
     user: dict = Depends(get_current_user),
@@ -146,7 +148,18 @@ def submit_bug_report(
                 ),
             )
 
-    row = models.create_bug_report(str(user["id"]), body)
+    # Stamped from this process's own environment (the same values
+    # /api/version reports), never from anything the client sent: a report
+    # then names the build the bug was seen on, and cannot claim another. The
+    # user agent is the one header worth keeping; a browser-specific rendering
+    # bug is unreproducible without it.
+    row = models.create_bug_report(
+        str(user["id"]),
+        body,
+        build_commit=os.environ.get("QC_AGENT_BUILD_COMMIT") or None,
+        build_version=os.environ.get("QC_AGENT_BUILD_VERSION") or None,
+        user_agent=(request.headers.get("user-agent") or "")[:512] or None,
+    )
     report_id = str(row["id"])
 
     if staged:

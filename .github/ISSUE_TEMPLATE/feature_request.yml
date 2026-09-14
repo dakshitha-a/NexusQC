@@ -1,0 +1,34 @@
+# Feature request form for the public repository. Field ids are query-string
+# keys for prefilling; see bug_report.yml for why that matters.
+name: Feature request
+description: A calculation, a workflow or a piece of the interface that NexusQC should have.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The chemistry or the workflow, in your own words. What you do today instead, if anything.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What NexusQC could do
+      description: How you would want to ask for it and what you would expect back. A sketch is enough.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: NexusQC version
+      description: Help → About in the app.
+      placeholder: v1.1.0 (0123456789ab)
+    validations:
+      required: false

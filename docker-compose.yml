@@ -110,6 +110,11 @@ services:
         # every build; a hand-run build leaves it `unknown`, which update.sh
         # reads as "cannot tell, assume stale" rather than as up to date.
         GIT_COMMIT: ${QC_AGENT_BUILD_COMMIT:-unknown}
+        # The same commit as `git describe` names it (a release tag, or a
+        # short sha before the first release). Shown under Help -> About and
+        # quoted in bug reports; `unknown` on a hand-run build, like the
+        # commit.
+        GIT_VERSION: ${QC_AGENT_BUILD_VERSION:-unknown}
     restart: unless-stopped
     # Run tini as PID 1 so orphaned engine processes are reaped.
     #

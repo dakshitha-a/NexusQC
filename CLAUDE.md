@@ -26,6 +26,10 @@ the tooling rather than trusted to memory, and the short version is:
 - **A deployment only ever advances via `scripts/update.sh`**, which reports what
   the update will do, including anything destructive. Before touching anything,
   and takes a full backup first.
+- **Public issues are worked with `/issue <n>`** and referenced in commits as
+  `Refs: dakshitha-a/NexusQC#<n>`, never with a closing keyword. Nothing closes
+  a public issue but a release; `scripts/release_announce.sh` does it from
+  `release.sh`. `scripts/issues.sh list` shows the queue.
 
 **Then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).** It explains how
 the system is put together and, more importantly, why each significant decision

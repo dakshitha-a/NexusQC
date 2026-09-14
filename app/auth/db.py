@@ -103,7 +103,16 @@ CREATE TABLE IF NOT EXISTS bug_reports (
     -- all-or-nothing execute on every process start. It also composes better:
     -- a report can be closed AND archived, which a single status column
     -- cannot express.
-    archived_at TIMESTAMPTZ
+    archived_at TIMESTAMPTZ,
+    -- What the SERVER was running when the report was filed, stamped from
+    -- the api's own environment (QC_AGENT_BUILD_COMMIT / _VERSION) rather
+    -- than sent by the browser: it names the build the bug was seen on, and
+    -- a reporter cannot forge it. The user agent is the request header,
+    -- capped by the route. All three NULL on reports from before the columns
+    -- existed; the admin inbox says "not recorded" rather than guessing.
+    build_commit TEXT,
+    build_version TEXT,
+    user_agent TEXT
 );
 
 -- Screenshots attached to a bug report. The file itself lives on disk under
@@ -272,6 +281,9 @@ CREATE TABLE IF NOT EXISTS app_config (
 -- route, not just the feature it belongs to.
 ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS build_commit TEXT;
+ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS build_version TEXT;
+ALTER TABLE bug_reports ADD COLUMN IF NOT EXISTS user_agent TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS actor_username TEXT;

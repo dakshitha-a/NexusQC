@@ -1,7 +1,10 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, ChevronDown, ChevronRight, Copy, ExternalLink } from "lucide-react";
 import { Flyout } from "./Flyout";
 import { useComposerDraftStore } from "../lib/composerDraftStore";
+import * as api from "../lib/api";
+import { bugReportUrl, featureRequestUrl, versionLabel } from "../lib/github";
 
 /** A numbered step in the getting-started walkthrough. */
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
@@ -40,6 +43,77 @@ function Section({
         {title}
       </button>
       {open && <div className="mt-2 text-xs leading-relaxed text-text">{children}</div>}
+    </div>
+  );
+}
+
+/** What this deployment is running, and the two links a bug report starts
+ *  from. The version comes from the server (/api/version), not from this
+ *  bundle: a report should name the build that produced the behaviour, and a
+ *  stale tab's own stamp would be the one number guaranteed to be wrong. The
+ *  copy button exists because the bug form asks for exactly this string. */
+function About() {
+  const versionQuery = useQuery({ queryKey: ["version"], queryFn: api.getVersion });
+  const [copied, setCopied] = useState(false);
+  const version = versionQuery.data?.version ?? "unknown";
+  const commit = versionQuery.data?.commit ?? "unknown";
+  const label = versionLabel(version, commit);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(label);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard permission is deniable; the text is selectable right there.
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-text-muted">Version</span>
+        <code
+          data-testid="about-version"
+          className="select-all rounded bg-surface-raised px-1.5 py-0.5 font-mono text-2xs text-text"
+        >
+          NexusQC {label}
+        </code>
+        <button
+          onClick={copy}
+          data-testid="about-version-copy"
+          title="Copy the version, for a bug report"
+          className="inline-flex items-center gap-1 text-text-muted transition-colors hover:text-text"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <p className="text-text-muted">
+        Found something wrong with NexusQC itself, rather than with this server? File it on the
+        public repository; the form opens with the version filled in. Something wrong with this
+        server goes to its administrator through <strong>Report a bug</strong> in the account menu.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <a
+          href={bugReportUrl({ version, commit })}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="about-bug-link"
+          className="inline-flex items-center gap-1 text-accent hover:underline"
+        >
+          <ExternalLink size={12} /> Report a bug on GitHub
+        </a>
+        <a
+          href={featureRequestUrl({ version, commit })}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="about-feature-link"
+          className="inline-flex items-center gap-1 text-accent hover:underline"
+        >
+          <ExternalLink size={12} /> Request a feature
+        </a>
+      </div>
     </div>
   );
 }
@@ -268,6 +342,10 @@ export function HelpFlyout({ open, onClose }: { open: boolean; onClose: () => vo
           >
             Try: “what are the trade-offs between TDDFT and EOM-CCSD?”
           </button>
+        </Section>
+
+        <Section title="About">
+          <About />
         </Section>
       </div>
     </Flyout>

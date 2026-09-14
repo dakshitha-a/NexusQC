@@ -818,10 +818,15 @@ echo
 # no reason, and the deployment could never say what it was running.
 QC_AGENT_BUILD_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 export QC_AGENT_BUILD_COMMIT
+# And the version the same commit describes to (a tag name, or a short sha
+# before the first release), which is what Help -> About shows and what a bug
+# report quotes. Same build, same stamp; they cannot disagree.
+QC_AGENT_BUILD_VERSION="$(qc_build_version "$QC_AGENT_BUILD_COMMIT")"
+export QC_AGENT_BUILD_VERSION
 BUILD_START="$(date +%s)"
 docker compose build || die "the image build failed -- the error is in the output above.
   Nothing has been started, and re-running this installer picks up from here."
-ok "images built at ${QC_AGENT_BUILD_COMMIT:0:12} in $(qc_elapsed_human $(( $(date +%s) - BUILD_START )))"
+ok "images built at ${QC_AGENT_BUILD_COMMIT:0:12} (${QC_AGENT_BUILD_VERSION}) in $(qc_elapsed_human $(( $(date +%s) - BUILD_START )))"
 
 info "installing the frontend bundle from the image"
 bash scripts/extract_frontend.sh "$QC_AGENT_BUILD_COMMIT" \

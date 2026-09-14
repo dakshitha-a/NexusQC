@@ -681,6 +681,9 @@ PY
     # reaches the build through docker-compose.yml's own args block, which is
     # where the default (`unknown`) lives too.
     export QC_AGENT_BUILD_COMMIT="$TARGET_SHA"
+    # The version that commit describes to, for /api/version and Help ->
+    # About. Tags were fetched above, so a release tag on the target is seen.
+    export QC_AGENT_BUILD_VERSION="$(qc_build_version "$TARGET_SHA")"
 
     # Build, then install the bundle, then bring the stack up -- in that order.
     # This used to be a single `up -d --build` after the frontend build, but

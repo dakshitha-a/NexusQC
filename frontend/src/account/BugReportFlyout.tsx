@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { ImagePlus, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ExternalLink, ImagePlus, X } from "lucide-react";
 import { Flyout } from "../app-shell/Flyout";
 import { useAuth } from "../auth/AuthContext";
 import * as api from "../lib/api";
 import { ApiError } from "../lib/api";
+import { bugReportUrl } from "../lib/github";
 
 const INPUT_CLASS =
   "rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none";
@@ -28,6 +30,15 @@ const MAX_SHOT_BYTES = 5 * 1024 * 1024;
 function BugReportForm() {
   const [body, setBody] = useState("");
   const [shots, setShots] = useState<File[]>([]);
+  // For the "Open on GitHub" link: the server's own version, so the public
+  // report names the build the bug was seen on. Nothing is posted from here;
+  // the link opens GitHub's form with the text and version already in it.
+  const versionQuery = useQuery({ queryKey: ["version"], queryFn: api.getVersion });
+  const githubHref = bugReportUrl({
+    version: versionQuery.data?.version ?? "unknown",
+    commit: versionQuery.data?.commit ?? "unknown",
+    description: body,
+  });
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -139,14 +150,31 @@ function BugReportForm() {
 
       {error && <div className="text-xs text-status-failed">{error}</div>}
       {done && <div className="text-xs text-status-completed">Thanks -- your report was sent.</div>}
-      <button
-        type="submit"
-        disabled={submitting || body.trim().length === 0}
-        data-testid="bug-report-submit"
-        className="self-start rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-50"
-      >
-        {submitting ? "Sending..." : "Send report"}
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={submitting || body.trim().length === 0}
+          data-testid="bug-report-submit"
+          className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-50"
+        >
+          {submitting ? "Sending..." : "Send report"}
+        </button>
+        <a
+          href={githubHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="bug-report-github"
+          title="Opens the public bug form with this text and the version filled in; screenshots have to be attached there"
+          className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text hover:underline"
+        >
+          <ExternalLink size={12} /> Open on GitHub instead
+        </a>
+      </div>
+      <p className="text-2xs text-text-muted">
+        <strong>Send report</strong> goes to this server's administrator, screenshots included.{" "}
+        <strong>Open on GitHub</strong> files it publicly with the NexusQC project, for problems
+        with the software rather than with this server.
+      </p>
     </form>
   );
 }

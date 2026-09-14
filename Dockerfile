@@ -159,9 +159,17 @@ USER app
 # which is what a hand-run `docker compose up --build` should look like. To
 # stamp a hand-run build too:
 #
-#     QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+#     QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) \
+#     QC_AGENT_BUILD_VERSION=$(git describe --tags --always --match 'v[0-9]*') \
+#     docker compose up -d --build
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
+# The human-readable name of the same commit, from `git describe` on the host
+# (a build cannot ask git: .git is dockerignored). Shown under Help -> About
+# and quoted in bug reports, so a report says `v1.1.0 (0123456789ab)` rather
+# than only a sha.
+ARG GIT_VERSION=unknown
+LABEL org.opencontainers.image.version="${GIT_VERSION}"
 # The same value again, as an environment variable, because a LABEL is only
 # readable with `docker inspect` from the host -- the process inside the
 # container cannot see it. Two things need it from in there: /api/version, so
@@ -171,6 +179,7 @@ LABEL org.opencontainers.image.revision="${GIT_COMMIT}"
 # what the caller believed. A stamp taken from the image cannot disagree with
 # the image.
 ENV QC_AGENT_BUILD_COMMIT="${GIT_COMMIT}"
+ENV QC_AGENT_BUILD_VERSION="${GIT_VERSION}"
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

@@ -235,8 +235,17 @@ def version():
     the process inside cannot read its own. `unknown` is honest and is what a
     hand-run `docker compose build` with no stamp produces; callers read it as
     "cannot tell", never as up to date.
+
+    The version is the same commit as `git describe` names it: a release tag
+    (`v1.1.0`), a tag plus a distance (`v1.1.0-7-gabc1234`), or a short sha
+    before any release exists. It is what Help -> About shows and what a bug
+    report on the public repository quotes, so the two fields are stamped
+    from the same build and cannot disagree.
     """
-    return {"commit": os.environ.get("QC_AGENT_BUILD_COMMIT") or "unknown"}
+    return {
+        "commit": os.environ.get("QC_AGENT_BUILD_COMMIT") or "unknown",
+        "version": os.environ.get("QC_AGENT_BUILD_VERSION") or "unknown",
+    }
 
 
 if __name__ == "__main__":

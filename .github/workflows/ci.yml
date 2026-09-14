@@ -1,0 +1,71 @@
+# The checks a session runs by hand before a commit, run by a machine on
+# every push and pull request.
+#
+# This is deliberately lean: no Docker stack, no database, no Ollama, no
+# quantum chemistry engine. The real test suites need a deployed stack and
+# are run locally (docs/WORKFLOW.md, tests/README.md). What this catches is
+# the class of mistake that does not need any of that to be visible: a shell
+# script that does not parse, a Python module that does not compile, a
+# tracked file that the public-safety scan would refuse, a tracker row that
+# cites a commit not on the branch, and a frontend that does not build.
+#
+# It runs on the private development repository as well as the public one,
+# because the private one is where the next release is being assembled and
+# a red build there is the only automated signal before publication. On the
+# public repository a red X arrives after `scripts/release.sh` has already
+# pushed; it is information, not a gate. The gates are local and in
+# release.sh. Private repositories have a monthly Actions budget; the
+# `checks` job is under a minute and `frontend` about three, so it is a long
+# way from mattering, and either job can be disabled per repository under
+# Settings → Actions without touching this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check_tracker.py asks whether each merged: hash is an ancestor of
+          # HEAD, which a shallow clone cannot answer.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Shell scripts parse
+        run: bash -n scripts/*.sh scripts/lib/*.sh scripts/hooks/pre-push
+      - name: Python compiles
+        run: python3 -m compileall -q app server scripts tests
+      - name: Public-safety scan
+        run: scripts/check_public_safe.sh
+      - name: Tracker is consistent
+        run: python3 scripts/check_tracker.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          QC_AGENT_BUILD_COMMIT: ${{ github.sha }}

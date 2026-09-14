@@ -116,6 +116,43 @@ clears the file. See "Handing off what you cannot do yourself" below.
 
 The history stays linear either way. Nothing here creates a merge commit.
 
+### Working a public issue
+
+Users report bugs and ask for features on the public repository, and the
+work happens here, where they cannot see it. What they can see is their
+issue, so its labels and comments are the whole of the state visible to a
+reporter, and they are kept current by `scripts/issues.sh` rather than from
+memory. The vocabulary, in the order an issue moves through it:
+
+| Label | Set by | Means |
+|---|---|---|
+| `triage` | the intake workflow, on filing | not yet looked at |
+| `needs-info` | `scripts/issues.sh needs-info <n> "<question>"` | could not be reproduced; the question is on the issue |
+| `fixed-on-main` | `scripts/issues.sh fixed <n>`, after the push | fixed here, not yet installable anywhere |
+| *closed* | `scripts/release_announce.sh`, from `release.sh` | released; the closing comment names the version |
+
+The `/issue <n>` skill (`.claude/skills/issue/SKILL.md`) walks a session
+through it: read the issue, write the regression test
+(`tests/backend/issue_<n>_<slug>.py` or `tests/frontend/issue_<n>_<slug>.spec.mjs`,
+picked up by both runners) and show it failing, fix on `main`, a CHANGELOG
+entry under `[Unreleased]` ending with the issue link, then commit with the
+trailer `Refs: dakshitha-a/NexusQC#<n>`. `/issue new "<title>"` files the
+issue first for work you originate, so the roadmap is public before the work
+starts; `/issue pr <n>` applies a contributor's pull request with `git am`,
+which keeps their authorship, and treats it as a fix from then on.
+
+Two rules with a mechanism behind them. **The reference is `Refs`, the full
+`owner/repo#n`, never `Fixes` or `Closes`.** Every commit message is replayed
+against the public repository when a release is pushed, and a closing
+keyword would close the issue there with no comment saying which version to
+install. `release_announce.sh` reads the `Refs` trailers of the released
+commits to know what to close, so a missing trailer is an issue that stays
+open after its fix ships. **Nothing closes an issue but a release.** Closed
+is defined to the reporter as "you can install it" (CONTRIBUTING.md).
+
+Start of a session with nothing in mind: `scripts/issues.sh list` prints
+the queue, `triage` first.
+
 ### Handing off what you cannot do yourself
 
 `docs/HANDOFF.md` holds steps a session finished but could not perform: a
@@ -187,6 +224,15 @@ before the push, not in a postmortem. Then it asks for one typed
 confirmation, every time, and pushes to the public remote first and the
 private one second, so that a failure at either step is recoverable with
 the commands it prints.
+
+After both pushes it runs `scripts/release_announce.sh`, which creates the
+GitHub release with the CHANGELOG section as its notes and closes every
+public issue and pull request the released commits reference, with a
+"Released in vX.Y.Z" comment on each. That step is deliberately not a gate:
+publication has already happened, so a failure there is printed with the
+command that repairs it (the script is idempotent and can be re-run) rather
+than reported as a failed release. The dry run shows the announcement's plan
+too, including a warning for any closing keyword in a released commit.
 
 ## Testing
 
@@ -292,6 +338,7 @@ it prevents has already happened in this repository, not hypothetically.
 # start work
 cat docs/HANDOFF.md          # anything a previous session left for a person
 git pull --ff-only origin main
+scripts/issues.sh list       # the public queue, triage first; /issue <n> works one
 
 # push (private)
 git push origin main

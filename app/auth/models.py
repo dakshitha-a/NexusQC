@@ -810,7 +810,17 @@ def count_pending_shares(user_id: str) -> int:
 BUG_REPORT_MAX_WORDS = 1000
 
 
-def create_bug_report(user_id: Optional[str], body: str) -> dict:
+def create_bug_report(
+    user_id: Optional[str],
+    body: str,
+    *,
+    build_commit: Optional[str] = None,
+    build_version: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> dict:
+    """Files a report. The build fields are the server's own stamp, passed in
+    by the route from the api's environment; they say what was running when
+    the bug was seen, which is the first thing a fix needs to know."""
     words = body.split()
     if len(words) > BUG_REPORT_MAX_WORDS:
         # Enforced here (server-side), not just in the frontend form -- a
@@ -819,9 +829,11 @@ def create_bug_report(user_id: Optional[str], body: str) -> dict:
         body = " ".join(words[:BUG_REPORT_MAX_WORDS])
     with get_pool().connection() as conn:
         return conn.execute(
-            """INSERT INTO bug_reports (user_id, body) VALUES (%s, %s)
-               RETURNING id, user_id, body, created_at, status""",
-            (user_id, body),
+            """INSERT INTO bug_reports (user_id, body, build_commit, build_version, user_agent)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING id, user_id, body, created_at, status,
+                         build_commit, build_version, user_agent""",
+            (user_id, body, build_commit, build_version, user_agent),
         ).fetchone()
 
 
@@ -839,6 +851,7 @@ def list_bug_reports() -> list[dict]:
         return conn.execute(
             """
             SELECT r.id, r.user_id, r.body, r.created_at, r.status, r.archived_at,
+                   r.build_commit, r.build_version, r.user_agent,
                    u.username AS reporter_username,
                    COALESCE(
                        (SELECT json_agg(json_build_object(

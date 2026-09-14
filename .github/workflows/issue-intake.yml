@@ -1,0 +1,54 @@
+# Acknowledge a new issue or pull request on the public repository.
+#
+# This file is tracked, so it also exists on the private development
+# repository, whose pushes are what the rest of the workflow is built around.
+# It must do nothing there: the `if` on the job checks the event's own
+# repository flag rather than hardcoding a name, so a fork with a private
+# mirror gets the same behaviour without editing this file. The second clause
+# keeps the bot from acknowledging the maintainer's own issues, which
+# `scripts/issues.sh new` files to make planned work visible.
+#
+# Only the preinstalled `gh` and the workflow's own token are used. No
+# third-party actions, so there is nothing to pin and nothing to audit.
+#
+# What the labels mean is written in CONTRIBUTING.md and created by
+# `scripts/issues.sh ensure-labels`; this workflow only applies `triage`.
+name: Issue intake
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  acknowledge:
+    if: github.event.repository.private == false && github.event.sender.login != github.repository_owner
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Label and acknowledge an issue
+        if: github.event_name == 'issues'
+        run: |
+          n="${{ github.event.issue.number }}"
+          gh issue edit "$n" -R "$GITHUB_REPOSITORY" --add-label triage
+          gh issue comment "$n" -R "$GITHUB_REPOSITORY" --body "$(cat <<'MSG'
+          Thanks for the report. It is labelled `triage` until the maintainer has looked at it.
+
+          How it goes from here: when a fix lands on the development branch this issue gets a comment and the `fixed-on-main` label, and it is closed with a comment naming the release that ships the fix, so "closed" always means "you can install it". If something is needed to reproduce it, the label becomes `needs-info` and the question is asked here. The flow is written up in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+          MSG
+          )"
+      - name: Label and acknowledge a pull request
+        if: github.event_name == 'pull_request_target'
+        run: |
+          n="${{ github.event.pull_request.number }}"
+          gh pr edit "$n" -R "$GITHUB_REPOSITORY" --add-label triage
+          gh pr comment "$n" -R "$GITHUB_REPOSITORY" --body "$(cat <<'MSG'
+          Thanks for the change. Pull requests are not merged on this repository: published history is pushed from a private development repository, so your commits are applied there with `git am`, which keeps you as the author, and this pull request is closed with a comment naming the release that shipped them. CI runs here in the meantime. Details in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+          MSG
+          )"

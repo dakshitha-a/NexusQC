@@ -994,6 +994,28 @@ what has and hasn't been exercised in [TESTING.md](docs/TESTING.md) and
 
 ---
 
+## Reporting bugs and requesting features
+
+Use the issue forms on the public repository: a
+[bug report](https://github.com/dakshitha-a/NexusQC/issues/new?template=bug_report.yml)
+or a
+[feature request](https://github.com/dakshitha-a/NexusQC/issues/new?template=feature_request.yml).
+The bug form asks for the version, which **Help → About** in the app shows
+with a copy button, and the in-app **Report a bug** panel has an **Open on
+GitHub** link that fills the form in for you.
+
+The two reporting paths are different on purpose. **Report a bug** inside the
+app goes to the administrator of *that deployment*, screenshots and all, and
+stays there; the GitHub form is public and reaches the maintainer of the
+software. An administrator can forward an in-app report to GitHub from the
+admin console when it turns out to be the software rather than the server.
+
+How a report is handled, what the labels mean, and how pull requests land are
+in [CONTRIBUTING.md](CONTRIBUTING.md). A security problem goes by email
+instead; see [SECURITY.md](SECURITY.md).
+
+---
+
 ## Documentation
 
 | Document | What it covers |
@@ -1008,6 +1030,8 @@ what has and hasn't been exercised in [TESTING.md](docs/TESTING.md) and
 | [BACKLOG.md](docs/BACKLOG.md) | Known bugs, unimplemented features, and what remains unverified |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [NOTICE.md](NOTICE.md) | Third-party licences and attribution |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting bugs, requesting features, what the labels mean, pull requests |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
 
 ---
 

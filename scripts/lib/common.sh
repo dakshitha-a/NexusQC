@@ -400,6 +400,25 @@ qc_wait_for_health() {
     done
 }
 
+# qc_build_version <commit> -> what `git describe` calls that commit.
+#
+# The human-readable companion to the build commit: `v1.1.0` on a release
+# tag, `v1.1.0-7-gabc1234` seven commits past it, a bare short sha before any
+# tag exists (--always), `unknown` outside a checkout. It describes a COMMIT,
+# never the working tree, so there is no --dirty: install.sh clones and
+# update.sh refuses a dirty tree, so the question does not arise, and a
+# `-dirty` suffix on a stamp that names a commit would be a lie about the
+# commit. Only tags shaped like a release count (--match), so a stray tag
+# somebody pushes for a bisect never becomes the version a bug report quotes.
+#
+# Computed here on the host, not in the Dockerfile: .dockerignore excludes
+# .git, so the build cannot ask git anything, which is the same reason the
+# commit itself is passed in as a build arg.
+qc_build_version() {
+    git describe --tags --always --match 'v[0-9]*' "${1:-HEAD}" 2>/dev/null \
+        || echo unknown
+}
+
 qc_elapsed_human() {
     # $1 = seconds. "4m 12s", or "38s".
     local s="$1"

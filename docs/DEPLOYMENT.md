@@ -656,8 +656,15 @@ therefore rebuild once, whatever the checkout says, and report accurately
 from then on. To stamp a hand-run build yourself:
 
 ```bash
-QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
+QC_AGENT_BUILD_COMMIT=$(git rev-parse HEAD) \
+QC_AGENT_BUILD_VERSION=$(git describe --tags --always --match 'v[0-9]*') \
+docker compose up -d --build
 ```
+
+The second variable is the same commit as `git describe` names it (`v1.1.0`
+on a release, `v1.1.0-7-gabc1234` past one, a short sha before any release).
+It is what **Help → About** shows and what a bug report on the public
+repository quotes, so the two are stamped from one build and cannot disagree.
 
 When only the build is behind, the checkout is left where it is and nothing
 is written to `.update-log`. An entry there would name the same commit as

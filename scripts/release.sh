@@ -26,7 +26,12 @@
 # matches the private remote; the tag is free; CHANGELOG has the section; the
 # public remote is an ancestor or a README-only placeholder; unmerged branches
 # are listed; the commits to be published pass the scan too (about a minute).
-# Then one typed confirmation, then the push -- public first, private second.
+# Then one typed confirmation, then the push -- public first, private second --
+# and then the announcement: scripts/release_announce.sh creates the GitHub
+# release and closes the public issues the released commits reference. That
+# last step is deliberately not a gate: publication has already happened, so
+# a failure there is reported with the command that repairs it, never as a
+# failed release.
 set -euo pipefail
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
@@ -208,6 +213,13 @@ echo "  tag     $TAG"
 echo "  to      $(git remote get-url "$PUBLIC_REMOTE")"
 [ ${#PUBLIC_FORCE[@]} -gt 0 ] \
     && echo "  note    replaces the ${PLACEHOLDER_COUNT}-commit README placeholder on the public remote"
+# The announcement's plan belongs in the dry run too: the size of the release
+# notes, which issues would close, and any closing keyword in a released
+# commit (which GitHub would act on by itself when the public push lands)
+# are all things to know before the irreversible step, not after.
+echo
+./scripts/release_announce.sh "$VERSION" --dry-run \
+    || die "the announcement dry run failed (output above); nothing was pushed"
 [ "$DRY_RUN" -eq 1 ] && exit 0
 
 # The one prompt. It used to appear only when an unmerged branch existed, so
@@ -262,10 +274,24 @@ if ! git push --quiet "$PRIVATE_REMOTE" main --follow-tags; then
     echo >&2
     echo "$TAG IS published on $PUBLIC_REMOTE; only the private remote is behind. Re-run:" >&2
     echo "    git push $PRIVATE_REMOTE main --follow-tags" >&2
+    echo "    scripts/release_announce.sh $VERSION" >&2
     die "push to $PRIVATE_REMOTE failed"
 fi
 ok "pushed to $PRIVATE_REMOTE"
 
 echo
 echo "${GRN}published ${TAG}${RST} -> $(git remote get-url "$PUBLIC_REMOTE")"
+
+# --- 9. Announce -------------------------------------------------------------
+# After both pushes, and never fatal: the tag is public whether or not GitHub
+# accepted a release note or a comment. The script continues past any single
+# failure and says what to re-run.
+echo
+if ! ./scripts/release_announce.sh "$VERSION"; then
+    echo >&2
+    echo "${YEL}Publication succeeded; the announcement did not finish. Re-run:${RST}" >&2
+    echo "    scripts/release_announce.sh $VERSION" >&2
+fi
+
+echo
 echo "${DIM}Start a new '## [Unreleased]' section in CHANGELOG.md for the next one.${RST}"
