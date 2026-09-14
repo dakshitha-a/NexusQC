@@ -58,6 +58,12 @@ __pycache__/
 # All of them together are under 1.5 MB.
 !docs/evaluation/**/evidence/**/*.log
 
+# The redactor's list of host identifiers that cannot be derived from the
+# environment (a hostname, an address, an email a test printed). It is the one
+# place the real strings are allowed to exist, and it stays on the host they
+# describe. See docs/evaluation/*/evidence/redact_paths.py.
+docs/evaluation/**/evidence/redact_terms.local
+
 # Site-specific Docker Compose overrides -- bind-mount paths for the
 # licensed QC engines (ORCA/BAGEL). See docker-compose.override.yml.example.
 docker-compose.override.yml

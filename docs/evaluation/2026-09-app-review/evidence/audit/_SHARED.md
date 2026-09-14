@@ -2,7 +2,7 @@
 
 You are one of six agents doing a **read-only static audit** of NexusQC, a
 conversational computational-chemistry app, at commit `ca7e0ff`. Repo root:
-`/data/qcuser/9.NexusQC/NexusQC-dev-repo`.
+`<repo>`.
 
 ## Absolute rules
 

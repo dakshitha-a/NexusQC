@@ -499,7 +499,7 @@ check that nothing was dropped in the merge.
   (`deploy_runner.sh:53`), written by `touch_runner_state` as
   `{"alive_at": ..., "pid": ..., "repo": "$REPO_ROOT"}`, and `request.json`
   (`:52`). On this host `REPO_ROOT` is
-  `/data/qcuser/9.NexusQC/NexusQC-dev-repo`, so the response hands out the
+  `<repo>`, so the response hands out the
   operator's username and the host's filesystem layout.
 - expected: either authentication on the location, or unguessable names for
   the two top-level files.
@@ -1388,9 +1388,9 @@ check that nothing was dropped in the merge.
 - scope: all three engines, whole `TASKS` × `CANONICAL_METHODS` cross-product. Master tasks excluded. `blind`+`basis` and `single_point/ee`+`n_states` rows my first sweep produced were artifacts of my own parameter fixture and are excluded from the list below.
 - repro:
   ```
-  cd /data/qcuser/9.NexusQC/NexusQC-dev-repo && PYTHONPATH=$PWD \
+  cd <repo> && PYTHONPATH=$PWD \
   QC_AGENT_LLM_BASE_URL=http://localhost:11434/v1 \
-  /home/qcuser/apps/miniconda3/envs/qc-agent/bin/python3 -c '
+  <home>/apps/miniconda3/envs/qc-agent/bin/python3 -c '
   from app.chemistry.registry2.elicitation import validate_draft
   MOL={"symbols":["O","H","H"],"coords":[[0,0,0],[0,0,0.96],[0.93,0,-0.24]],"charge":0,"multiplicity":1}
   for d in [{"task":"single_point","subtype":"gs","method":"eom_ccsd","params":{"basis":"sto-3g"}},
@@ -2454,7 +2454,7 @@ check that nothing was dropped in the merge.
 - note: two smaller weaknesses in the same block. `STACK_DIR` is
   interpolated straight into a regex (`grep -vE "^${STACK_DIR}(/|$)"`), so a
   path containing regex metacharacters — this host's own
-  `/data/qcuser/9.NexusQC/NexusQC-dev-repo` contains `.` — matches more
+  `<repo>` contains `.` — matches more
   loosely than intended; and the whole check is skipped silently when
   `compose ps -q api` returns nothing.
 - resolution: fixed 57c3390

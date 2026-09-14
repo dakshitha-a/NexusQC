@@ -19,18 +19,15 @@ in those READMEs cited a file that was not in the repository. They are tracked
 now, about 1.4 MB in total, with a negation rule scoped to
 `docs/evaluation/**/evidence/**/*.log`.
 
-`evidence/redact_paths.py` replaced this host's absolute paths in them, and
-`--check` reports zero remaining, so `scripts/check_public_safe.sh`'s path
-patterns are satisfied. What a script cannot judge is the content: these logs
-carry **this deployment's real job ids, conversation labels, molecule names and
-usernames**, because that is what a test suite prints. They are chemistry names
-and `qatest_*` accounts rather than anything sensitive, but they are your data
-and the decision to publish them is yours.
-
-The same file also carries the tailnet address `100.101.102.103`, which was
-already in `docs/evaluation/2026-09-app-review/README.md` and
-`tests/backend/deploy_02_deployed_commit.py` before this phase and is not new.
-It is worth deciding about at the same time.
+`evidence/redact_paths.py` replaced this host's absolute paths, the lab
+hostname and the tailnet address in them (the identifiers it cannot derive
+from the environment come from the untracked `evidence/redact_terms.local`),
+and `--check` reports zero remaining, so `scripts/check_public_safe.sh` is
+satisfied. What a script cannot judge is the content: these logs carry **this
+deployment's real job ids, conversation labels, molecule names and
+usernames**, because that is what a test suite prints. They are chemistry
+names and `qatest_*` accounts rather than anything sensitive, but they are
+your data and the decision to publish them is yours.
 
 Run `python3 docs/evaluation/2026-09-app-review/evidence/redact_paths.py --check`
 before a release to confirm nothing host-specific has crept back in.

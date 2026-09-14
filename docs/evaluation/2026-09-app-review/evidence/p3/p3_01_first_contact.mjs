@@ -73,7 +73,11 @@ const browser = await start();
 // The rate limiter is keyed on the client IP and the whole review shares one,
 // so clear it before logging in for real, the way every backend script does.
 import { execSync } from "node:child_process";
-execSync(`cd /data/qcuser/9.NexusQC/NexusQC-dev-repo && docker compose exec -T api python -c "from app.auth.redis_session import get_client; c=get_client(); k=c.keys('qc_agent:ratelimit:*'); c.delete(*k) if k else None"`, { stdio: "ignore" });
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+// The compose stack lives at the checkout root, five levels up from here.
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+execSync(`docker compose exec -T api python -c "from app.auth.redis_session import get_client; c=get_client(); k=c.keys('qc_agent:ratelimit:*'); c.delete(*k) if k else None"`, { cwd: REPO, stdio: "ignore" });
 L.note("rate-limit buckets reset before the real login (shared client IP)");
 
 // ---- A real first login ----------------------------------------------------

@@ -190,13 +190,14 @@ Development is continuous against a **private** remote (`origin`,
 separate deliberate act via `scripts/release.sh`. One branch, one history, no
 sanitised parallel tree. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-- "push" means `git push origin main`, and only after the session's branch has
-  been merged into `main` with a fast-forward.
+- "push" means `git push origin main`.
 - "push to release" means `scripts/release.sh <version>`, which refuses unless
-  the tree is clean, the scan passes, `main` matches the private remote, the tag
-  is free, and `CHANGELOG.md` documents the version. It also **lists every
-  branch not merged into `main`** and requires a typed confirmation before
-  publishing without them, because a public push cannot be amended afterwards.
+  the tree is clean, the scan passes on the tree **and on every commit being
+  published** (file content and commit author emails), `main` matches the
+  private remote, the tag is free, and `CHANGELOG.md` documents the version.
+  It **lists every branch not merged into `main`** and always asks for one
+  typed confirmation before the push, because a public push cannot be amended
+  afterwards.
 
 The invariant that makes this cheap: **everything tracked is publishable.** If a
 value is true of one machine rather than of the project, it belongs in `.env` or
@@ -208,7 +209,8 @@ sanitisation cost comes straight back.
 `scripts/check_public_safe.sh` must pass **before anything reaches the public
 remote**. It scans for host-specific absolute paths (`/home/<user>`,
 `/data/<user>`, and the lab's licensed-software tree), credentials, bare
-institutional hostnames and machine-generated data.
+institutional hostnames and machine-generated data, and in range mode the
+author and committer email of every commit as well.
 
 The author's name is **not** a finding. It is in the repository URL, the
 commit authorship and the README. What must never be published is a path that

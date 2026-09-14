@@ -23,6 +23,7 @@ if [ ! -t 1 ]; then RED=''; YEL=''; GRN=''; DIM=''; RST=''; fi
 
 cd "$(git rev-parse --show-toplevel)" || {
     echo "not inside a git repository" >&2; exit 2; }
+REPO_ROOT="$(pwd)"
 
 MODE="tracked"
 RANGE=""
@@ -127,7 +128,25 @@ fi
 
 FINDINGS=0
 
-# report <severity> <label> <grep-output>
+# Findings are shown 25 to a category so a run stays readable, but the count
+# is the whole count. The cap used to be a bare `head -25`, which made a
+# category with 40 hits look identical to one with 25 -- the first release
+# attempt fixed the twenty it could see and found more on the next run. Every
+# capped list now says how much it is hiding.
+SHOW=25
+# clip: read hits on stdin, print at most $SHOW of them, then a trailer line
+# naming the total when there were more.
+clip() {
+    local all n
+    all="$(cat)"
+    [ -n "$all" ] || return 0
+    n="$(printf '%s\n' "$all" | wc -l)"
+    printf '%s\n' "$all" | head -n "$SHOW"
+    [ "$n" -gt "$SHOW" ] && echo "... showing ${SHOW} of ${n}"
+    return 0
+}
+
+# report <severity> <label> <hits>
 report() {
     local sev="$1" label="$2" hits="$3" colour="$RED"
     [ "$sev" = "warn" ] && colour="$YEL"
@@ -141,7 +160,7 @@ report() {
 
 scan() {  # scan <severity> <label> <extended-regex>
     local hits
-    hits="$(grep -HnEI "$3" "${SCAN[@]}" 2>/dev/null | head -25)"
+    hits="$(grep -HnEI "$3" "${SCAN[@]}" 2>/dev/null | clip)"
     report "$1" "$2" "$hits"
 }
 
@@ -176,9 +195,19 @@ REDACTION_PLACEHOLDERS='/(home|data)/qcuser([^a-z0-9_-]|$)'
 # legitimate ${STACK_DIR}/data/jobs and /app/data/uploads (a container path)
 # would fail the scan, and a check that cries wolf on the project's own files
 # gets bypassed rather than fixed.
+#
+# DATA_SUBDIRS: the app's own data layout, seen as an absolute path. Inside the
+# container the data directory is mounted at /app/data, and tests and audit
+# notes write its subdirectories as `/data/jobs/<id>`, `/data/uploads/...`,
+# `/data/backups/<stamp>` when the point being made is about the layout rather
+# than about any host. Those are the names of directories this project
+# creates, not of a user, and every clone has the same ones. The list is
+# closed and named: a new subdirectory is added here on purpose, and a
+# /data/<anything-else> still fails.
+DATA_SUBDIRS='/data/(jobs|uploads|kb|plots|threads|deploy|backups|tmp|pre_rebuild_approval)([/'"'"'"`) ]|$)'
 HOME_HITS="$(grep -HnEI '(/home/[a-z_][a-z0-9_-]*|/root/|/Users/[A-Za-z]|(^|[[:space:]"'"'"'`(=,])/data/[a-z_][a-z0-9_-]*)' \
     "${SCAN[@]}" 2>/dev/null \
-    | grep -vE "$REDACTION_PLACEHOLDERS" | head -25)"
+    | grep -vE "$REDACTION_PLACEHOLDERS" | grep -vE "$DATA_SUBDIRS" | clip)"
 report fail "home- or user-scoped absolute path" "$HOME_HITS"
 
 # --- 2. Site-specific software trees ----------------------------------------
@@ -212,7 +241,7 @@ if [ -n "${NEXUSQC_SCAN_EXTRA_TERMS:-}" ]; then
     # A github.com URL legitimately carries the account name, so a line that is
     # just a repository reference is not a finding.
     USER_HITS="$(grep -HnEI "(${NEXUSQC_SCAN_EXTRA_TERMS})" "${SCAN[@]}" 2>/dev/null \
-        | grep -vE 'github\.com/' | head -25)"
+        | grep -vE 'github\.com/' | clip)"
     report fail "site-specific term (NEXUSQC_SCAN_EXTRA_TERMS)" "$USER_HITS"
 fi
 
@@ -256,7 +285,7 @@ IP_SAFE_RE='(1\.1\.1\.1|8\.8\.8\.8|9\.9\.9\.9|127\.|0\.0\.0\.0|10\.|192\.168\.|1
 IP_HITS="$(grep -HonEI '((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})' \
     "${SCAN[@]}" 2>/dev/null \
     | grep -vE '^[^:]*\.svg:' \
-    | grep -vE ":${IP_SAFE_RE}" | head -25)"
+    | grep -vE ":${IP_SAFE_RE}" | clip)"
 report warn "possible routable IP literal" "$IP_HITS"
 
 # --- 4b. Institutional hostnames --------------------------------------------
@@ -288,8 +317,28 @@ FQDN_HITS="$(grep -HnEI '(^|[^@/.[:alnum:]-])[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.
     | grep -vE '@[a-z0-9.-]*\.(edu|ac\.[a-z]{2})' \
     | grep -vE '://' \
     | grep -vE '(yourlab\.edu|example|your-?institution|<[^>]*>)' \
-    | grep -vE "$FQDN_PUBLIC_SERVICES" | head -25)"
+    | grep -vE "$FQDN_PUBLIC_SERVICES" | clip)"
 report fail "bare institutional hostname (identifies the host as precisely as an IP)" "$FQDN_HITS"
+
+# --- 4c. Commit metadata ----------------------------------------------------
+# Everything above reads file content. A commit also carries an author and a
+# committer, and git fills those from wherever it finds a name: on this host
+# that was `<user>@<machine>.<institution>.edu`, and 319 commits were published
+# to the private remote under it before anyone looked. The 4b exclusion for
+# addresses is right for content (a contact address in CITATION.cff is meant
+# to be read) and wrong here: nobody writes their machine's hostname into a
+# commit on purpose. Range mode only, because that is where commits are.
+# `git log` is asked from the checkout, not the scan tree the script has
+# moved into by now.
+if [ "$MODE" = "range" ]; then
+    # shellcheck disable=SC2086
+    EMAIL_HITS="$(git -C "$REPO_ROOT" log --format='%h author %ae%n%h committer %ce' $RANGE 2>/dev/null \
+        | grep -E '@([a-z0-9-]+\.)+(edu|ac\.[a-z]{2})$' \
+        | awk '{key=$2" "$3; if (!(key in seen)) {seen[key]=1; first[key]=$1; n[key]=0} n[key]++}
+               END {for (k in n) printf "%s (%d commit(s), e.g. %s)\n", k, n[k], first[k]}' \
+        | sort | clip)"
+    report fail "commit author/committer email at an institutional host" "$EMAIL_HITS"
+fi
 
 # --- 5. Files that must never be tracked ------------------------------------
 FORBIDDEN="$(printf '%s\n' "${SCAN[@]}" | grep -E \

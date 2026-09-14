@@ -10,6 +10,67 @@ note saying what changed.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-14
+
+**The first public release.** Everything from `[1.0.0]` onward is published
+together here; the `[1.0.0]` section below was written before the public
+repository existed and was never published on its own.
+
+### Changed
+
+- **The release tooling was made to work, by trying to use it.** The first
+  attempt at this release could not run `scripts/release.sh`, for five
+  reasons that were each verified rather than assumed, and each is fixed:
+  - **The safety scan now runs on the commits, not only the tree, before
+    anything irreversible.** A path committed and later removed leaves a clean
+    tree and a permanent leak in history; the pre-push hook caught that, but
+    only at the end, after the release commit and the tag existed. It is a
+    gate in `release.sh` now, and `--dry-run` runs it too. On a first release
+    it is every commit, about a minute.
+  - **The scan reads commit author and committer emails** in range mode and
+    fails on an institutional host. No scan had ever looked at commit
+    metadata; 319 commits carried this machine's hostname in their author
+    field, which no file contains.
+  - **The public remote's placeholder is recognised by shape, not by
+    count.** The gate that replaces the README-only placeholder accepted
+    exactly one parentless commit; after the README was refreshed on the
+    public remote it was two, and the gate refused the legitimate first
+    release as "something real is published there". It now accepts any
+    number of commits whose trees hold only `README.md` and which share no
+    history with `main`.
+  - **One typed confirmation, every time.** It used to appear only when an
+    unmerged branch existed, so with none the script went from the last gate
+    to a public push with nothing in between.
+  - **Public push first, private second.** The other order left the release
+    commit and a tag on the private remote when the public push failed, and a
+    tag is never re-cut under the same version. Now a public failure leaves
+    only local state, undone with the two commands the script prints, and a
+    private failure after publication is repaired by one push.
+- **The scan says how much it is hiding.** A category with more than
+  twenty-five findings looked identical to one with exactly twenty-five, so
+  the first pass fixed the twenty it could see and found more on the next
+  run. Every capped list now ends with `showing 25 of N`.
+- **`/data/<name>` has a closed safe-list of this app's own data
+  subdirectories** (`/data/jobs`, `/data/uploads`, `/data/backups`, ...),
+  which tests and audit notes write as container-side absolute paths. They
+  name directories the project creates, not a user; anything else under
+  `/data/` still fails.
+- **The evaluation's redaction script covers the whole evaluation, and
+  contains no host string of its own.** It redacted only `*.log`, and the same
+  paths sat in the audit notes, the findings register, a Playwright script
+  and, unavoidably, its own replacement table. The table is now derived from
+  where the script runs (the checkout root from git, the home directory, the
+  user-scoped data root), and identifiers that cannot be derived (a hostname,
+  an address, an email a test printed) come from an untracked
+  `redact_terms.local` next to it. It covers `.md`, `.mjs`, `.py` and `.txt`
+  as well as `.log`.
+- The history behind this release was rewritten a second time before
+  publication, for the same class of content as the first time: this host's
+  paths, hostname and tailnet address, which had come back in through
+  trackers, handoff notes and evaluation documents rather than code, plus the
+  commit emails. `docs/DEVELOPMENT.md` records what was done and what it
+  changed.
+
 ### Changed
 
 - **The installer was audited, and it is the entrypoint, so this is the most
@@ -2244,7 +2305,8 @@ Reliability and correctness, the second group:
 
 ## [1.0.0] - 2026-08-17
 
-First public release.
+Recorded before the public repository existed; never tagged or published on
+its own. Its contents first reached the public remote with 1.1.0.
 
 ### Added
 

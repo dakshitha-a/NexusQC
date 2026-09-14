@@ -332,7 +332,7 @@ refiled here.
 - note: two smaller weaknesses in the same block. `STACK_DIR` is
   interpolated straight into a regex (`grep -vE "^${STACK_DIR}(/|$)"`), so a
   path containing regex metacharacters — this host's own
-  `/data/qcuser/9.NexusQC/NexusQC-dev-repo` contains `.` — matches more
+  `<repo>` contains `.` — matches more
   loosely than intended; and the whole check is skipped silently when
   `compose ps -q api` returns nothing.
 

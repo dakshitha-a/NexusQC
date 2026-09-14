@@ -172,15 +172,21 @@ scripts/release.sh <version> --dry-run    # run every gate, push nothing
 ```
 
 It reads more like a sequence of refusals than a warning: on `main`, clean
-tree, both remotes configured, safety scan passes, `main` matches
-`origin/main`, the tag is free, `CHANGELOG.md` documents the version, and
-the public remote can move forward without discarding published history.
+tree, both remotes configured, safety scan passes on the tree, `main`
+matches `origin/main`, the tag is free, `CHANGELOG.md` documents the
+version, the public remote can move forward without discarding published
+history, and the safety scan passes on every commit being published too.
+That last one takes about a minute on a first release, because it is every
+commit, and it covers what a tree scan can't: content removed in a later
+commit, and the author and committer email on each commit.
 
 Before publishing, it reports every branch not merged into `main`, local
-and remote, how far ahead each is, when it was last touched, and asks for
-a typed confirmation before continuing without them. A public push can't
-be amended afterward, so finding out about stranded work belongs before
-the push, not in a postmortem.
+and remote, how far ahead each is, when it was last touched. A public push
+can't be amended afterward, so finding out about stranded work belongs
+before the push, not in a postmortem. Then it asks for one typed
+confirmation, every time, and pushes to the public remote first and the
+private one second, so that a failure at either step is recoverable with
+the commands it prints.
 
 ## Testing
 

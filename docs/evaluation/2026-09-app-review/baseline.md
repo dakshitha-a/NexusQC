@@ -21,7 +21,7 @@ run, as always.
 
 ```bash
 QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
-  PATH=/home/qcuser/apps/miniconda3/envs/qc-agent/bin:$PATH \
+  PATH=<home>/apps/miniconda3/envs/qc-agent/bin:$PATH \
   QC_AGENT_LLM_BASE_URL=http://localhost:11434/v1 \
   bash tests/run_backend.sh
 ```

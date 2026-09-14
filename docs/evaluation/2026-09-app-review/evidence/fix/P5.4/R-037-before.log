@@ -1,3 +1,4 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
 
 == R-037: an attached job's results can be shrunk like any other result ==
 [FAIL] R-037: an attached job's results can be shrunk like any other result -- ImportError: cannot import name 'JOB_ATTACH_PREFIX' from 'app.agent.state' (<scratch>/40470d91-34a1-4b19-a533-5bfa2fc09a8e/scratchpad/prefix-tree/app/agent/state.py)

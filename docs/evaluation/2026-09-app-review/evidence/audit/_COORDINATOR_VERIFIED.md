@@ -102,7 +102,7 @@ to a host-side deployment action".
    `Path('/app/data/kb/uploads/user-123') / '/app/data/deploy/request.json'`
    -> `/app/data/deploy/request.json`.
 3. The bind mount is confirmed on this deployment:
-   `/data/qcuser/9.NexusQC/NexusQC-dev-repo/data -> /app/data`. A write
+   `<repo>/data -> /app/data`. A write
    inside the api container lands where the host runner looks.
 4. `scripts/deploy_runner.sh` line 51-52 watches `data/deploy/request.json`,
    line 230-233 polls it every 3 seconds under `--watch`, lines 125-128 read
@@ -316,7 +316,7 @@ under **fixed** names, which need no guessing:
 - `runner.json` (`scripts/deploy_runner.sh:53`), written by
   `touch_runner_state` as
   `{"alive_at": ..., "pid": ..., "repo": "$REPO_ROOT"}`. On this host
-  `REPO_ROOT` is `/data/qcuser/9.NexusQC/NexusQC-dev-repo`, so an
+  `REPO_ROOT` is `<repo>`, so an
   unauthenticated GET returns the operator's username and the absolute
   filesystem layout of the host.
 - `request.json` (line 52), the pending deploy action.

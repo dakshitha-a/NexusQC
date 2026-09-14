@@ -95,9 +95,9 @@ produced.
 - scope: all three engines, whole `TASKS` × `CANONICAL_METHODS` cross-product. Master tasks excluded. `blind`+`basis` and `single_point/ee`+`n_states` rows my first sweep produced were artifacts of my own parameter fixture and are excluded from the list below.
 - repro:
   ```
-  cd /data/qcuser/9.NexusQC/NexusQC-dev-repo && PYTHONPATH=$PWD \
+  cd <repo> && PYTHONPATH=$PWD \
   QC_AGENT_LLM_BASE_URL=http://localhost:11434/v1 \
-  /home/qcuser/apps/miniconda3/envs/qc-agent/bin/python3 -c '
+  <home>/apps/miniconda3/envs/qc-agent/bin/python3 -c '
   from app.chemistry.registry2.elicitation import validate_draft
   MOL={"symbols":["O","H","H"],"coords":[[0,0,0],[0,0,0.96],[0.93,0,-0.24]],"charge":0,"multiplicity":1}
   for d in [{"task":"single_point","subtype":"gs","method":"eom_ccsd","params":{"basis":"sto-3g"}},
@@ -346,9 +346,9 @@ verified mechanically; none produced a finding.
   `{engine}_worker.DISPATCH`. **0 gaps**, over 3 engines × 11 canonical methods ×
   all `TASKS` entries. Script (run as given, import-and-print only):
   ```
-  cd /data/qcuser/9.NexusQC/NexusQC-dev-repo && PYTHONPATH=$PWD \
+  cd <repo> && PYTHONPATH=$PWD \
   QC_AGENT_LLM_BASE_URL=http://localhost:11434/v1 \
-  /home/qcuser/apps/miniconda3/envs/qc-agent/bin/python3 -c '
+  <home>/apps/miniconda3/envs/qc-agent/bin/python3 -c '
   import importlib
   from app.chemistry.registry2.capabilities import CANONICAL_METHODS, ENGINES
   from app.chemistry.registry2.tasks import TASKS, supports

@@ -120,7 +120,7 @@ the way a chemist would say them, not with internal identifiers like
 ## This host
 
 ```bash
-source /home/qcuser/apps/miniconda3/etc/profile.d/conda.sh
+source <home>/apps/miniconda3/etc/profile.d/conda.sh
 conda activate qc-agent
 export PYTHONPATH=$PWD
 export QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444    # this host remaps nginx from 8443

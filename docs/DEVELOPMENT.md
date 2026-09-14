@@ -111,7 +111,19 @@ and refuses the push on a finding.
 install trees, private key material, hardcoded credentials, bare
 institutional hostnames, files that must never be tracked (`.env`,
 `*.key`, `CLAUDE.local.md`, ...), and machine-generated test output. It
-warns on routable IP literals too.
+warns on routable IP literals too. In range mode it also reads each
+commit's author and committer email and fails on an institutional host
+there, which no file scan can see: 319 commits reached the private remote
+under `<user>@<machine>.<institution>.edu` before the first release found
+them.
+
+`/data/<name>` has a closed safe-list of this app's own data
+subdirectories (`/data/jobs`, `/data/uploads`, `/data/backups`, ...),
+which tests and audit notes write as container-side absolute paths. Those
+name directories the project creates, not a user; anything else under
+`/data/` still fails. A category with more hits than it shows says so
+(`showing 25 of 40`), so a scan that finds forty is never mistaken for one
+that found twenty-five.
 
 It does not flag the author's name. The name is already in the repository
 URL, in every commit's authorship, and in the README. Publication
@@ -155,10 +167,16 @@ pattern naming a real path or host.
 ## Publishing
 
 `scripts/release.sh <version>` refuses to run unless you're on `main`, the
-tree is clean, the safety scan passes, `main` matches `origin/main`, the
-tag doesn't already exist, and `CHANGELOG.md` has a section for the
-version. Then it updates `CITATION.cff`, commits, tags, and pushes to both
-remotes.
+tree is clean, the safety scan passes on the tree, `main` matches
+`origin/main`, the tag doesn't already exist, `CHANGELOG.md` has a section
+for the version, the public remote can be advanced, and the safety scan
+passes on every commit about to be published (about a minute for a first
+release). Then it asks for one typed confirmation, updates `CITATION.cff`,
+commits, tags, and pushes: public first, private second. The order is
+about recoverability. A public push that fails leaves only local state,
+undone with the two commands the script prints; a private push that fails
+after a successful publication is repaired by re-running one push. The
+other order left a tag on the private remote that could never be re-cut.
 
 ```bash
 scripts/release.sh 1.1.0 --dry-run   # run every gate, push nothing
@@ -189,6 +207,28 @@ pull request, which is exactly what the `public` remote is. A visibility
 toggle on the development repository would drag the pre-rewrite refs out
 along with everything else.
 
+It happened twice. The first release attempt, on 2026-09-14, found the
+same class of content back in history: the checkout's path, the deployment's
+path, the lab's software tree, the hostname and the tailnet address, in
+about 4,580 blobs across 575 commits, none of them in code. They came in
+through trackers, handoff notes and the evaluation's audit notes, which are
+exactly the documents where someone writes down what they ran, and through
+commit metadata, which no scan had ever read. The remedy was the same
+rewrite (`git filter-repo --replace-text` plus a `--mailmap` for the
+emails), rehearsed in a scratch clone until the tree scan, the range scan
+over all of history and a raw grep were all clean, then applied and
+force-pushed to the private remote. Two consequences of that are visible
+today. The archived trackers' `merged:` rows were remapped to the new
+hashes in one commit after the rewrite, so the tip is right while
+historical versions of those files still cite pre-rewrite hashes. And the
+evaluation's files read `/data/qcuser/...` in their historical versions,
+which is the mechanical replacement, while the tip reads `<repo>`, which
+is the deliberate one written by `evidence/redact_paths.py`.
+
+The lesson that outlasts both rewrites: the scan has to run on the commits,
+not only the tree, before anything irreversible, and it now does, as a
+gate in `release.sh` rather than a hook that fires at the end.
+
 One timing detail mattered while this was being set up, and would matter
 again for anyone repeating it: GitHub redirects a renamed repository's old
 URL, so between renaming `NexusQC` to `NexusQC-dev` and creating the new
@@ -199,21 +239,24 @@ clean publication. Creating the public repository under the freed name is
 what overrides the redirect. The remote is only safe to configure after
 that, which is the order used here.
 
-### The placeholder commit on the public remote
+### The placeholder on the public remote
 
-`public/main` currently holds a single commit containing `README.md` and
-nothing else, with no parent, so the repository has a name and a readable
-landing page without any code published ahead of the first release. It
-shares no history with `main` by design, which means the first real
-publication lands as a non-fast-forward.
+Until the first release, `public/main` held commits containing `README.md`
+and nothing else, so the repository had a name and a readable landing page
+without any code published ahead of the first release. It shared no history
+with `main` by design, which meant the first real publication landed as a
+non-fast-forward.
 
 `release.sh` handles this case rather than discovering it at the end. One
-of its gates identifies that commit by its exact shape, no parent, a tree
-containing only `README.md`, and replaces it with `--force-with-lease`,
-which still refuses if the remote has moved underneath it. Anything else
-sitting on `public/main` that isn't an ancestor of `main` stops the
-release outright, because at that point something real is already
-published and reconciling it is a decision someone has to make, not
-something a flag should paper over. Until that first release, the
-README's links to files under `docs/` won't resolve on the public
-repository.
+of its gates identifies the placeholder by shape: every commit reachable
+from the public `main` has a tree containing only `README.md`, and none of
+them is an ancestor of `main`. It then replaces it with
+`--force-with-lease`, which still refuses if the remote has moved
+underneath it. The gate was first written for exactly one parentless
+commit, and refused the legitimate first release after the README had been
+refreshed on the public remote and the placeholder became two commits; the
+shape is what matters, not the count. Anything else sitting on
+`public/main` that isn't an ancestor of `main` stops the release outright,
+because at that point something real is already published and reconciling
+it is a decision someone has to make, not something a flag should paper
+over.

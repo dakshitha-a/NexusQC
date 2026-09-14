@@ -1,3 +1,4 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
 #  02:22:19 up 295 days,  3:17,  6 users,  load average: 36.39, 37.34, 37.89
 [PASS] GET /api/version answers without a session -- 200 {"commit":"f6381d0b5d3586763d741d8f663c3c7f24c6c7b5"}
 [PASS] /api/version reports a commit field -- 'f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
