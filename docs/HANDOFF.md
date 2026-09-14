@@ -10,6 +10,26 @@ state of this file.
 
 ## Open
 
+### The deployment is two documentation commits behind the checkout (2026-09-14)
+
+`scripts/update.sh --yes` was refused to the agent on its last run, so the
+stack is still stamped `c6eca86` while `main` is at `21ac8b5`. The two commits
+in between are `docs/`, `CHANGELOG.md`, the tracker and one Playwright script.
+`scripts/update.sh --dry-run` confirms it: no Dockerfile or dependency change,
+no schema source change, no frontend change, no new configuration variable, and
+no jobs running. So the running code is complete and only the build stamp lags.
+
+The one thing that notices is `tests/backend/deploy_02_deployed_commit.py`,
+which compares the commit the deployment reports against `git rev-parse HEAD`
+and will fail until this is done.
+
+```bash
+bash scripts/update.sh --yes
+docker compose exec -T api sh -c 'env | grep QC_AGENT_BUILD_COMMIT'
+```
+
+Delete this entry once the stamp equals HEAD.
+
 ### The evaluation's evidence logs are now tracked and need a human look before any public release (2026-09-14)
 
 `.gitignore`'s `*.log` had been silently dropping every log the 2026-09 review
