@@ -176,7 +176,7 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.3 → "four identical loads cost 190.7, 17.4, 42.3 and 9.9 MB of RSS in order, so it is a working set filling and not a leak; the 658 threads the review could not explain are two Chroma tokio runtimes sized to this host's 255 cores"
 - [done] P4.4: e2e_13 and M23 - ORCA under load, ENV or CODE
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.4 → "both HARNESS, reproduced identically on an idle stack: M23's two NEB endpoints were the same pyramid so ORCA found no barrier, 4/5 before and 6/6 after; e2e_13's probe carried no task and died at dispatch, 4/10 before, 7/10 with the task, 10/10 once the cap transient is captured as it happens. ORCA's own reason for an exit now reaches the user"
-- merged:
+- merged: ab15209
 
 ## Phase 5: The remaining S3 and S4 findings
 
