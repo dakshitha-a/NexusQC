@@ -112,6 +112,7 @@ in-app reports).
   evidence: tests/backend/deploy_08_release_announce.py → "27/27: previous tag ignores a non-release tag and, with HEAD itself tagged, still answers the earlier one; range and referenced issues exclude NexusQC-dev#n and a pre-tag reference; a Fixes #5 is warned about; a 140,035-byte section is cut to 185 bytes of head plus the link under GitHub's cap; dry run makes no gh call; live order is create, comment, unlabel, close with pr commands for a PR; a second run repeats nothing; one failing comment still closes the next item and exits 1 with the re-run line. Against the real checkout the dry run reports 794 commits, a 143,362-byte section to be cut, no issues, no closing keywords"
 - [done] P2B.6: Gate: scans, suites, browser check, dev stack rebuilt, dry run re-shown
   evidence: scripts/release.sh → "tree scan PASS; deploy_01/02/03/08 and install_01/02 pass; CI green on the private repo for both jobs on the first real run (46 s) and the intake workflow parses and is skipped there (a throwaway issue produced a 'skipped' run, then deleted); issues.sh exercised on a public throwaway (new, list, needs-info, fixed; deleted); dev stack rebuilt with all 18 jobs intact; release.sh 1.1.0 --dry-run green with the announcement plan showing 143,362-byte notes to be cut, no issues, no closing keywords"
+- merged: 6457be0
 
 ## Phase 3: Release
 
