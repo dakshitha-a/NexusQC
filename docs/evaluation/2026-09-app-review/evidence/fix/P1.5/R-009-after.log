@@ -1,0 +1,22 @@
+R-009: the paper search is scoped to whoever asked
+
+1. the state handed to search reaches the knowledge-base backend
+[PASS] the knowledge-base tier ran at all -- 3 call(s)
+[PASS] every knowledge-base call carried the caller's state -- 3 call(s), states [{'owner_user_id': 'user-a-uuid'}, {'owner_user_id': 'user-a-uuid'}, {'owner_user_id': 'user-a-uuid'}]
+[PASS] and asked for papers, which is the scoped, privacy-sensitive case -- doc_types ['paper', 'paper', 'paper']
+[PASS] the search still returns findings -- matched_at='molecule+states+basis'
+
+2. omitting the state is refused, not silently unscoped
+[PASS] search() with no state and no kb backend raises -- ValueError: active_space_lit.search needs the agent state to scope the k...
+
+3. a test may still inject its own backend without a state
+[PASS] an explicit kb backend needs no state -- the default backend was never built
+
+4. both call sites pass one
+[PASS] search_active_space_literature calls active_space_lit.search with state= -- ['findings = active_space_lit.search(str(name), n_states=n_states, basis=basis, state=state)']
+[PASS] explain_active_space calls active_space_lit.search with state= -- ['findings = active_space_lit.search(str(name), n_states=n_states, basis=basis, state=state)']
+
+5. and no other caller of the knowledge base passes state=None
+[PASS] no search_knowledge_base.func call site passes state=None
+
+9/9 checks passed in this script.

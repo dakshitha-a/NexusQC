@@ -33,10 +33,21 @@ python3 tests/backend/_00_bootstrap.py   # provisions qatest_admin, run once per
 ## Running the suite
 
 ```bash
-bash tests/run_backend.sh          # everything except the two destructive scripts
+bash tests/run_backend.sh          # everything except the opt-in scripts below
 python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py   # opt-in, see its own docstring
 python3 tests/backend/p1_07_purge_status_source.py              # opt-in, WIPES EVERY JOB
+python3 tests/backend/perf_10_api_memory_settle.py              # opt-in, RESTARTS THE API, ~1 hour
 ```
+
+**`perf_10` is opt-in for a reason that is not destructiveness.** It restarts
+the api container so its measurement starts from a known floor, which would
+pull the process out from under anything else the suite is doing, and it then
+runs four passes of a fixed load with an idle period in the middle, which
+takes most of an hour. It also cannot measure what it exists to measure with
+other scripts driving the same process. Run it alone, on a stack nobody is
+using. It answers one question, whether the api's memory growth is a leak or a
+working set, and it answers it from the shape of a series rather than from two
+points; its own docstring explains why two were not enough.
 
 **`p1_07` destroys every job on the stack**, not only the ones it creates: it
 exercises `POST /api/admin/purge/jobs`, which is a deployment-wide purge. It
@@ -91,9 +102,23 @@ things follow:
   a partial, skewed order ("observed 5 of 7").
 
 Both pass on their own: `fail_01` with the API container stopped (20/20), and
-`perf_04` against an otherwise idle stack (5/5). Confirm that before treating
-either as a regression, and do not "fix" the notice path on the strength of a
+`perf_04` against an otherwise idle stack. Confirm that before treating either
+as a regression, and do not "fix" the notice path on the strength of a
 full-suite run.
+
+That advice was almost too good. The 2026-09 review followed it, ran `perf_04`
+on a stack it had confirmed idle, and still got `A, A, B, A, A, A, A` twice,
+which this note would have had a reader dismiss as the known artifact. It was
+not one, and it was not a scheduler defect either: `perf_04` submitted seven
+jobs in a plain loop with nothing holding the dispatcher back, so on a loaded
+host user B could still be unsubmitted when the rotation came round a second
+time. `perf_09_scheduler_fairness_trace.py` timed every enqueue alongside every
+admission, found the rotation correct in three unforced runs, and then
+reproduced the review's exact order on demand by delaying B. `perf_04` now
+holds admission until both users are queued, so the order it reports is the one
+it claims to be measuring. Keep `perf_09` for the diagnosis if the order ever
+looks wrong again: an admission order on its own cannot tell an unfair
+scheduler from a test that lost a race.
 
 **Every script shares one apparent client IP** (whatever machine runs the
 suite, seen by nginx as one address), which collides with the per-IP

@@ -25,7 +25,17 @@ COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 N_CONCURRENT = 25
 
 
-def _wait_healthy(timeout: float = 60.0) -> bool:
+# Longer than the api container's own `start_period` in docker-compose.yml,
+# which is 90 s and is documented there as generous on purpose because
+# importing app.agent.graph alone takes tens of seconds. A 60 s wait here was
+# shorter than the time the deployment is allowed to take to come up, so this
+# script could report the api never came back on a host that was merely slow,
+# which reads as a cold-start defect and is not one. The margin on top of 90 s
+# is for a shared machine under load, which this one routinely is.
+HEALTH_WAIT_SECONDS = 180.0
+
+
+def _wait_healthy(timeout: float = HEALTH_WAIT_SECONDS) -> bool:
     deadline = time.time() + timeout
     c = new_client()
     while time.time() < deadline:
@@ -42,7 +52,9 @@ def _wait_healthy(timeout: float = 60.0) -> bool:
 def main() -> None:
     print("restarting api container to force a cold pool/redis-client singleton...")
     subprocess.run(["docker", "compose", "restart", "api"], cwd=str(COMPOSE_DIR), check=True, capture_output=True)
-    check("api container became healthy again after restart", _wait_healthy())
+    check(f"api container became healthy again after restart (waited up to "
+          f"{HEALTH_WAIT_SECONDS:.0f}s, the compose start_period is 90s)",
+          _wait_healthy())
 
     def _first_touch(i: int):
         c = new_client()

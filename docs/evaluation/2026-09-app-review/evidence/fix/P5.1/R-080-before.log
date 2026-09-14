@@ -1,0 +1,40 @@
+
+== a list route with no limit returns exactly what it always did ==
+[FAIL] a list route with no limit returns exactly what it always did -- ModuleNotFoundError: No module named 'server.routes._paging'
+
+== a conversation is windowed from its end, not its front ==
+[FAIL] a conversation is windowed from its end, not its front -- ModuleNotFoundError: No module named 'server.routes._paging'
+
+== one shared index answers what five loops used to walk for ==
+[FAIL] one shared index answers what five loops used to walk for -- AttributeError: module 'app.chemistry.jobs.base' has no attribute 'invalidate_job_index'
+
+== the orchestrators and the admission gate read that index ==
+[FAIL] scan reads job_index() rather than walking JOBS_DIR
+[FAIL] ensemble reads job_index() rather than walking JOBS_DIR
+[FAIL] batch reads job_index() rather than walking JOBS_DIR
+[FAIL] the admission gate reads job_index() rather than walking JOBS_DIR
+[FAIL] write_status invalidates the index, so a change here is visible at once
+
+== the watcher stops re-reading jobs that can never change ==
+[FAIL] a terminal, already-reported job is skipped before the status read
+
+== quota enforcement no longer runs on the watcher's own thread ==
+[FAIL] the loop starts the pass rather than calling it inline
+[FAIL] quota enforcement no longer runs on the watcher's own thread -- AttributeError: type object 'JobWatcher' has no attribute '_start_quota_pass'
+
+== a queued job's status is rewritten only when it changes ==
+[FAIL] the no-headroom branch compares against the last message written
+[FAIL] dequeue forgets the remembered message, so the cache cannot grow
+[FAIL] _pop_if_head forgets the remembered message, so the cache cannot grow
+
+== a wave of sub-jobs runs one quota sweep, not one per child ==
+[FAIL] submit() skips the sweep for a sub-job
+[FAIL] the scan orchestrator runs it once for the wave, outside the dispatch lock
+[FAIL] the ensemble orchestrator runs it once for the wave, outside the dispatch lock
+[FAIL] the batch orchestrator runs it once for the wave, outside the dispatch lock
+
+== the live NEB path is read from the end of the file ==
+[FAIL] it seeks rather than reading the whole trajectory
+[FAIL] a window read is realigned to a frame boundary -- a mid-frame start would be handed to split_xyz_frames
+
+0/20 checks passed in this script.

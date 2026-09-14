@@ -51,6 +51,15 @@ is what gets printed, and the verdict is read off it mechanically:
 Three runs, because one run of a race proves nothing. A mixed result is itself
 informative and is reported as such rather than averaged away.
 
+Then a fourth run, the positive control, which is the part that turns an
+absence of evidence into evidence. The three runs above can only ever say the
+scheduler was fair on the occasions they watched; they cannot show that the
+review's own reading, `A, A, B`, is what a late enqueue looks like. The control
+holds user B's submission back until the dispatcher has already admitted user A
+twice and then submits it. Nothing about the scheduler is changed, only the
+wall order of the submissions, and if the timeline then reads `A, A, B` the
+harness explanation has been reproduced rather than inferred.
+
 The probe job is the same ORCA CASSCF(4,4)/STO-3G on water that perf_03 and
 perf_04 use: real, correct, and slow enough (about 15 s here) that admissions
 are separable in time. Every job is cancelled as soon as its admission is
@@ -91,7 +100,7 @@ def _exec_api(code: str, timeout: int = 260) -> str:
     return proc.stdout.strip()
 
 
-def _probe_code(uid_a: str, uid_b: str) -> str:
+def _probe_code(uid_a: str, uid_b: str, delay_b: bool = False) -> str:
     return f'''
 import json, time
 from app.chemistry.molecule import resolve_molecule
@@ -146,19 +155,20 @@ def submit(owner):
     )
 
 
-try:
-    a_ids = [submit("{uid_a}") for _ in range({N_USER_A_JOBS})]
-    b_id = submit("{uid_b}")
-    label = {{}}
-    for jid in a_ids:
-        label[jid] = "A"
-    label[b_id] = "B"
-    all_ids = a_ids + [b_id]
+DELAY_B = {delay_b!r}
 
-    seen = set()
-    deadline = time.time() + {OBSERVE_TIMEOUT_SECONDS}
-    while time.time() < deadline and len(seen) < len(all_ids):
-        for jid in all_ids:
+
+def observe(ids, seen, until=None, limit=None):
+    """Cancel each job the moment it is seen running, which frees the cap
+    slot so the rotation can advance. Returns when `until` says so, when
+    every id is settled, or at `limit`."""
+    deadline = time.time() + (limit if limit is not None else {OBSERVE_TIMEOUT_SECONDS})
+    while time.time() < deadline:
+        if until is not None and until():
+            return
+        if until is None and len(seen) >= len(ids):
+            return
+        for jid in ids:
             if jid in seen:
                 continue
             st = mgr.status(jid)["status"]
@@ -168,6 +178,30 @@ try:
             elif st in ("completed", "failed", "cancelled"):
                 seen.add(jid)
         time.sleep(0.3)
+
+
+try:
+    a_ids = [submit("{uid_a}") for _ in range({N_USER_A_JOBS})]
+    label = {{}}
+    for jid in a_ids:
+        label[jid] = "A"
+    seen = set()
+
+    if DELAY_B:
+        # The positive control. Hold user B's submission back until the
+        # scheduler has already admitted user A twice, which is the state
+        # perf_04 reaches by accident when its submissions lose the race
+        # against the dispatcher. Nothing about the scheduler is changed
+        # here; only the wall order of the submissions is.
+        observe(a_ids, seen,
+                until=lambda: len([e for e in events if e["kind"] == "admit"]) >= 2,
+                limit=90)
+
+    b_id = submit("{uid_b}")
+    label[b_id] = "B"
+    all_ids = a_ids + [b_id]
+
+    observe(all_ids, seen)
 
     for jid in all_ids:
         mgr.cancel(jid)
@@ -274,6 +308,23 @@ def main() -> None:
             print(f"    verdict: {verdict}")
             print(f"    {why}")
 
+        # The positive control. Everything above says the scheduler is fair
+        # when both owners are queued in time; none of it shows that the
+        # review's own reading, A A B, is what a late enqueue produces. This
+        # run holds B back deliberately until A has been admitted twice, and
+        # if the timeline then reads A A B the harness explanation is not an
+        # inference from an absence, it is reproduced.
+        print("\n=== positive control: B submitted only after A's second admission ===")
+        out = _exec_api(_probe_code(user_a["id"], user_b["id"], delay_b=True))
+        result = json.loads(out.splitlines()[-1])
+        created_job_ids.extend(result["job_ids"])
+        control_events = result["events"]
+        _print_timeline(control_events)
+        control_verdict, control_why, control_order = _classify(control_events)
+        print(f"    admission order: {control_order}")
+        print(f"    verdict: {control_verdict}")
+        print(f"    {control_why}")
+
         unique = sorted(set(verdicts))
         print(f"\nRESULT R-098 over {N_RUNS} runs: {verdicts}")
         check(
@@ -286,6 +337,17 @@ def main() -> None:
             "(a CODE verdict here is a real starvation defect and must be fixed, not recorded)",
             "CODE" not in verdicts,
             f"verdicts were {verdicts}",
+        )
+        check(
+            "holding B's submission until after A's second admission reproduces the review's own "
+            "order, which is what makes the harness explanation a measurement rather than an inference",
+            control_order[:3] == ["A", "A", "B"],
+            f"control order was {control_order}",
+        )
+        check(
+            "and the control is classified as the harness race, not as a scheduler defect",
+            control_verdict == "HARNESS",
+            f"control verdict was {control_verdict}",
         )
     finally:
         admin.patch("/api/admin/config",

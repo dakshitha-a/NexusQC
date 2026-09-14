@@ -1,0 +1,16 @@
+# M23 alone, run 1 of 2. host:  21:47:51 up 294 days, 22:42,  7 users,  load average: 11.54, 11.00, 23.78
+Running 1 matrix cell(s) as a normal user account.
+
+
+----- M23 neb_ts/orca (tier 3) -- preopt has NO default -- must be elicited. Needs an end molecule. XN-09.
+    (needs a second endpoint; set below)
+[PASS] M23 agent drafted a job for neb_ts on orca --  | tools=['start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=8s
+[PASS] M23 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=8s
+[PASS] M23 approval card shows engine=orca -- card says orca
+[FAIL] M23 job 0bee2ca21bc4 completed -- status=failed err=RuntimeError: ORCA exited with code 2. Last 3000 chars of output:\x0a.45542      0.00       0.00000   0.00000\x0a  1     0.000     -55.45542      0.00       0.00000   0.00000\x0a  2     0.000     -55.45542      0.00       0.00000   0.00000\x0a  3     0.000     -
+[PASS] M23 all declared artifacts are downloadable -- 0 artifacts
+    [perf] M23 total 229.9s (turn 7.9s, ttft -1.0s)
+
+(user 9b836d34-f9e2-4834-abcc-70a9b6a4cb1d left in place for follow-up scripts; delete with cleanup_all_qatest_users)
+
+4/5 checks passed in this script.

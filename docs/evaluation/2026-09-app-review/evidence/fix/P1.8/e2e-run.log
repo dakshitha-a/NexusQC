@@ -1,0 +1,807 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+
+============================================================
+=== e2e_00_preflight.py
+============================================================
+[PASS] G1 /api/health reachable through nginx -- 0.0s after up
+    [info] container nproc = 255 (host's full logical CPU count; expected)
+[PASS] G2a QC_AGENT_N_CORES is passed through by docker-compose.yml (without it N_CORES becomes 255 and every job hangs pending forever) -- got '4'
+[PASS] G2b app.config.N_CORES resolves to 4 -- got '4' 
+[PASS] G3a mpirun present -- mpirun (Open MPI) 4.1.4
+[PASS] G3b OpenMPI is 4.x (5.x dropped libmpi_cxx.so.40 that BAGEL needs) -- mpirun (Open MPI) 4.1.4
+[PASS] G4 BAGEL's libraries all resolve under bagel_runner's own scoped LD_LIBRARY_PATH (oneAPI setvars + BAGEL_EXTRA_LIB_DIRS) -- CLEAN
+[PASS] G5 ORCA binary present and executable -- OK
+[PASS] G6 entrypoint sourced oneAPI without crash-looping (a warning here is tolerated, a crash is not)
+[PASS] G7a <licensed-software>/Orca-6.1.1 and /opt/intel/oneapi mounted -- OK
+[PASS] G7b <licensed-software>/Orca-6.1.1 is read-only -- touch: cannot touch '<licensed-software>/Orca-6.1.1/.e2e_write_probe': Read-only file system\x0aREADONLY
+[PASS] G8 nginx serves the host frontend/dist build actually on disk -- served=['index-CZbzFLIb.js'] on_disk=['index-CZbzFLIb.js']
+[PASS] G9a first auth request answers (401 unauth / 404 if auth off), not 500 -- 401 in 6ms
+[PASS] G9b auth layer is mounted (DATABASE_URL is set) -- got 401; 404 means QC_AGENT_DATABASE_URL is unset
+    [perf] first auth request 6ms cold, 3ms warm
+[PASS] G10 intranet TLS cert readable -- subject=C=US, ST=Pennsylvania, L=Philadelphia, O=Temple University, OU=NexusQC, CN=nexusqc.example.edu notBefore=Aug 17 06:05:23 2026 GMT notAfter=Aug 14 06:05:23 2036 GMT 
+[PASS] G11 nginx forwards Host $http_host (not $host, which strips the port and breaks the same-origin CSRF fallback on :8443)
+[PASS] G12 [F-010] /api/job-registry is reachable but requires a session -- 401
+
+16/16 checks passed in this script.
+
+============================================================
+=== e2e_03_route_auth_sweep.py
+============================================================
+Discovered 104 /api/ routes from the app's own OpenAPI schema.
+
+--- Pass 1: ANONYMOUS (no cookie) ---
+[FAIL] anonymous caller is rejected by all 101 non-public routes -- GET /api/version -> 200
+    [LEAK] GET /api/version -> 200
+[PASS] public route GET /api/health reachable anonymously -- 200
+[PASS] public route POST /api/auth/login reachable anonymously -- 401
+[PASS] public route POST /api/auth/register reachable anonymously -- 400
+
+--- Pass 2: NON-ADMIN against /api/admin/* ---
+[PASS] non-admin gets 403 on all 25 /api/admin/* routes
+
+--- Pass 3: CROSS-USER isolation (expect 404, per XN-10) ---
+[PASS] user B gets 404 on every one of user A's thread routes
+[PASS] user A's thread is absent from user B's /api/threads listing
+
+6/7 checks passed in this script.
+
+============================================================
+=== e2e_04_harness_gate.py
+============================================================
+thread 19a0522b83af44eeb9da9ee680992128
+
+[PASS] H1 turn completed (turn_complete observed, not a timeout) -- 5.5s, sse=['agent_step', 'message', 'agent_step', 'message', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'token', 'toke...
+[PASS] H2 harness captured new messages from /state -- 4 new messages
+[PASS] H3 harness captured at least one tool call with args -- [('set_geometry', {'identifier': 'water'})]
+[PASS] H4 SSE stream delivered events (subscribe-before-post worked) -- 34 events: {'message', 'agent_step', 'interrupt', 'turn_complete', 'token'}
+[PASS] H5 turn_complete present in the SSE stream
+[PASS] H6 SSE agent_step set matches the state-derived tool set (pre-interrupt) -- sse={'set_geometry'} state={'set_geometry'}
+    [perf] time-to-first-token 4.93s, full turn 5.5s
+[PASS] H7 wait_for_approval() found the pending interrupt -- tools=['start_job_draft', 'update_job_draft']
+[PASS] H8 interrupt payload is a job_approval with a spec -- ['kind', 'task', 'subtype', 'engine', 'molecule_name', 'params', 'applied_defaults', 'input_preview', 'scan_note', 'kb_context', 'param_corrections', 'input_warnings', 'keyword_options', 'capability_note', 'spec']
+[PASS] H9 interrupt payload carries the input preview shown to the human
+[PASS] H10 approve() returned and produced new messages -- 2 messages
+[PASS] H11 a new job id landed in active_job_ids -- ['1ce052cd5664']
+[PASS] H12 [F-008] agent_step events ARE published after an approval resume -- steps=[('update_job_draft', 'finished')]
+[PASS] H12 job reached a terminal state -- status=completed msg=done
+[PASS] H13 job completed successfully -- None
+[PASS] H14 the job that ran matches the spec that was approved
+[PASS] H15 await_job returned a summary to assert against -- ['converged', 'method', 'functional', 'basis', 'homo_lumo_gap_eV', 'dipole_debye', 'orbital_table', 'total_energy_hartree', 'homo_index', 'lumo_index', 'homo_energy_eV', 'lumo_energy_eV', 'orbital_tab
+
+16/16 checks passed in this script.
+
+============================================================
+=== e2e_05_molecule_resolution.py
+============================================================
+=== Cases that SHOULD be valid SMILES but are rejected by the charset gate ===
+
+  1,2-dichloroethene     ClC=CCl        rdkit_valid=True  gate=True  resolved=True  -> ClCCClHH
+[PASS] [1,2-dichloroethene] is genuinely valid SMILES per RDKit -- ClC=CCl
+  bromoethane            BrCC           rdkit_valid=True  gate=True  resolved=True  -> BrCCHHHHH
+[PASS] [bromoethane] is genuinely valid SMILES per RDKit -- BrCC
+  acetyl chloride        CC(=O)Cl       rdkit_valid=True  gate=True  resolved=True  -> CCOClHHH
+[PASS] [acetyl chloride] is genuinely valid SMILES per RDKit -- CC(=O)Cl
+  iron atom              [Fe]           rdkit_valid=True  gate=True  resolved=True  -> Fe
+[PASS] [iron atom] is genuinely valid SMILES per RDKit -- [Fe]
+  sodium chloride        [Na+].[Cl-]    rdkit_valid=True  gate=True  resolved=True  -> NaCl
+[PASS] [sodium chloride] is genuinely valid SMILES per RDKit -- [Na+].[Cl-]
+  silane                 [SiH4]         rdkit_valid=True  gate=True  resolved=True  -> SiHHHH
+[PASS] [silane] is genuinely valid SMILES per RDKit -- [SiH4]
+
+[PASS] F-003 FIX VERIFIED: every valid halogen/metal SMILES is recognized as SMILES and never falls through to a name lookup -- 6/6 recognized as SMILES
+
+=== Control: cases that should work ===
+
+  ethanol                CCO            gate=True  resolved=True  source=smiles -> CCOHHHHHH
+[PASS] control [ethanol] resolves
+  benzene                c1ccccc1       gate=True  resolved=True  source=smiles -> CCCCCCHHHHHH
+[PASS] control [benzene] resolves
+  carbon dioxide         O=C=O          gate=True  resolved=True  source=smiles -> OCO
+[PASS] control [carbon dioxide] resolves
+  water by name          water          gate=False resolved=True  source=pubchem -> OHH
+[PASS] control [water by name] resolves
+
+=== Pasted XYZ block (the documented workaround) ===
+
+  dichloroethene as XYZ: resolved=True source=xyz_paste symbols=CCClClHH 
+[PASS] XYZ paste is a working workaround for halogenated species
+
+12/12 checks passed in this script.
+
+============================================================
+=== e2e_06_agent_tools.py
+============================================================
+=== Non-job tools ===
+
+[PASS] T01 set_geometry by common name -- 1/1; tools=['set_geometry']
+[PASS] T02 set_geometry by SMILES -- 1/1; tools=['set_geometry']
+[PASS] T03 a draft shows its input WITHOUT submitting it -- 1/1; tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'check_job_status', 'update_job_draft', 'update_job_draft']
+[FAIL] T04 search_knowledge_base is used for manual syntax questions -- 0/3; try1: missing tool call 'search_knowledge_base' (called: ['search', 'search', 'search', 'search', 'search', 'search', 'search', 'search']) | try2: missing tool call 'search_knowledge_base' (called: ['search', 'search', 'search', 'search']) | try3: missing tool call 'search_knowledge_base' (call...
+[FAIL] T05 search_academic_literature for a literature question -- 0/3; try1: missing tool call 'search_academic_literature' (called: ['search']) | try2: missing tool call 'search_academic_literature' (called: ['search']) | try3: missing tool call 'search_academic_literature' (called: ['search', 'search', 'search', 'search', 'search'])
+[FAIL] T06 web_search for a current-events<licensed-software> question -- 0/3; try1: missing tool call 'web_search' (called: ['search', 'search']) | try2: missing tool call 'web_search' (called: ['search']) | try3: missing tool call 'web_search' (called: ['search', 'search', 'search', 'search', 'search'])
+
+=== Required-param elicitation (agent must ASK, never guess) ===
+
+[PASS] E01 no basis given -> elicit, do not guess -- 1/1; tools=['set_geometry', 'start_job_draft']
+[PASS] E02 no active space given -> elicit, do not guess -- 1/1; tools=['set_geometry', 'start_job_draft']
+[PASS] E03 no n_states given -> elicit -- 1/1; tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft']
+
+=== Disallowed task/engine pairings must be refused ===
+
+[PASS] D01 single_point/gs on orca is refused -- ORCA has no CASPT2 at all -- it has NEVPT2 -- tools=['start_job_draft', 'update_job_draft', 'set_geometry', 'submit_draft'] refusal_seen=True pending_engine=None
+[PASS] D02 single_point/gs on pyscf is refused -- tools=['start_job_draft', 'update_job_draft', 'set_geometry', 'check_job_status', 'update_job_draft'] refusal_seen=True pending_engine=None
+[PASS] D03 neb_ts on pyscf is refused -- PySCF has no native NEB and this app doesn't build one -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] refusal_seen=False pending_engine=None
+[PASS] D04 neb_ts on bagel is refused -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] refusal_seen=False pending_engine=None
+
+10/13 checks passed in this script.
+
+============================================================
+=== e2e_07_approval_flow.py
+============================================================
+[PASS] A7 POST /approvals/job returns 409 when no approval is pending -- 409 {"detail":"No job approval is pending on this conversation."}
+[PASS] A1a a PySCF single_point request produced an approval card
+[PASS] A1b the graph genuinely PAUSED (interrupt is readable from state)
+[PASS] A1c the card carries the input preview the human is shown
+[PASS] A1d the card carries KB manual grounding (mechanical, every submit_draft) -- kb_context len=353
+[PASS] [XN-06] No hand-edit textarea on a PySCF approval card -- read-only <pre> instead. _EDITABLE_ENGIN -- frontend renders read-only <pre> for this engine
+[PASS] A1e approval created exactly one job -- ['522fde5ca090']
+[PASS] A1f the approved job completed -- None
+[PASS] A1g what ran matches what was approved (method+engine) -- approved=hf/pyscf ran=hf/pyscf
+[PASS] A1h the job that ran carries the SAME id as the approved spec (the re-executed spec is discarded, not submitted) -- approved=522fde5ca090 ran=522fde5ca090
+[PASS] A2a reject scenario produced an approval card
+[PASS] A2b rejecting created NO job -- 1 -> 1
+[PASS] A2c the interrupt is cleared after a rejection
+[FAIL] A2d the tool reported the non-approval back to the model -- declined by the user: the 'single_point' draft was not run and nothing was queued. the user has already been shown a message saying so and asking what they would like to change, so do not ask again an
+[PASS] A6a tamper scenario produced an approval card
+[PASS] A6b a body carrying an extra `spec` key is accepted without error (the field simply is not in JobApprovalIn) -- 200 {"resumed":true}
+[PASS] A6c the ORIGINAL spec ran -- a client cannot substitute a spec -- ran method=hf (tampered asked for casscf)
+[PASS] A3a an ORCA request produced an approval card
+[PASS] A3b ORCA card carries editable input text
+[PASS] A4a a structurally invalid hand-edit is rejected -- 400 {"detail":"The edited orca input was not run: 1 '%...' block(s) appear unterminated (missing a closing 'end' line)."}
+[PASS] A4b the interrupt STAYS pending after an invalid edit, so the user can fix it and retry
+[PASS] A3c a valid hand-edit is accepted -- 200 {"resumed":true}
+[PASS] A3d the edited text was used BYTE-IDENTICALLY, not regenerated -- raw_input status=200, marker present
+[PASS] A3e the hand-edited job reached a terminal state -- completed
+
+23/24 checks passed in this script.
+
+============================================================
+=== e2e_08_job_matrix.py
+============================================================
+Running 40 matrix cell(s) as a normal user account.
+
+
+----- M01 single_point/gs/pyscf (tier 1) 
+[PASS] M01 agent drafted a job for single_point/gs on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=11s
+[PASS] M01 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=11s
+[PASS] M01 approval card shows engine=pyscf -- card says pyscf
+[PASS] M01 job e92db0adc819 completed -- status=completed err=None
+[PASS] M01 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['basis', 'converged', 'dipole_debye', 'functional', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'method', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M01 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M01 total 16.6s (turn 10.8s, ttft -1.0s)
+
+----- M02 single_point/gs/orca (tier 1) 
+[PASS] M02 agent drafted a job for single_point/gs on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=14s
+[PASS] M02 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=14s
+[PASS] M02 approval card shows engine=orca -- card says orca
+[PASS] M02 job 67999207bec6 completed -- status=completed err=None
+[PASS] M02 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['basis', 'functional', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'method', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M02 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M02 total 41.0s (turn 14.2s, ttft -1.0s)
+
+----- M03 opt/min/pyscf (tier 1) 
+[PASS] M03 agent drafted a job for opt/min on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=16s
+[PASS] M03 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=16s
+[PASS] M03 approval card shows engine=pyscf -- card says pyscf
+[PASS] M03 job e21db23be6ca completed -- status=completed err=None
+[PASS] M03 summary carries what opt/min is supposed to produce (one of ['total_energy_hartree', 'optimized_geometry']) -- got keys: ['converged', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'optimization_energies_hartree', 'optimized_geometry', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M03 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M03 total 20.1s (turn 15.9s, ttft -1.0s)
+
+----- M04 opt/min/orca (tier 2) 
+[PASS] M04 agent drafted a job for opt/min on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=10s
+[PASS] M04 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=10s
+[PASS] M04 approval card shows engine=orca -- card says orca
+[PASS] M04 job d155c10ae91b completed -- status=completed err=None
+[PASS] M04 summary carries what opt/min is supposed to produce (one of ['total_energy_hartree', 'optimized_geometry']) -- got keys: ['converged', 'optimization_energies_hartree', 'optimized_geometry', 'total_energy_hartree']
+[PASS] M04 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M04 total 126.9s (turn 10.3s, ttft 3.2s)
+
+----- M05 opt/min/bagel (tier 3) -- BAGEL geo-opt is casscf/caspt2 only; HF/DFT must raise. XN-08.
+[PASS] M05 agent drafted a job for opt/min on bagel --  | tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=30s
+[FAIL] M05 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=30s
+
+----- M06 freq/pyscf (tier 1) -- no IR intensities on PySCF -> XN-07
+[PASS] M06 agent drafted a job for freq on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=8s
+[PASS] M06 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=8s
+[PASS] M06 approval card shows engine=pyscf -- card says pyscf
+[PASS] M06 job ef6902d730ae completed -- status=completed err=None
+[PASS] M06 summary carries what freq is supposed to produce (one of ['frequencies_cm-1']) -- got keys: ['enthalpy_hartree', 'entropy_hartree_per_K', 'frequencies_cm-1', 'gibbs_free_energy_hartree', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'imaginary_flags', 'imaginary_frequency_note', 'imaginary_threshold_cm-1', 'lumo_energy_eV', 'lumo_index', 'n_imaginary_frequencies', 'normal_m...
+[PASS] M06 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M06 total 12.3s (turn 8.0s, ttft -1.0s)
+
+----- M07 freq/orca (tier 2) -- HAS IR intensities; plot(kind='ir') must succeed here
+[PASS] M07 agent drafted a job for freq on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=12s
+[PASS] M07 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=12s
+[PASS] M07 approval card shows engine=orca -- card says orca
+[PASS] M07 job 871773b326c1 completed -- status=completed err=None
+[PASS] M07 summary carries what freq is supposed to produce (one of ['frequencies_cm-1']) -- got keys: ['enthalpy_hartree', 'frequencies_cm-1', 'gibbs_free_energy_hartree', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'imaginary_flags', 'imaginary_frequency_note', 'imaginary_threshold_cm-1', 'ir_intensities_km_mol', 'lumo_energy_eV', 'lumo_index', 'n_imaginary_frequencies', 'normal_m...
+[PASS] M07 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M07 total 48.0s (turn 11.9s, ttft -1.0s)
+
+----- M08 freq/bagel (tier 3) -- HF-reference numerical Hessian only. XN-08.
+[PASS] M08 agent drafted a job for freq on bagel --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=27s
+[PASS] M08 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=27s
+[PASS] M08 approval card shows engine=bagel -- card says bagel
+[PASS] M08 job c32717f0039b completed -- status=completed err=None
+[PASS] M08 summary carries what freq is supposed to produce (one of ['frequencies_cm-1']) -- got keys: ['df_basis_exact_match', 'df_basis_used', 'dx_bohr', 'frequencies_cm-1', 'imaginary_flags', 'imaginary_frequency_note', 'imaginary_threshold_cm-1', 'ir_intensities_km_mol', 'n_imaginary_frequencies', 'normal_modes', 'reduced_mass_amu', 'thermochemistry_note']
+[PASS] M08 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M08 total 41.0s (turn 27.5s, ttft -1.0s)
+
+----- M09 single_point/gs/pyscf (tier 1) -- XN-03
+[PASS] M09 agent drafted a job for single_point/gs on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=35s
+[PASS] M09 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=35s
+[PASS] M09 approval card shows engine=pyscf -- card says pyscf
+[PASS] M09 job 0b05176a2f8c completed -- status=completed err=None
+[PASS] M09 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['active_electrons', 'active_orbitals', 'converged', 'dominant_transitions', 'excitation_energies_eV', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'initial_orbitals_source_job_id', 'lumo_energy_eV', 'lumo_index', 'n_excited_states', 'n_states_total', 'orbital_table']
+[PASS] M09 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M09 total 38.2s (turn 35.2s, ttft 13.2s)
+
+----- M10 single_point/gs/orca (tier 1) -- MECHANICAL ROUTING: want_oscillator_strengths must send this to ORCA even if the user never says 'ORCA'. Also the SLOW probe.
+[PASS] M10 agent drafted a job for single_point/gs on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=34s
+[PASS] M10 want_oscillator_strengths mechanically routes CASSCF to ORCA -- [{'kind': 'job_approval', 'task': 'single_point', 'subtype': 'ee', 'engine': 'orca', 'molecule_name': 'water', 'params': {'want_oscillator_strengths': False, 'active_electrons': 4, 'active_orbitals': 4, 'basis': 'sto-3g', 'n_excited_states': 5, 'n_states': 6}, 'applied_defaults': {'want_oscillator_s...
+[PASS] M10 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=34s
+[PASS] M10 approval card shows engine=orca -- card says orca
+[PASS] M10 job 5fb955d9e2fd completed -- status=completed err=None
+[PASS] M10 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['active_electrons', 'active_orbitals', 'dominant_transitions', 'excitation_energies_eV', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'initial_orbitals_source_job_id', 'lumo_energy_eV', 'lumo_index', 'n_excited_states', 'n_states_total', 'orbital_table', 'orbital_table_kind']
+[PASS] M10 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M10 total 71.8s (turn 33.6s, ttft 8.3s)
+
+----- M11 single_point/gs/bagel (tier 3) 
+[PASS] M11 agent drafted a job for single_point/gs on bagel --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=45s
+[FAIL] M11 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=45s
+
+----- M12 single_point/gs/bagel (tier 3) -- BAGEL-only; any other engine must be refused. XN-04.
+[PASS] M12 agent drafted a job for single_point/gs on bagel --  | tools=['start_job_draft', 'update_job_draft', 'set_geometry', 'submit_draft'] timed_out=False elapsed=51s
+[FAIL] M12 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'update_job_draft', 'set_geometry', 'submit_draft'] timed_out=False elapsed=51s\x0a         submit_draft replied: This draft cannot be submitted: sto-3g gives this molecule 7 basis functions, and a (4e, 4o) active space with 3 closed orbital(s) uses 7 of them, leaving 0 vir...
+
+----- M13 single_point/ee/pyscf (tier 1) -- TDA on an HF reference IS CIS
+[PASS] M13 agent drafted a job for single_point/ee on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=45s
+[FAIL] M13 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=45s
+
+----- M14 single_point/ee/pyscf (tier 2) -- method=dft must make `functional` required and elicited
+[PASS] M14 agent drafted a job for single_point/ee on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=23s
+[FAIL] M14 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=23s
+
+----- M15 single_point/ee/orca (tier 2) 
+[PASS] M15 agent drafted a job for single_point/ee on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=30s
+[FAIL] M15 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=30s
+
+----- M16 single_point/ee/orca (tier 2) -- default engine is ORCA precisely because PySCF has no oscillator strengths
+[PASS] M16 agent drafted a job for single_point/ee on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=18s
+[FAIL] M16 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=18s
+
+----- M17 single_point/ee/pyscf (tier 2) -- explicit engine request; energies only -> XN-02
+[PASS] M17 agent drafted a job for single_point/ee on pyscf --  | tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=21s
+[FAIL] M17 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=21s
+
+----- M18 single_point/gs/pyscf (tier 1) -- orbital_indices are 1-BASED everywhere a user or the LLM sees them. NOTE: orbital_indices carries no required_when in registry2/params.py, so nothing mechanically forces the agent to set it -- if the card's params come back without it, EXPECTED_SUMMARY_KEYS still passes on energy_hartree alone with no orbitals actually rendered. Check the approval card's params for orbital_indices explicitly, not just the summary-keys assertion.
+[PASS] M18 agent drafted a job for single_point/gs on pyscf --  | tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=16s
+[PASS] M18 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=16s
+[PASS] M18 approval card shows engine=pyscf -- card says pyscf
+[PASS] M18 job da48c7e264b0 completed -- status=completed err=None
+[PASS] M18 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['basis', 'converged', 'dipole_debye', 'functional', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'method', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M18 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M18 total 19.5s (turn 16.2s, ttft 4.8s)
+
+----- M19 single_point/gs/orca (tier 2) -- same orbital_indices caveat as M18
+[PASS] M19 agent drafted a job for single_point/gs on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'update_job_draft'] timed_out=False elapsed=66s
+[PASS] M19 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'update_job_draft'] timed_out=False elapsed=66s
+[PASS] M19 approval card shows engine=orca -- card says orca
+[PASS] M19 job ae0358a4f8d0 completed -- status=completed err=None
+[PASS] M19 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['basis', 'functional', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'method', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M19 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M19 total 95.5s (turn 66.3s, ttft 7.2s)
+
+----- M20 single_point/gs/bagel (tier 3) -- XN-05. Same orbital_indices caveat as M18
+[PASS] M20 agent drafted a job for single_point/gs on bagel --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=24s
+[PASS] M20 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=24s
+[PASS] M20 approval card shows engine=bagel -- card says bagel
+[PASS] M20 job 7e411b83e3a2 completed -- status=completed err=None
+[PASS] M20 summary carries what single_point/gs is supposed to produce (one of ['total_energy_hartree', 'state_energies_hartree', 'orbital_table']) -- got keys: ['basis', 'converged', 'df_basis_exact_match', 'df_basis_used', 'dipole_debye', 'method', 'total_energy_hartree']
+[PASS] M20 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M20 total 36.7s (turn 24.0s, ttft 8.5s)
+
+----- M21 pes_1d/pyscf (tier 1) -- 1-based atom numbering
+[PASS] M21 agent drafted a job for pes_1d on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=86s
+[PASS] M21 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=86s
+[PASS] M21 approval card shows engine=pyscf -- card says pyscf
+[PASS] M21 job d57f6ca3cb61 completed -- status=completed err=None
+[PASS] M21 summary carries what pes_1d is supposed to produce (one of ['n_points', 'energies_hartree']) -- got keys: ['coordinate', 'coordinate_values', 'energies_hartree', 'engine', 'failed_images', 'images_complete', 'images_dispatched', 'n_points', 'relative_energies_eV', 'scan_job_type', 'state_energies_per_image']
+[PASS] M21 all declared artifacts are downloadable -- 2 artifacts
+    [perf] M21 total 107.6s (turn 86.4s, ttft 8.5s)
+
+----- M22 pes_1d/orca (tier 2) 
+[PASS] M22 agent drafted a job for pes_1d on orca --  | tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=43s
+[PASS] M22 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=43s
+[PASS] M22 approval card shows engine=orca -- card says orca
+[PASS] M22 job 4bf8ab457e61 completed -- status=completed err=None
+[PASS] M22 summary carries what pes_1d is supposed to produce (one of ['n_points', 'energies_hartree']) -- got keys: ['coordinate', 'coordinate_values', 'energies_hartree', 'engine', 'failed_images', 'images_complete', 'images_dispatched', 'n_points', 'relative_energies_eV', 'scan_job_type', 'state_energies_per_image']
+[PASS] M22 all declared artifacts are downloadable -- 2 artifacts
+    [perf] M22 total 116.1s (turn 43.4s, ttft -1.0s)
+
+----- M23 neb_ts/orca (tier 3) -- preopt has NO default -- must be elicited. Needs an end molecule. XN-09.
+    (needs a second endpoint; set below)
+[PASS] M23 agent drafted a job for neb_ts on orca --  | tools=['start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=13s
+[PASS] M23 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=13s
+[PASS] M23 approval card shows engine=orca -- card says orca
+[FAIL] M23 job a98a92e950ff completed -- status=failed err=RuntimeError: ORCA exited with code 2. Last 3000 chars of output:\x0a.45542      0.00       0.00000   0.00000\x0a  1     0.000     -55.45542      0.00       0.00000   0.00000\x0a  2     0.000     -55.45542      0.00       0.00000   0.00000\x0a  3     0.000     -
+[PASS] M23 all declared artifacts are downloadable -- 0 artifacts
+    [perf] M23 total 347.4s (turn 12.9s, ttft -1.0s)
+
+----- M24 blind/orca (tier 2) -- agent composes raw_input_text itself
+[PASS] M24 agent drafted a job for blind on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=26s
+[PASS] M24 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=26s
+[PASS] M24 approval card shows engine=orca -- card says orca
+[PASS] M24 job c873e8f3a6c1 completed -- status=completed err=None
+[PASS] M24 summary carries what blind is supposed to produce (one of ['note', 'raw_output_tail']) -- got keys: ['note', 'raw_output_tail']
+[PASS] M24 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M24 total 54.3s (turn 26.1s, ttft -1.0s)
+
+----- M25 blind/bagel (tier 3) -- raw BAGEL JSON
+[PASS] M25 agent drafted a job for blind on bagel --  | tools=['set_geometry', 'search', 'search', 'search', 'search', 'search', 'geometry_parameters', 'search', 'search', 'search', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=189s
+[PASS] M25 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'search', 'search', 'search', 'search', 'search', 'geometry_parameters', 'search', 'search', 'search', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=189s
+[PASS] M25 approval card shows engine=bagel -- card says bagel
+[PASS] M25 job 242b1104e55f completed -- status=completed err=None
+[PASS] M25 summary carries what blind is supposed to produce (one of ['note', 'raw_output_tail']) -- got keys: ['note', 'raw_output_tail']
+[PASS] M25 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M25 total 200.4s (turn 189.2s, ttft 134.5s)
+
+----- M26 cas_reco/pyscf (tier 1) -- PySCF-only; any other engine must be refused
+[PASS] M26 agent drafted a job for cas_reco on pyscf --  | tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=37s
+[FAIL] M26 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=37s
+
+----- M27 single_point/grad/pyscf (tier 1) -- Phase 5. ground-state gradient, no target_state
+[PASS] M27 agent drafted a job for single_point/grad on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=27s
+[PASS] M27 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=27s
+[PASS] M27 approval card shows engine=pyscf -- card says pyscf
+[PASS] M27 job 5a6d08b8bb14 completed -- status=completed err=None
+[PASS] M27 summary carries what single_point/grad is supposed to produce (one of ['gradients', 'target_states', 'gradient_norms_hartree_per_bohr']) -- got keys: ['basis', 'excitation_energies_eV', 'functional', 'gradient_norms_hartree_per_bohr', 'gradient_state_energies_hartree', 'gradients', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'initial_orbitals_source_job_id', 'lumo_energy_eV', 'lumo_index', 'method', 'n_excited_states']
+[PASS] M27 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M27 total 31.8s (turn 26.9s, ttft 3.8s)
+
+----- M28 single_point/grad/orca (tier 2) -- Phase 5. excited-state gradient; PBE0 not B3LYP -- B88-containing functionals are refused here (see docs/PARSER_GAPS.md), so this cell must NOT be B3LYP/BLYP
+[PASS] M28 agent drafted a job for single_point/grad on orca --  | tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=31s
+[PASS] M28 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=31s
+[PASS] M28 approval card shows engine=orca -- card says orca
+[PASS] M28 job 480f11c3fb6b completed -- status=completed err=None
+[PASS] M28 summary carries what single_point/grad is supposed to produce (one of ['gradients', 'target_states', 'gradient_norms_hartree_per_bohr']) -- got keys: ['basis', 'excitation_energies_eV', 'functional', 'gradient_norms_hartree_per_bohr', 'gradient_state_energies_hartree', 'gradients', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'method', 'n_excited_states', 'n_states_computed']
+[PASS] M28 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M28 total 64.3s (turn 30.9s, ttft -1.0s)
+
+----- M29 single_point/nac/pyscf (tier 1) -- Phase 5. only NAC path PySCF has (SA-CASSCF)
+[PASS] M29 agent drafted a job for single_point/nac on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=52s
+[PASS] M29 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=52s
+[PASS] M29 approval card shows engine=pyscf -- card says pyscf
+[PASS] M29 job fa3944e55347 completed -- status=completed err=None
+[PASS] M29 summary carries what single_point/nac is supposed to produce (one of ['couplings', 'state_pairs', 'nac_norms_hartree_per_bohr']) -- got keys: ['active_electrons', 'active_orbitals', 'couplings', 'energy_gaps_eV', 'excitation_energies_eV', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'initial_orbitals_source_job_id', 'lumo_energy_eV', 'lumo_index', 'n_excited_states', 'n_pairs', 'n_states_total']
+[PASS] M29 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M29 total 59.1s (turn 52.3s, ttft 9.6s)
+
+----- M30 single_point/nac/orca (tier 2) -- Phase 5. ground-to-excited only on ORCA hf/dft -- state_pairs must include state 1 (ground)
+[PASS] M30 agent drafted a job for single_point/nac on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=54s
+[PASS] M30 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=54s
+[PASS] M30 approval card shows engine=orca -- card says orca
+[FAIL] M30 job 1697f5e14946 completed -- status=failed err=Job interrupted by a server restart with no recoverable result. Please resubmit.
+[PASS] M30 all declared artifacts are downloadable -- 0 artifacts
+    [perf] M30 total 91.0s (turn 54.3s, ttft 8.2s)
+
+----- M31 opt/constrained/pyscf (tier 1) -- Phase 6. geomeTRIC $set, 1-based atom numbers, no conversion needed
+[PASS] M31 agent drafted a job for opt/constrained on pyscf --  | tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=19s
+[PASS] M31 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=19s
+[PASS] M31 approval card shows engine=pyscf -- card says pyscf
+[PASS] M31 job 28efad373cc9 completed -- status=completed err=None
+[PASS] M31 summary carries what opt/constrained is supposed to produce (one of ['total_energy_hartree', 'optimized_geometry']) -- got keys: ['constraints', 'converged', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'optimization_energies_hartree', 'optimized_geometry', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M31 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M31 total 50.7s (turn 18.5s, ttft -1.0s)
+
+----- M32 opt/constrained/orca (tier 2) -- Phase 6. %geom Constraints -- atom numbers are 0-based INTERNALLY, converted from this app's 1-based
+[PASS] M32 agent drafted a job for opt/constrained on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=37s
+[PASS] M32 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=37s
+[PASS] M32 approval card shows engine=orca -- card says orca
+[PASS] M32 job ad2741d305d0 completed -- status=completed err=None
+[PASS] M32 summary carries what opt/constrained is supposed to produce (one of ['total_energy_hartree', 'optimized_geometry']) -- got keys: ['constraints', 'converged', 'optimization_energies_hartree', 'optimized_geometry', 'total_energy_hartree']
+[PASS] M32 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M32 total 156.9s (turn 36.8s, ttft 15.4s)
+
+----- M33 opt/ci/orca (tier 2) -- Phase 6. ! CI-OPT (not ! Opt), %TDDFT + %CONICAL -- ground-state-inclusive only
+[PASS] M33 agent drafted a job for opt/ci on orca --  | tools=['lookup_capabilities', 'start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=44s
+[PASS] M33 approval card appeared (the interrupt gate held) -- tools=['lookup_capabilities', 'start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=44s
+[PASS] M33 approval card shows engine=orca -- card says orca
+[PASS] M33 job 0142812714c9 completed -- status=completed err=None
+[PASS] M33 summary carries what opt/ci is supposed to produce (one of ['optimized_geometry', 'total_energy_hartree', 'state_energies_hartree']) -- got keys: ['ci_energy_diff_hartree', 'converged', 'optimization_energies_hartree', 'optimization_type', 'optimized_geometry', 'target_state', 'target_state_2', 'total_energy_hartree']
+[PASS] M33 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M33 total 1022.3s (turn 44.0s, ttft -1.0s)
+
+----- M34 opt/ci/bagel (tier 3) -- Phase 6 regression. BAGEL gradient-projection MECP, pre-existing mechanism
+[PASS] M34 agent drafted a job for opt/ci on bagel --  | tools=['lookup_capabilities', 'start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=39s
+[FAIL] M34 approval card appeared (the interrupt gate held) -- tools=['lookup_capabilities', 'start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=39s
+
+----- M35 opt_freq/pyscf (tier 1) -- Phase 6. two sequential stages by design (plan's own text) -- never had a MATRIX cell before
+[PASS] M35 agent drafted a job for opt_freq on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=10s
+[PASS] M35 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=10s
+[PASS] M35 approval card shows engine=pyscf -- card says pyscf
+[PASS] M35 job 0c3513217b27 completed -- status=completed err=None
+[PASS] M35 summary carries what opt_freq is supposed to produce (one of ['frequencies_cm-1', 'optimized_geometry']) -- got keys: ['converged', 'homo_energy_eV', 'homo_index', 'homo_lumo_gap_eV', 'lumo_energy_eV', 'lumo_index', 'optimization_energies_hartree', 'optimized_geometry', 'orbital_table', 'orbital_table_kind', 'total_energy_hartree']
+[PASS] M35 all declared artifacts are downloadable -- 1 artifacts
+    [perf] M35 total 14.9s (turn 10.2s, ttft -1.0s)
+
+----- M36 opt_freq/orca (tier 2) -- Phase 6. single-input '! Opt Freq' -- one process, not two
+[PASS] M36 agent drafted a job for opt_freq on orca --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=20s
+[PASS] M36 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=20s
+[PASS] M36 approval card shows engine=orca -- card says orca
+[FAIL] M36 job 2a663d2675d4 completed -- status=failed err=Job interrupted by a server restart with no recoverable result. Please resubmit.
+[PASS] M36 all declared artifacts are downloadable -- 0 artifacts
+    [perf] M36 total 93.7s (turn 20.3s, ttft 5.6s)
+
+----- M37 opt_freq/bagel (tier 3) -- Phase 6. single-input optimize+hessian; BAGEL opt_freq is casscf/caspt2 only, same as opt/min. XN-08.
+[PASS] M37 agent drafted a job for opt_freq on bagel --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=29s
+[FAIL] M37 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=29s
+
+----- M39 pes_1d/ee/pyscf (tier 2) -- excited-state scan: every point carries excitation energies, so the summary must hold a state axis as well as a coordinate axis
+[PASS] M39 agent drafted a job for pes_1d/ee on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'update_job_draft'] timed_out=False elapsed=49s
+[PASS] M39 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'lookup_capabilities', 'update_job_draft'] timed_out=False elapsed=49s
+[PASS] M39 approval card shows engine=pyscf -- card says pyscf
+[PASS] M39 job 8f6c0489313a completed -- status=completed err=None
+[PASS] M39 summary carries what pes_1d/ee is supposed to produce (one of ['n_points', 'energies_hartree', 'state_energies_per_image']) -- got keys: ['coordinate', 'coordinate_values', 'energies_hartree', 'engine', 'failed_images', 'images_complete', 'images_dispatched', 'n_points', 'relative_energies_eV', 'scan_job_type', 'state_energies_per_image']
+[PASS] M39 all declared artifacts are downloadable -- 2 artifacts
+    [perf] M39 total 61.7s (turn 49.2s, ttft -1.0s)
+
+----- M40 interp_pes/pyscf (tier 2) -- needs an END geometry, so the request must name two structures and the agent must call set_geometry twice, the second with role="end"
+[PASS] M40 agent drafted a job for interp_pes on pyscf --  | tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=43s
+[PASS] M40 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=43s
+[PASS] M40 approval card shows engine=pyscf -- card says pyscf
+[PASS] M40 job aad831fae836 completed -- status=completed err=None
+[PASS] M40 summary carries what interp_pes is supposed to produce (one of ['n_points', 'energies_hartree']) -- got keys: ['coordinate', 'coordinate_values', 'energies_hartree', 'engine', 'failed_images', 'images_complete', 'images_dispatched', 'n_points', 'relative_energies_eV', 'scan_job_type', 'state_energies_per_image']
+[PASS] M40 all declared artifacts are downloadable -- 2 artifacts
+    [perf] M40 total 54.3s (turn 42.9s, ttft 8.0s)
+
+----- M41 interp_pes/ee/pyscf (tier 3) -- same, with excitation energies along the path
+[PASS] M41 agent drafted a job for interp_pes/ee on pyscf --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=57s
+[PASS] M41 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=57s
+[PASS] M41 approval card shows engine=pyscf -- card says pyscf
+[PASS] M41 job 78a39c26b68e completed -- status=completed err=None
+[PASS] M41 summary carries what interp_pes/ee is supposed to produce (one of ['n_points', 'energies_hartree', 'state_energies_per_image']) -- got keys: ['coordinate', 'coordinate_values', 'energies_hartree', 'engine', 'failed_images', 'images_complete', 'images_dispatched', 'n_points', 'relative_energies_eV', 'scan_job_type', 'state_energies_per_image']
+[PASS] M41 all declared artifacts are downloadable -- 2 artifacts
+    [perf] M41 total 68.5s (turn 56.7s, ttft -1.0s)
+
+(user 311a10bb-64bd-4fc8-ab3f-7e70b99e6b53 left in place for follow-up scripts; delete with cleanup_all_qatest_users)
+
+180/194 checks passed in this script.
+
+============================================================
+=== e2e_09_plot_tools.py
+============================================================
+Completed jobs available: ['/bagel', '/orca', 'casscf/orca', 'casscf/pyscf', 'dft/orca', 'dft/pyscf', 'hf/bagel', 'hf/orca', 'hf/pyscf']
+
+    (no completed eom_ccsd/pyscf job; XN-02 not exercised)
+[FAIL] [XN-03] plot(kind='uvvis') REFUSES for a PySCF casscf job (no oscillator strengths). -- tool_called=True refused=False artifact_written=False :: Job fa3944e55347 has excitation energies but no usable oscillator strengths -- intensities aren't available at this level of theory/engine.  Explain this to the user rather than pl
+    (no completed caspt2/bagel job; XN-04 not exercised)
+    (no completed frequency/pyscf job; XN-07 not exercised)
+    (no completed tddft/orca job; P-uvvis-orca-tddft not exercised)
+    (no completed eom_ccsd/orca job; P-uvvis-orca-eom not exercised)
+    (no completed frequency/orca job; P-ir-orca-freq not exercised)
+[PASS] plot was called -- tools=['check_job_status', 'plot']
+[PASS] plot emits the parseable PLOT_ARTIFACT marker the chat UI keys its inline <img> off -- PLOT_ARTIFACT plot_id=pcc26c48c65d version=v1\x0aDrew a bar plot of Energy (Hartree) across 2 job(s); it is now shown to the user. Its plot id is pcc26c48c65d, so it can be edited or asked about later. P
+[PASS] an unsupported comparison field fails predictably rather than fuzzy-matching whatever key happens to exist (checked only for kind='comparison' calls; kind='custom' from a real field path is a legitimate alternative, not a fabrication) -- comparison_calls=[] :: 
+[PASS] plot(kind='custom') emits the PLOT_ARTIFACT marker for a real field pair -- Nothing could be drawn: not one of the requested fields resolved to a number in any of these jobs. 'energy_hartree' isn't in this job's summary. Available fields: basis, converged, dipole_debye, functional, homo_energy_eV, homo_index, homo_lumo_gap_eV, lumo_energy_eV, lumo_index, method, orbital_tab
+[PASS] an unsupported custom-plot field path refuses rather than fabricating -- Nothing could be drawn: not one of the requested fields resolved to a number in any of these jobs. 'not_a_real_field_xyz' isn't in this job's summary. Available fields: basis, converged, dipole_debye, functional, homo_energy_eV, homo_index, homo_lumo_gap_eV, lumo_energy_eV, lumo_index, method, orbit
+[FAIL] a categorical level diagram is drawn without being told the spec shape
+
+5/7 checks passed in this script.
+
+============================================================
+=== e2e_10_geometry_parameters.py
+============================================================
+Using job 51e7b475259b for single-geometry cases.
+
+[PASS] an out-of-range atom index refuses cleanly (names the real atom count), not a crash or a fabricated value -- calls=[{'parameters': [{'atoms': [1, 9], 'type': 'bond'}], 'job_id': '51e7b475259b'}] :: Query parameter atom indices must be between 1 and 3 (this molecule's atom count) -- got [1, 9].
+[PASS] a dihedral request on a 3-atom molecule (needs a 4th index that doesn't exist) refuses rather than fabricating a 4th atom -- calls=[{'parameters': [{'atoms': [1, 2, 3, 4], 'type': 'dihedral'}], 'job_id': '51e7b475259b'}] :: Query parameter atom indices must be between 1 and 3 (this molecule's atom count) -- got [1, 2, 3, 4].
+[PASS] a real bond-length query against a completed job returns a one-row table with a value -- calls=[{'job_id': '51e7b475259b', 'parameters': [{'atoms': [1, 2], 'type': 'bond'}]}] :: | Parameter | Atoms | Value | Unit |\x0a|---|---|---|---|\x0a| bond(1,2) | 1,2 | 0.9690 | Å |
+[PASS] a tagged geometry_set returns an ordered TABLE (one row per frame), not a histogram -- calls=[{'job_id': '55618bc8e011', 'parameters': [{'atoms': [1, 2], 'type': 'bond'}]}] :: | # | pt | bond(1,2) |\x0a|---|---|---|\x0a| 1 | 1 | 0.9000 |\x0a| 2 | 2 | 0.9700 |\x0a| 3 | 3 | 1.1000 |
+
+4/4 checks passed in this script.
+
+============================================================
+=== e2e_10_kb_lifecycle.py
+============================================================
+=== K1: file upload -> list -> content ===
+
+[PASS] K1a upload accepted -- 201 {"source":"e2e_zorblatt_notes.txt","doc_type":"paper","n_chunks":1}
+[PASS] K1b upload reports chunks ingested -- {"source":"e2e_zorblatt_notes.txt","doc_type":"paper","n_chunks":1}
+[PASS] K1c the source appears in the owner's listing -- 1 matches
+[PASS] K1d the raw source content is retrievable by its owner -- status=200
+[PASS] K1e the uploaded file is on disk under the owner's directory -- ['e2e_zorblatt_notes.txt']
+
+=== K3: rejected file extension ===
+
+[PASS] K3 a disallowed extension is rejected (allowed: .pdf .txt .md .docx) -- 400 {"detail":"Unsupported file type '.exe' -- only PDF, TXT, MD, and DOCX files are accepted"}
+
+=== K2: text-paste ingest route ===
+
+[PASS] K2 POST /api/kb/sources/text ingests pasted text -- 201 {"source":"e2e_pasted_note.txt","doc_type":"paper","n_chunks":1}
+
+=== K4: per-user scoping ===
+
+[PASS] K4a user B does NOT see user A's upload -- B sees 211 sources
+[PASS] K4b user B DOES see the shared pre-seeded manual corpus -- 211 shared sources visible to B
+[PASS] K4c user B cannot fetch user A's source content -- status=404
+
+=== K5: the agent's own search reaches the caller's upload ===
+
+[FAIL] K5a the agent called search_knowledge_base -- tools=['search', 'search']
+[FAIL] K5b user A's OWN upload was reachable through the tool (owner scoping is threaded into the tool, not just the REST list)
+[PASS] K5c user B's identical search does NOT surface user A's private upload
+
+=== K6: DELETE a source -- chunks AND the file on disk ===
+
+[PASS] K6a DELETE returns 200 and reports deleted chunks -- 200 {"deleted_chunks":1}
+[PASS] K6b the source is gone from the listing
+[PASS] K6c [F-001] the RAW UPLOADED FILE is also removed from disk -- before=['e2e_pasted_note.txt', 'e2e_zorblatt_notes.txt'] after=['e2e_pasted_note.txt'] -- an orphaned file here is unreachable by every cleanup path in the app, since both _kb_candidates() and _kb_usage_by_owner() enumerate from Chroma
+
+=== K7: deleting the owning user reclaims their KB files ===
+
+[PASS] K7 deleting a user removes their remaining KB uploads from disk -- before=['e2e_pasted_note.txt'] after=[]
+
+15/17 checks passed in this script.
+
+============================================================
+=== e2e_11_param_correction.py
+============================================================
+=== C1: the '6-31gd' glued-suffix basis repair ===
+
+[PASS] C1a the '6-31gd' -> '6-31g(d)' repair happened and was SURFACED (never applied invisibly) -- param_corrections=["Read method 'HF' as 'hf'.", "Interpreted basis '6-31gd' as '6-31g(d)' (polarization/diffuse suffixes need parentheses, e.g. '6-31G(d)' or '6-31G*', not '6-31Gd')."]
+[PASS] C1b the spec that reaches the approval card carries the repaired basis -- basis='6-31g(d)'
+
+=== C2: method aliasing (RHF -> hf) ===
+
+[FAIL] C2 an RHF request resolves to this app's only method value, 'hf' (restricted vs unrestricted is chosen from spin, never exposed) -- method=None
+
+=== C3: keyword disambiguation menus (basis AND functional) ===
+
+[FAIL] C3a a mistyped functional ('b3lp') produced a candidate menu including B3LYP -- None
+[FAIL] C3b a mistyped basis ('ccpvdz') produced a candidate menu including cc-pvdz -- None
+
+=== C4: KB manual grounding is retrieved on EVERY submit_draft ===
+
+[PASS] C4a kb_context is present on the approval card (mechanical, not left to the model to decide)
+[PASS] C4b kb_context is actually populated from the seeded manuals -- 548 chars
+
+=== C5: an unrecognized value is NOT silently guessed at ===
+
+[PASS] C5 an unsupported method is not silently swapped for hf/dft on the approval card -- card shows method=None for an MP2 request
+
+5/8 checks passed in this script.
+
+============================================================
+=== e2e_12_source_geometry.py
+============================================================
+Using job 51e7b475259b as the geometry source.
+
+[PASS] an explicit 'use job X's geometry' request writes source_geometry_job_id into the draft and reaches READY without ever calling set_geometry -- updates=[{'basis': 'sto-3g', 'source_geometry_job_id': '51e7b475259b'}], never_called_set_geometry=True, reached_ready=True
+[PASS] a nonexistent tagged job is refused by name (the backend's own 'No such job' text), not silently substituted with something else -- refused=True, reached_ready=False, tool_texts=DRAFT INCOMPLETE.\x0aIf the user has ALREADY told you this, do not ask -- call update_job_draft now and write what they said. Only ask when you genuinely do not have it.\x0aWhen you do need to ask, put this question to the user word for word, without rep...
+Traceback (most recent call last):
+  File "<repo>/tests/e2e/e2e_12_source_geometry.py", line 192, in <module>
+    main()
+  File "<repo>/tests/e2e/e2e_12_source_geometry.py", line 124, in main
+    s3.say(
+  File "<repo>/tests/e2e/_agent.py", line 272, in say
+    st = self.state()
+         ^^^^^^^^^^^^
+  File "<repo>/tests/e2e/_agent.py", line 222, in state
+    r.raise_for_status()
+  File "<home>/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://127.0.0.1:8444/api/threads/61068e0b4ddf4dee81dd67849b554a1c/state'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+
+============================================================
+=== e2e_13_stability.py
+============================================================
+original max_concurrent_jobs_per_user = 3
+
+=== S1: per-user concurrency cap (slow ORCA CASSCF probe) ===
+
+    j1=0cd39277a7e8 failed | j2=52e69f62b256 running
+    j2 reason: ''
+[FAIL] S1a the second job was held pending while the first ran -- j1=failed j2=running
+[FAIL] S1b the pending reason names the PER-USER JOB SLOT cap, not generic CPU/memory headroom -- reason=''
+[PASS] S1c cancel() reached both jobs and drove them terminal -- failed / cancelled
+
+=== S2: the cap is PER USER, not global ===
+
+Traceback (most recent call last):
+  File "<repo>/tests/e2e/e2e_13_stability.py", line 181, in main
+    res2 = marker(api_py(code2, timeout=900))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/e2e/e2e_13_stability.py", line 56, in api_py
+    raise RuntimeError(f"exec failed:\n{p.stdout[-800:]}\n{p.stderr[-800:]}")
+RuntimeError: exec failed:
+
+for mistakes around position 1:
+[20:46:34] water
+[20:46:34] ^
+[20:46:34] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+Traceback (most recent call last):
+  File "<string>", line 11, in <module>
+  File "/app/app/chemistry/jobs/base.py", line 1311, in submit
+    record_ownership("job", spec.job_id, effective_owner_id)
+  File "/app/app/auth/models.py", line 500, in record_ownership
+    conn.execute(
+  File "/usr/local/lib/python3.11/site-packages/psycopg/connection.py", line 300, in execute
+    raise ex.with_traceback(None)
+psycopg.errors.ForeignKeyViolation: insert or update on table "ownership_index" violates foreign key constraint "ownership_index_owner_user_id_fkey"
+DETAIL:  Key (owner_user_id)=(f56f9036-9c1b-4243-a1be-d988bc655aeb) is not present in table "users".
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<repo>/tests/e2e/e2e_13_stability.py", line 290, in <module>
+    main()
+  File "<repo>/tests/e2e/e2e_13_stability.py", line 282, in main
+    set_cap(admin, "max_concurrent_jobs_per_user", orig_per_user)
+  File "<repo>/tests/e2e/e2e_13_stability.py", line 69, in set_cap
+    r.raise_for_status()
+  File "<home>/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://127.0.0.1:8444/api/admin/config'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+
+============================================================
+=== e2e_17_logout_and_return.py
+============================================================
+=== L1: submit a genuinely slow job through the agent ===
+
+[PASS] L1a the agent produced an approval card for a CASSCF job -- None
+[PASS] L1b approval created a job -- ['b4d7ed8a1ae7']
+    job b4d7ed8a1ae7 submitted on thread 0c925e754821433bae334e959b0952b1
+    status before logout: running
+
+=== L2: log out while the job is still running ===
+
+[PASS] L2a the job is still non-terminal at the moment of logout (otherwise this script proves nothing -- pick a slower probe) -- status=running
+[PASS] L2b logout succeeded -- 200
+[PASS] L2c the session is genuinely gone (a real logout, not a no-op) -- GET /api/auth/me -> 401
+[PASS] L2d the logged-out client can no longer list jobs -- 401
+
+=== L3: the calculation keeps running with nobody logged in ===
+
+[PASS] L3a the worker subprocess is STILL ALIVE after its user logged out -- pid=11983 alive=True
+[PASS] L3b the job is still non-terminal after logout -- status=running
+
+=== L4: it runs to completion while nobody is logged in ===
+
+[PASS] L4 the job reached a terminal state with no session open at all -- status=completed after 21s while logged out
+
+=== L5: log back in and find the finished work ===
+
+[PASS] L5a the user can log back in -- 200
+[PASS] L5b the completed job is listed for the returning user -- 7 jobs listed
+[PASS] L5c it is shown as completed, not stuck reporting 'running' -- completed
+[PASS] L5d the returning user can read the job's actual RESULTS (not just its status) -- total_energy_hartree=-74.9740156269
+
+=== L6: the conversation survived intact ===
+
+[PASS] L6a the conversation is still there after logout and back -- 12 messages, kinds=['HumanMessage', 'AIMessage', 'ToolMessage', 'ToolMessage', 'AIMessage', 'ToolMessage', 'AIMessage', 'ToolMessage', 'AIMessage', 'HumanMessage', 'AIMessage', 'ToolMessage']
+[PASS] L6b it still contains the agent's own messages from before the user left (not just their own typed text) -- ['HumanMessage', 'AIMessage', 'ToolMessage', 'ToolMessage', 'AIMessage', 'ToolMessage', 'AIMessage', 'ToolMessage', 'AIMessage', 'HumanMessage', 'AIMessage', 'ToolMessage']
+[PASS] L6c the conversation is listed in the returning user's sidebar -- 1 threads
+
+=== L7: the job's artifacts are readable again ===
+
+[PASS] L7 the returning user can fetch the job's 'raw_output' artifact -- 200, 59436 bytes
+
+=== L9: the agent summarised the finished job unprompted ===
+
+[PASS] L9a the job watcher injected a completion notice into the conversation while the user was logged out -- 1 notice(s)
+[FAIL] L9b the agent actually WROTE that summary, unprompted, and it is waiting in the conversation on return -- 0 assistant message(s) after the notice; the notice was injected but produced no agent reply
+
+=== L8: the user can resume the work ===
+
+Traceback (most recent call last):
+  File "<repo>/tests/e2e/e2e_17_logout_and_return.py", line 333, in <module>
+    main()
+  File "<repo>/tests/e2e/e2e_17_logout_and_return.py", line 297, in main
+    t = s2.say("What was the final CASSCF energy of the job that just finished?",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/e2e/_agent.py", line 272, in say
+    st = self.state()
+         ^^^^^^^^^^^^
+  File "<repo>/tests/e2e/_agent.py", line 222, in state
+    r.raise_for_status()
+  File "<home>/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'https://127.0.0.1:8444/api/threads/0c925e754821433bae334e959b0952b1/state'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+
+============================================================
+=== e2e_18_elicitation.py
+============================================================
+=== A draft is built one relayed question at a time ===
+
+Traceback (most recent call last):
+  File "<repo>/tests/e2e/e2e_18_elicitation.py", line 185, in <module>
+    main()
+  File "<repo>/tests/e2e/e2e_18_elicitation.py", line 94, in main
+    t1 = session.say("Run a CASSCF calculation on water.", timeout=420)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/e2e/_agent.py", line 272, in say
+    st = self.state()
+         ^^^^^^^^^^^^
+  File "<repo>/tests/e2e/_agent.py", line 222, in state
+    r.raise_for_status()
+  File "<home>/apps/miniconda3/envs/qc-agent/lib/python3.11/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'https://127.0.0.1:8444/api/threads/f06f01f803e549b2869589ffe0c0eb9b/state'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+
+============================================================
+=== e2e_19_wigner_ensemble.py
+============================================================
+
+----- step 1: source frequency job (water, HF/STO-3G, PySCF)
+[FAIL] W19-freq agent reached an approval card for the source frequency job -- missing tool call 'submit_draft' (called: ['set_geometry', 'start_job_draft', 'update_job_draft']) | tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[PASS] W19-freq approval card appeared -- tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[PASS] W19-freq approval produced a job -- no job id
+[PASS] W19-freq source job completed -- status=completed err=None
+    source frequency job 58651b0eb070 completed
+
+----- step 2: wigner_spectra ensemble sampling that job
+[FAIL] W19-ensemble agent reached an approval card for the ensemble job -- missing tool call 'submit_draft' (called: []) | tools=[] timed_out=False
+[PASS] W19-ensemble approval card appeared -- tools=[]
+[PASS] W19-ensemble approval card is a wigner_spectra draft -- card says task=wigner_spectra
+[PASS] W19-ensemble approval card carries the source frequency job id -- card params={'use_tda': False, 'want_oscillator_strengths': True, 'fwhm_eV': 0.2, 'low_freq_cutoff_cm1': 100.0, 'temperature_K': 298.15, 'basis': 'STO-3G', 'functional': 'b3lyp', 'n_excited_states': 3, 'n_samples': 5, 'source_frequency_job_id': '58651b0eb070', 'n_states': 3, 'random_seed': 58994376}
+[PASS] W19-ensemble approval produced a master job -- no job id
+    master job e74e42676aa2 submitted, polling to terminal...
+[PASS] W19-ensemble master job completed -- status=completed err=None
+    master summary keys: ['engine', 'low_freq_cutoff_cm1', 'n_complete', 'n_completed', 'n_dispatched', 'n_failed_or_pending', 'n_modes_dropped_low_freq', 'n_modes_dropped_zero_norm', 'n_modes_imaginary_dropped', 'n_modes_retained', 'n_modes_total', 'n_no_intensity', 'n_samples', 'n_sub_jobs', 'n_transitions_pooled', 'per_sample_harmonic_potential_hartree', 'random_seed', 'scan_job_type', 'source_frequency_job_id', 'temperature_K']
+[PASS] W19-ensemble summary reports the requested sample count -- n_samples=5
+[PASS] W19-ensemble every sample was dispatched -- n_dispatched=5
+[PASS] W19-ensemble every sample reached a terminal state -- n_complete=5
+[PASS] W19-ensemble the pool actually produced usable (energy, oscillator strength) pairs -- n_completed=5 plot_error=None
+    sub-job _ensemble_index values: [0, 1, 2, 3, 4]
+[PASS] W19-ensemble every sub-job has a distinct _ensemble_index (no double-dispatch) -- indices=[0, 1, 2, 3, 4] -- a repeated value proves the same sample was dispatched twice
+[PASS] W19-ensemble the dispatched indices are exactly 0..N-1 (nothing skipped either) -- indices=[0, 1, 2, 3, 4] expected=[0, 1, 2, 3, 4]
+    master artifacts: ['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_xyz' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_spectrum' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_spectrum_data' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble all declared artifacts are downloadable -- 3 artifacts
+
+18/20 checks passed in this script.
+
+============================================================
+=== e2e_20_attach_blind_input.py
+============================================================
+[PASS] a .inp file can be uploaded -- 201 {"id":"fc0984c030e9","original_name":"dz96_p96.inp","extension":".inp","size_bytes":129,"uploaded_at":1789332545.376569,"sniff":null,"owner":"04e44f40-3616-4c28-9dc3-7c66c6cb60e4"}
+[PASS] attach_upload accepts a .inp upload (no longer refused) -- 200 {"kind":"raw_file","message":{"id":"2114b46b-e494-4180-a9c9-431ec1bf4ab8","type":"HumanMessage","content":"(attached file, not typed by the user) The following is the content of the uploaded file 'dz96_p96.inp':\n\n! HF STO-3G\n* xyz 0 1\nO   0.000000   0.000000   0.000000\nH   0.758602   0.0000...
+[PASS] the response carries kind='raw_file' and a message containing the file's own name and content -- body={'kind': 'raw_file', 'message': {'id': '2114b46b-e494-4180-a9c9-431ec1bf4ab8', 'type': 'HumanMessage', 'content': "(attached file, not typed by the user) The following is the content of the uploaded file 'dz96_p96.inp':\n\n! HF STO-3G\n* xyz 0 1\nO   0.000000   0.000000   0.000000\nH   0.758602...
+[PASS] the attached file's content is present in the thread's own checkpointed state (not just the one-off HTTP response) -- n_messages=1
+[PASS] second attach (fresh thread) also succeeds -- 200
+[INFO] G2 update_job_draft calls: [{'raw_input_text': '! HF STO-3G\n* xyz 0 1\nO   0.000000   0.000000   0.000000\nH   0.758602   0.000000   0.504284\nH   0.758602   0.000000  -0.504284\n*'}]
+[PASS] the model fills raw_input_text from the attached file's own content (not retyped/paraphrased, not fabricated) when asked to run it as a blind job -- raw_texts=['! HF STO-3G\n* xyz 0 1\nO   0.000000   0.000000   0.000000\nH   0.758602   0.000000   0.504284\nH   0.758602   0.000000  -0.']
+
+6/6 checks passed in this script.
+
+============================================================
+SUMMARY: 11 script(s) passed, 6 failed, 0 skipped
+  failed: e2e_03_route_auth_sweep.py
+  failed: e2e_12_source_geometry.py
+  failed: e2e_13_stability.py
+  failed: e2e_17_logout_and_return.py
+  failed: e2e_18_elicitation.py
+  failed: e2e_19_wigner_ensemble.py
+
+A [FAIL] here is a real regression. Unlike tests/backend/, no script
+in this suite is expected to fail -- every expected-negative is
+asserted positively through _expected.py's expect_by_design().

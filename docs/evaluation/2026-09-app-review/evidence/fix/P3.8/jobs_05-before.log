@@ -1,0 +1,19 @@
+R-071: two threads writing one status.json
+
+  old (pid-only temp name): 1009 writer error(s), 104 torn read(s)
+  now:                      1038 writer error(s), 130 torn read(s)
+[FAIL] no writer raises -- 1038; 1038 of them, against 1009 for the implementation this replaced
+[FAIL] no reader ever sees a truncated file -- 130; 130 torn reads, against 104 before
+[PASS] and no temp file is left behind
+[PASS] the comparison is meaningful: the old one really does fail this -- 1009 errors, 104 torn
+
+R-029 and R-073: cancelling a master
+[FAIL] the cancelled result carries the master's artifacts, not just its summary -- path_xyz and ensemble_xyz are still erased, so a cancelled scan's geometries become unreachable
+[FAIL] the cancel runs inside the same dispatch guard the orchestrators take -- a tick already inside _dispatch_more can still submit a wave of children nothing will cancel or aggregate
+[FAIL] and writes the master's terminal status before sweeping the children -- status at 1556, sweep at 1378; a tick starting between the two still sees a running master
+
+R-031: reconciliation does not overwrite a result that landed late
+[FAIL] the failed branch re-reads result.json at the point of decision -- the read is still several file and process lookups earlier, so a worker that finished in that window has its result overwritten
+[FAIL] and treats a terminal result as a recovery rather than a failure -- there is no re-read, so nothing can treat it as one
+
+2/9 checks passed in this script.

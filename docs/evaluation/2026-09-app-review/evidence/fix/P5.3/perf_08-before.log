@@ -1,0 +1,19 @@
+
+== run label: before ==
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] the app opened its event stream through the spec's EventSource
+  rep 1: script 3817 ms, style 8 ms, layout 54 ms, wall 5387 ms (transcript children rendered: 20)
+  rep 2: script 3421 ms, style 8 ms, layout 53 ms, wall 5330 ms (transcript children rendered: 20)
+  rep 3: script 3380 ms, style 8 ms, layout 52 ms, wall 5325 ms (transcript children rendered: 20)
+
+RESULT label=before messages=40 tokens=300 reps=3
+  median ScriptDuration over the token phase: 3421 ms (11.40 ms per token)
+  median RecalcStyleDuration:                 8 ms (0.03 ms per token)
+  median LayoutDuration:                      53 ms (0.18 ms per token)
+[PASS] every rep rendered a transcript of the expected length -- 20, 20, 20
+[PASS] the token phase ran in every rep
+[PASS] no console errors during the measurement
+
+5/5 checks passed in this script.

@@ -1,0 +1,46 @@
+[11:43:58] SMILES Parse Error: syntax error while parsing: water
+[11:43:58] SMILES Parse Error: check for mistakes around position 1:
+[11:43:58] water
+[11:43:58] ^
+[11:43:58] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+R-010: state zero is a state
+
+1. ORCA, every ordering of target_states
+[PASS] targets=[1], the S0 run asks for no excited root -- IRoot []
+[PASS] targets=[1, 2], the S0 run asks for no excited root -- IRoot []
+[PASS] targets=[1, 2], the S1 run asks for [1] -- IRoot [1]
+[PASS] targets=[2, 1], the S1 run asks for [1] -- IRoot [1]
+[FAIL] targets=[2, 1], the S0 run asks for no excited root -- IRoot [1]; IRoot [1]: this run would return the wrong state's gradient labelled S0
+[PASS] targets=[3, 1], the S2 run asks for [2] -- IRoot [2]
+[FAIL] targets=[3, 1], the S0 run asks for no excited root -- IRoot [2]; IRoot [2]: this run would return the wrong state's gradient labelled S0
+[PASS] targets=[1, 3], the S0 run asks for no excited root -- IRoot []
+[PASS] targets=[1, 3], the S2 run asks for [2] -- IRoot [2]
+[PASS] targets=[2, 3, 1], the S1 run asks for [1] -- IRoot [1]
+[PASS] targets=[2, 3, 1], the S2 run asks for [2] -- IRoot [2]
+[FAIL] targets=[2, 3, 1], the S0 run asks for no excited root -- IRoot [1]; IRoot [1]: this run would return the wrong state's gradient labelled S0
+
+   and the preview, which has no target_state at all, still shows the first run
+[PASS] preview for target_states=[1] shows IRoot none -- []
+[PASS] preview for target_states=[1, 2] shows IRoot none -- []
+[PASS] preview for target_states=[2, 1] shows IRoot [1] -- [1]
+[PASS] preview for target_states=[3, 1] shows IRoot [2] -- [2]
+
+2. the same class on the other two engines
+[PASS] BAGEL target_states=[1] asks for targets [0] -- grads targets [0]
+[PASS] BAGEL target_states=[2, 1] asks for targets [0, 1] -- grads targets [1, 0]
+[PASS] BAGEL target_states=[3, 1] asks for targets [0, 2] -- grads targets [2, 0]
+[PASS] PySCF converts per entry rather than through `or`
+
+3. R-077: a reordered ladder reports honest numbers
+[PASS] an ascending ladder is unchanged -- [2.721138624598645, 5.442277249197677]
+[FAIL] a reordered ladder gives the same physical excitations -- [-2.721138624598645, 2.721138624599032]
+[FAIL] and none of them is negative -- [-2.721138624598645, 2.721138624599032]
+[FAIL] a reordered ladder carries a note saying so -- nothing downstream is told the labels are not in energy order
+[PASS] an ascending ladder carries no such note
+[FAIL] total_energy_hartree is the lowest state, not the first-labelled one -- -99.9
+
+4. R-096: one state numbering, everywhere
+[FAIL] the scan legend uses S0/S1/S2 -- ['Ground state', 'State 1', 'State 2']
+[FAIL] and the drawer no longer renders 'Ground state' next to 'State S1' -- still rendered at: ['                            {g.target_state > 1 ? `State S${g.target_state - 1}` : "Ground state"}']
+
+19/28 checks passed in this script.

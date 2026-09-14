@@ -1,0 +1,17 @@
+
+== R-037: an attached job's results can be shrunk like any other result ==
+[FAIL] R-037: an attached job's results can be shrunk like any other result -- ImportError: cannot import name 'JOB_ATTACH_PREFIX' from 'app.agent.state' (<scratch>/40470d91-34a1-4b19-a533-5bfa2fc09a8e/scratchpad/prefix-tree/app/agent/state.py)
+
+== R-036: the pointer says what to do when the results are gone ==
+[FAIL] it no longer asserts the results are visible
+[FAIL] it names the tool that fetches them back
+[FAIL] and it says why they might be missing
+[PASS] a job already in the history produces exactly one pointer message -- 1
+  the pointer, as built: (attached job context for job abc123, not typed by the user) Its full results are already in this conversation above; they are not repeated here. Refer to them there.
+[PASS] the pointer is short, not another copy of the summary -- 166 characters
+[PASS] it names the job id it points at -- (attached job context for job abc123, not typed by the user) Its full results are already in this conversation above; th
+
+== the marker is one definition, shared by the route and the graph ==
+[FAIL] the marker is one definition, shared by the route and the graph -- ImportError: cannot import name 'JOB_ATTACH_MARKER' from 'app.agent.state' (<scratch>/40470d91-34a1-4b19-a533-5bfa2fc09a8e/scratchpad/prefix-tree/app/agent/state.py)
+
+3/8 checks passed in this script.

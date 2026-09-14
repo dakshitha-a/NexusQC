@@ -1,0 +1,49 @@
+
+== R-089: an invite's lifetime is bounded like a password reset's ==
+[FAIL] a five-year invite is refused -- HTTP 200
+[FAIL] a zero-hour invite is refused -- HTTP 200
+[PASS] the documented maximum is still accepted -- HTTP 200
+
+== R-082: a bug report that does not exist is a 404, not a 200 ==
+[FAIL] a well-formed id for no report answers 404 -- HTTP 200: {"id":"65017ad6-30a4-42fb-9dea-c369743df221","status":"closed","archived":null}
+[FAIL] a malformed id answers 404 too, not a 500 that says it got further -- HTTP 500: Internal Server Error
+[FAIL] and no audit row claims either report was changed -- 1 row(s) written for a report that does not exist
+
+== R-083: a failed orbital render does not hand back engine paths ==
+[PASS] the ORCA branch logs the exception instead of returning it
+[PASS] and the detail it returns carries no exception text
+[PASS] a non-positive orbital index is refused at the route as a 400
+
+== R-088: a session is recorded as ended when it ends ==
+[PASS] revoke_session has a caller now
+[PASS] deactivating an account revokes its rows too
+[PASS] expired rows are removed rather than kept for ever
+[PASS] and something actually runs that sweep
+
+== R-044: the quota pass measures what the user actually holds ==
+[PASS] each pass starts from the usage report, not from its own candidates
+[PASS] the kb_bytes pass enforces against kb_bytes
+[PASS] the upload_bytes pass enforces against upload_bytes
+[PASS] the jobs_and_chat_bytes pass enforces against jobs_and_chat_bytes
+
+== R-045: two shares accepted at once cannot both slip past the cap ==
+[PASS] the check and the copy are held under a per-recipient lock
+[PASS] the lock is keyed on the recipient, not taken globally
+
+== R-046 and R-087: what the archive holds and what the purge deletes ==
+[PASS] the archive includes conversations
+[PASS] the archive includes plots
+[PASS] the archive includes project archives
+[PASS] scan and ensemble frames arrive as owned sub-jobs, and that is said so
+[PASS] the self-purge deletes the caller's plots
+[PASS] the self-purge deletes the caller's project archives
+[PASS] and it still leaves conversations alone, which is the point of it
+[PASS] the counts it returns name plots and projects
+
+== R-052: bug-report attachments have a ceiling and a rate ==
+[PASS] reports are rate-limited per account, not per address
+[PASS] and there is a total-bytes ceiling per account
+  filed 15 reports: 15 accepted, 0 refused with 429
+[FAIL] the account's 12-per-hour budget is enforced -- accepted=15 refused=0 codes=[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]
+
+24/30 checks passed in this script.

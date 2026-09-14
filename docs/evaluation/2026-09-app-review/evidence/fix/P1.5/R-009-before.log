@@ -1,0 +1,23 @@
+R-009: the paper search is scoped to whoever asked
+
+1. the state handed to search reaches the knowledge-base backend
+[FAIL] search() accepts the caller's state at all -- TypeError: search() got an unexpected keyword argument 'state'
+[PASS] the knowledge-base tier ran at all -- 3 call(s)
+[FAIL] every knowledge-base call carried the caller's state -- 3 call(s), states [None, None, None]
+[PASS] and asked for papers, which is the scoped, privacy-sensitive case -- doc_types ['paper', 'paper', 'paper']
+[FAIL] the search still returns findings -- matched_at=None
+
+2. omitting the state is refused, not silently unscoped
+[FAIL] search() with no state and no kb backend raises -- it built an unscoped paper search instead
+
+3. a test may still inject its own backend without a state
+[PASS] an explicit kb backend needs no state -- the default backend was never built
+
+4. both call sites pass one
+[FAIL] search_active_space_literature calls active_space_lit.search with state= -- ['findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)']
+[FAIL] explain_active_space calls active_space_lit.search with state= -- ['findings = active_space_lit.search(str(name), n_states=n_states, basis=basis)']
+
+5. and no other caller of the knowledge base passes state=None
+[FAIL] no search_knowledge_base.func call site passes state=None -- app/agent/active_space_lit.py:203
+
+3/10 checks passed in this script.

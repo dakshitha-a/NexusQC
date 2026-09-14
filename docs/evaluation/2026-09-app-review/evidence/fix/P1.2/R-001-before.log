@@ -1,0 +1,55 @@
+R-001: a sub-job is as private as its master
+
+1. effective_owner walks the parent chain (in process, stubbed table)
+[PASS] a master resolves to its own owner -- got 'alice'
+[PASS] a child with no row of its own resolves to its master's owner -- got 'alice'
+[PASS] a child of an unowned master stays unowned (the settled visible-to-all case) -- got None
+[PASS] a parent_job_id cycle terminates instead of spinning -- got None
+[PASS] a non-job kind never walks (a thread has no parent_job_id) -- got None
+
+2. the boundary itself, through nginx, with two accounts
+  master 186fe458ec9e with 8 child(ren)
+[PASS] a user who owns nothing is refused the master -- HTTP 404
+[FAIL] and refused its child 383f5c918d30 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16254 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored 383f5c918d30's label to 'methylamine S0 min (IDPP frame 1/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child 3a991502a9ef -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16198 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored 3a991502a9ef's label to 'methylamine S0 min (IDPP frame 2/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child b345c02021f4 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16207 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored b345c02021f4's label to 'methylamine S0 min (IDPP frame 3/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child fc9900fe5e08 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16192 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored fc9900fe5e08's label to 'methylamine S0 min (IDPP frame 4/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child c29992da8e28 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16220 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored c29992da8e28's label to 'methylamine S0 min (IDPP frame 5/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child c25a14e6e46e -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16199 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored c25a14e6e46e's label to 'methylamine S0 min (IDPP frame 6/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child 0d87ea39ec68 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16185 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored 0d87ea39ec68's label to 'methylamine S0 min (IDPP frame 7/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[FAIL] and refused its child 86972f713922 -- HTTP 200; HTTP 200: the child of a private master was served
+[FAIL] and refused that child's artifact download -- HTTP 200; HTTP 200, 16160 bytes handed over
+[FAIL] and cannot rename it -- HTTP 200
+        (restored 86972f713922's label to 'methylamine S0 min (IDPP frame 8/8) SP cam-b3lyp/aug-cc-pvdz (PYSCF)')
+[PASS] an admin still reads the child (admins are trusted operators) -- HTTP 200
+
+3. R-090: the project detail route checks each member job
+[PASS] get_project calls check_owner_or_admin per member job
+
+4. the quota sweep treats master and children as one unit
+[PASS] _job_candidates skips sub-jobs
+[PASS] and folds their bytes into the master's size
+[PASS] delete_job_dir clears the ownership row it is deleting
+
+11/35 checks passed in this script.

@@ -1,0 +1,25 @@
+R-007: the maintenance check never blocks the caller
+
+[FAIL] _maintenance_mode does no database work of its own -- it still calls into models on the caller's thread, which for dispatch() is the event loop
+[FAIL] the refresh is a separate function, run off the loop
+[FAIL] a cold cache answers immediately even when the database is slow -- 1000.1 ms; 1.00 s -- the query is still on the caller's thread
+[PASS] and the refresh does land, so the answer is not stale for ever
+
+R-032 and R-050: the Redis client
+[FAIL] the client is built with a socket timeout -- redis-py's default is to block forever, on the authentication path of every request
+[FAIL] and a connect timeout
+[FAIL] the timeout is short, because Redis is a local container answering a GET -- Nones
+[FAIL] an unreachable Redis answers 'not the active session' rather than raising -- ConnectionError propagates and becomes a 500, where the rate limiter beside it degrades instead
+[FAIL] and logging out does not raise either -- ConnectionError
+
+R-033: an SSE stream costs no threadpool token
+[FAIL] there is an async generator for the route to use
+[FAIL] the route hands back the async one
+[PASS] and the handler is still a plain def, per CLAUDE.md's absolute rule
+[FAIL] the async stream yields its opening comment and then a real event -- there is no async generator, so every open stream still holds one of anyio's 40 threadpool tokens
+
+R-097: the Stop button is disarmed only by its own turn
+[FAIL] _pop_cancel_event takes the event it is removing -- it still pops by thread id alone, so one turn's cleanup disarms another's
+[FAIL] a finished turn does not deregister the turn that replaced it -- _pop_cancel_event() takes 1 positional argument but 2 were given -- it pops by thread id alone, so one turn's cleanup disarms another turn's Stop button
+
+2/15 checks passed in this script.

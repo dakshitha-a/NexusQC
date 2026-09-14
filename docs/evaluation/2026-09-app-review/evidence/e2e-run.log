@@ -1,0 +1,79 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+START 2026-09-13T08:33:41Z
+EXIT 1 2026-09-13T09:55:45Z
+
+=== e2e_00_preflight.py
+16/16 checks passed in this script.
+=== e2e_03_route_auth_sweep.py
+[FAIL] anonymous caller is rejected by all 101 non-public routes -- GET /api/version -> 200
+6/7 checks passed in this script.
+=== e2e_04_harness_gate.py
+16/16 checks passed in this script.
+=== e2e_05_molecule_resolution.py
+12/12 checks passed in this script.
+=== e2e_06_agent_tools.py
+[FAIL] T04 search_knowledge_base is used for manual syntax questions -- 0/3; try1: missing tool call 'search_knowledge_base' (called: ['search', 'search', 'search', 'search', 'search']) | try2: missing tool call 'search_knowledge_base' (called: ['search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'searc...
+[FAIL] T05 search_academic_literature for a literature question -- 0/3; try1: missing tool call 'search_academic_literature' (called: ['search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search', 'search']) | try2: missing tool call 'search_academic_literature' (called: ['search']) | try3: missing tool call 'search_academic_literature' ...
+[FAIL] T06 web_search for a current-events<licensed-software> question -- 0/3; try1: missing tool call 'web_search' (called: ['search']) | try2: missing tool call 'web_search' (called: ['search']) | try3: missing tool call 'web_search' (called: ['search'])
+10/13 checks passed in this script.
+=== e2e_07_approval_flow.py
+[FAIL] A2d the tool reported the non-approval back to the model -- declined by the user: the 'single_point' draft was not run and nothing was queued. the user has already been shown a message saying so and asking what they would like to change, so do not ask again an
+23/24 checks passed in this script.
+=== e2e_08_job_matrix.py
+[FAIL] M05 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=17s
+[FAIL] M10 want_oscillator_strengths mechanically routes CASSCF to ORCA -- [{}]
+[FAIL] M10 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=18s
+[FAIL] M11 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=18s
+[FAIL] M12 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'update_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=18s
+[FAIL] M13 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=11s
+[FAIL] M14 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=10s
+[FAIL] M15 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=19s
+[FAIL] M16 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'lookup_capabilities', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=14s
+[FAIL] M17 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=12s
+----- M18 single_point/gs/pyscf (tier 1) -- orbital_indices are 1-BASED everywhere a user or the LLM sees them. NOTE: orbital_indices carries no required_when in registry2/params.py, so nothing mechanically forces the agent to set it -- if the card's params come back without it, EXPECTED_SUMMARY_KEYS still passes on energy_hartree alone with no orbitals actually rendered. Check the approval card's params for orbital_indices explicitly, not just the summary-keys assertion.
+[FAIL] M23 job 02ade327ad80 completed -- status=failed err=RuntimeError: ORCA exited with code 2. Last 3000 chars of output:\x0a.45542      0.00       0.00000   0.00000\x0a  1     0.000     -55.45542      0.00       0.00000   0.00000\x0a  2     0.000     -55.45542      0.00       0.00000   0.00000\x0a  3     0.000     -
+[FAIL] M26 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft'] timed_out=False elapsed=26s
+[FAIL] M34 approval card appeared (the interrupt gate held) -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft', 'update_job_draft', 'update_job_draft'] timed_out=False elapsed=44s
+[FAIL] M37 approval card appeared (the interrupt gate held) -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] timed_out=False elapsed=24s
+178/192 checks passed in this script.
+=== e2e_09_plot_tools.py
+[FAIL] [XN-03] plot(kind='uvvis') REFUSES for a PySCF casscf job (no oscillator strengths). -- tool_called=True refused=False artifact_written=False :: Job c817c51432b1 has excitation energies but no usable oscillator strengths -- intensities aren't available at this level of theory/engine.  Explain this to the user rather than pl
+6/7 checks passed in this script.
+=== e2e_10_geometry_parameters.py
+4/4 checks passed in this script.
+=== e2e_10_kb_lifecycle.py
+[FAIL] K5a the agent called search_knowledge_base -- tools=['search', 'search']
+[FAIL] K5b user A's OWN upload was reachable through the tool (owner scoping is threaded into the tool, not just the REST list)
+15/17 checks passed in this script.
+=== e2e_11_param_correction.py
+[FAIL] C2 an RHF request resolves to this app's only method value, 'hf' (restricted vs unrestricted is chosen from spin, never exposed) -- method=None
+[FAIL] C3a a mistyped functional ('b3lp') produced a candidate menu including B3LYP -- None
+[FAIL] C3b a mistyped basis ('ccpvdz') produced a candidate menu including cc-pvdz -- None
+5/8 checks passed in this script.
+=== e2e_12_source_geometry.py
+[FAIL] a nonexistent tagged job is refused by name (the backend's own 'No such job' text), not silently substituted with something else -- refused=False, reached_ready=False, tool_texts=Job zzz-does-not-exist finished but no result was recorded; status={'status': 'unknown', 'message': 'no such job', 'updated_at': None}.
+2/3 checks passed in this script.
+=== e2e_13_stability.py
+[FAIL] S1a the second job was held pending while the first ran -- j1=failed j2=failed
+[FAIL] S1b the pending reason names the PER-USER JOB SLOT cap, not generic CPU/memory headroom -- reason=''
+[FAIL] S2 a DIFFERENT user's job is not blocked by user A's per-user cap -- userB job is failed: 'done'
+[FAIL] S3a the worker subprocess was genuinely alive before cancel -- {'job': '3d1382b225bf', 'pid': 70552, 'alive_before': False, 'alive_after': False, 'cancel_seconds': 0.0, 'final': 'failed'}
+[FAIL] S3c the job's status reached 'cancelled' -- final=failed
+[FAIL] S4a a job was left running on disk before the restart -- status=failed
+4/10 checks passed in this script.
+=== e2e_17_logout_and_return.py
+[FAIL] L9b the agent actually WROTE that summary, unprompted, and it is waiting in the conversation on return -- 0 assistant message(s) after the notice; the notice was injected but produced no agent reply
+20/21 checks passed in this script.
+=== e2e_18_elicitation.py
+[FAIL] E18-08 the active-space question is asked, not assumed -- missing ['should', 'contain'] from: \x0a\x0ai searched the literature for a published active space for water, but nothing came back that reports a specific active space chosen for this molecule — so i don't have a literature-backed number to suggest.\x0a\x0ayou have two options:\x0a\x0a1. **tell me ...
+16/17 checks passed in this script.
+=== e2e_19_wigner_ensemble.py
+[FAIL] W19-freq agent reached an approval card for the source frequency job -- missing tool call 'submit_draft' (called: ['set_geometry', 'start_job_draft', 'update_job_draft']) | tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[FAIL] W19-ensemble agent reached an approval card for the ensemble job -- missing tool call 'submit_draft' (called: ['start_job_draft', 'update_job_draft']) | tools=['start_job_draft', 'update_job_draft'] timed_out=False
+18/20 checks passed in this script.
+=== e2e_20_attach_blind_input.py
+6/6 checks passed in this script.
+SUMMARY: 15 script(s) passed, 2 failed, 0 skipped
+  failed: e2e_03_route_auth_sweep.py
+  failed: e2e_19_wigner_ensemble.py
+A [FAIL] here is a real regression. Unlike tests/backend/, no script

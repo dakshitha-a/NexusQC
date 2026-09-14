@@ -1,0 +1,19 @@
+R-071: two threads writing one status.json
+
+  old (pid-only temp name): 1037 writer error(s), 226 torn read(s)
+  now:                      0 writer error(s), 0 torn read(s)
+[PASS] no writer raises -- 0
+[PASS] no reader ever sees a truncated file -- 0
+[PASS] and no temp file is left behind
+[PASS] the comparison is meaningful: the old one really does fail this -- 1037 errors, 226 torn
+
+R-029 and R-073: cancelling a master
+[PASS] the cancelled result carries the master's artifacts, not just its summary
+[PASS] the cancel runs inside the same dispatch guard the orchestrators take
+[PASS] and writes the master's terminal status before sweeping the children -- status at 2373, sweep at 2444
+
+R-031: reconciliation does not overwrite a result that landed late
+[PASS] the failed branch re-reads result.json at the point of decision
+[PASS] and treats a terminal result as a recovery rather than a failure
+
+9/9 checks passed in this script.

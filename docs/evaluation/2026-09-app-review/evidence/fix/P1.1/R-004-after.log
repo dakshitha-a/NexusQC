@@ -1,0 +1,61 @@
+[11:00:11] SMILES Parse Error: syntax error while parsing: water
+[11:00:11] SMILES Parse Error: check for mistakes around position 1:
+[11:00:11] water
+[11:00:11] ^
+[11:00:11] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+R-004: a canonical method name is not a typo
+
+1. every canonical method survives normalize_method untouched
+[PASS] normalize_method('hf') leaves it alone -- got 'hf'
+[PASS] normalize_method('dft') leaves it alone -- got 'dft'
+[PASS] normalize_method('mp2') leaves it alone -- got 'mp2'
+[PASS] normalize_method('ccsd') leaves it alone -- got 'ccsd'
+[PASS] normalize_method('eom_ccsd') leaves it alone -- got 'eom_ccsd'
+[PASS] normalize_method('casscf') leaves it alone -- got 'casscf'
+[PASS] normalize_method('caspt2') leaves it alone -- got 'caspt2'
+[PASS] normalize_method('nevpt2') leaves it alone -- got 'nevpt2'
+[PASS] normalize_method('mcpdft') leaves it alone -- got 'mcpdft'
+[PASS] normalize_method('lpdft') leaves it alone -- got 'lpdft'
+[PASS] normalize_method('cmspdft') leaves it alone -- got 'cmspdft'
+
+   and so does every alias the table itself declares
+[PASS] normalize_method('dft') -> 'dft' -- got 'dft'
+[PASS] normalize_method('hartreefock') -> 'hf' -- got 'hf'
+[PASS] normalize_method('hf') -> 'hf' -- got 'hf'
+[PASS] normalize_method('kohnsham') -> 'dft' -- got 'dft'
+[PASS] normalize_method('ks') -> 'dft' -- got 'dft'
+[PASS] normalize_method('restrictedhartreefock') -> 'hf' -- got 'hf'
+[PASS] normalize_method('rfh') -> 'hf' -- got 'hf'
+[PASS] normalize_method('rhf') -> 'hf' -- got 'hf'
+[PASS] normalize_method('rks') -> 'dft' -- got 'dft'
+[PASS] normalize_method('rohf') -> 'hf' -- got 'hf'
+[PASS] normalize_method('roks') -> 'dft' -- got 'dft'
+[PASS] normalize_method('uhf') -> 'hf' -- got 'hf'
+[PASS] normalize_method('uks') -> 'dft' -- got 'dft'
+[PASS] normalize_method('unrestrictedhartreefock') -> 'hf' -- got 'hf'
+
+1b. a synonym the registry knows resolves the registry's way, not the fuzzy way
+[PASS] normalize_method('pdft') -> 'mcpdft' -- got 'mcpdft'
+[PASS] normalize_method('l-pdft') -> 'lpdft' -- got 'lpdft'
+[PASS] normalize_method('tddft') -> 'dft' -- got 'dft'
+[PASS] normalize_method('cms') -> 'cmspdft' -- got 'cmspdft'
+[PASS] normalize_method('sa-casscf') -> 'casscf' -- got 'casscf'
+
+2. genuine typos are still repaired (repair is not switched off)
+[PASS] normalize_method('rfh') -> 'hf' -- got 'hf'
+[PASS] normalize_method('hartree fock') -> 'hf' -- got 'hf'
+[PASS] normalize_method('kohn-sham') -> 'dft' -- got 'dft'
+[PASS] normalize_method('UHF') -> 'hf' -- got 'hf'
+[PASS] normalize_method('hfx') -> 'hf' -- got 'hf'
+
+3. an L-PDFT draft builds a spec that is still L-PDFT
+[PASS] the draft builds without an error -- err=None
+[PASS] spec.method is 'lpdft', not 'dft' -- method='lpdft'
+[PASS] the active space survived the build -- active_electrons=4, active_orbitals=4
+[PASS] no parameter note claims the method was reinterpreted -- 0 note(s)
+
+4. R-085: a misrouted geometry key does not silently swallow its neighbours
+[PASS] the misrouted branch says the other keys were not recorded either
+[PASS] its wording matches the unknown-key branch's established rule
+
+41/41 checks passed in this script.

@@ -1,13 +1,14 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
 R-002: a knowledge-base upload cannot choose where it lands
 
 1. _safe_dest, in process
-[PASS] _safe_dest('../r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
-[PASS] _safe_dest('../../r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
-[PASS] _safe_dest('/tmp/r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
-[PASS] _safe_dest('subdir/r002-probe-marker.txt') stays inside the upload directory -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('../r002-probe-marker.txt') stays inside the upload directory -- -> <repo>/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('../../r002-probe-marker.txt') stays inside the upload directory -- -> <repo>/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('/tmp/r002-probe-marker.txt') stays inside the upload directory -- -> <repo>/data/uploads/r002-probe-marker.txt
+[PASS] _safe_dest('subdir/r002-probe-marker.txt') stays inside the upload directory -- -> <repo>/data/uploads/r002-probe-marker.txt
 [PASS] _safe_dest('') is refused outright -- HTTP 400
 [PASS] _safe_dest('..') is refused outright -- HTTP 400
-[PASS] an ordinary name still works -- -> /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/a-real-paper.pdf
+[PASS] an ordinary name still works -- -> <repo>/data/uploads/a-real-paper.pdf
 
    and all three write paths go through it
 [PASS] add_source uses _safe_dest
@@ -22,7 +23,7 @@ R-002: a knowledge-base upload cannot choose where it lands
 [PASS] POST /api/kb/sources/text with filename='/tmp/r002-probe-marker.txt' is accepted or refused, never escaped -- HTTP 201
 [PASS]   and the name it reports is the sanitised one -- reported 'r002-probe-marker.txt'
 [PASS] no probe file was written outside a per-user upload directory -- 0 escaped
-        (removed the probe file /data/qcuser/9.NexusQC/NexusQC-dev-repo/data/uploads/48039b8c-7433-4ede-b9cb-d1d0b45e0a6a/r002-probe-marker.txt)
+        (removed the probe file <repo>/data/uploads/48039b8c-7433-4ede-b9cb-d1d0b45e0a6a/r002-probe-marker.txt)
 
 3. R-005's other two instances: the orbital cube route
 [PASS] spin is allowlisted, like gbw beside it in the same key

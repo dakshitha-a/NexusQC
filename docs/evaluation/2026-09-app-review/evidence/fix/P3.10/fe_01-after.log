@@ -1,0 +1,35 @@
+R-095: every raw fetch reports 401 and maintenance the way request() does
+
+[PASS] there is one shared checker
+[PASS] it calls the auth handler
+[PASS] and the maintenance handler
+[PASS] every other raw fetch is routed through it
+
+R-068: a multi-frame viewer says so when the artifact will not load
+[PASS] ScanFrameViewer keeps a load error
+[PASS] ScanFrameViewer renders it instead of a permanent 'Loading'
+[PASS] GeometrySetViewer keeps a load error
+[PASS] GeometrySetViewer renders it instead of a permanent 'Loading'
+[PASS] EnsembleFrameViewer keeps a load error
+[PASS] EnsembleFrameViewer renders it instead of a permanent 'Loading'
+[PASS] NebFrameViewer keeps a load error
+[PASS] NebFrameViewer renders it instead of a permanent 'Loading'
+
+R-069: the composer does not follow the user between conversations
+[PASS] the composer is keyed on the conversation
+
+R-027: the drawer can tell whether the open stream covers this job
+[PASS] useJobQuery compares the job's thread with the active one
+[PASS] and the single-job route supplies it
+[PASS] while the polled list route strips it, so it costs that route nothing
+
+R-061: the welcome table is generated, not typed
+[PASS] it imports the generated rows
+[PASS] and no longer carries a hand-written table
+[PASS] the generated table is non-empty and shaped as the component expects -- 17 rows
+[PASS] and it is current with registry2
+
+R-094: main.tsx describes what queries.ts actually does
+[PASS] the comment no longer claims refetchInterval is never set
+
+21/21 checks passed in this script.

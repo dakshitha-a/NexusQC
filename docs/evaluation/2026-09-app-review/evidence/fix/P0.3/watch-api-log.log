@@ -1,0 +1,15 @@
+api-1  | INFO:     172.18.0.5:59886 - "POST /api/admin/deploy HTTP/1.1" 503 Service Unavailable
+api-1  | INFO:     172.18.0.5:52500 - "POST /api/admin/deploy HTTP/1.1" 503 Service Unavailable
+api-1  | INFO:     172.18.0.5:51636 - "POST /api/admin/deploy HTTP/1.1" 503 Service Unavailable
+grep: (standard input): binary file matches
+api-1  | INFO:     172.18.0.5:44744 - "POST /api/admin/deploy HTTP/1.1" 503 Service Unavailable
+api-1  | ERROR:    job_watcher: the agent turn for a finished job failed (1 occurrence(s)); the watcher is still running: OpenAIConnectionError: Connection error.
+api-1  | Traceback (most recent call last):
+api-1  | Traceback (most recent call last):
+api-1  | Traceback (most recent call last):
+api-1  | Traceback (most recent call last):
+grep: (standard input): binary file matches
+api-1  | INFO:     172.18.0.5:57662 - "PATCH /api/admin/bug-reports/not-a-uuid HTTP/1.1" 500 Internal Server Error
+api-1  | ERROR:    Exception in ASGI application
+api-1  | Traceback (most recent call last):
+grep: (standard input): binary file matches

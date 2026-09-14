@@ -1,0 +1,49 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+job badspec: dispatch failed, admission slot released
+Traceback (most recent call last):
+  File "<repo>/app/chemistry/jobs/base.py", line 1093, in _on_admit
+    spec = JobSpec(**spec_dict)
+           ^^^^^^^^^^^^^^^^^^^^
+TypeError: JobSpec.__init__() got an unexpected keyword argument 'unexpected_key'
+R-011: the job timeout is a setting, and it is off
+
+1. the setting
+[PASS] app/config.py has a job-timeout setting at all
+[PASS] QC_AGENT_JOB_TIMEOUT_HOURS defaults to disabled -- hours=0.0, seconds=None
+[PASS] 2 h -> 7200.0 -- 7200.0
+[PASS] 0.5 h -> 1800.0 -- 1800.0
+[PASS] 0 h -> None -- None
+[PASS] -1 h -> None -- None
+
+2. no six-hour literal survives anywhere that runs a job
+[PASS] no hard-coded six-hour timeout anywhere that runs a job
+[PASS] app/chemistry/jobs/base.py takes its timeout from the setting (1 site(s)) -- 1 site(s)
+[PASS] app/chemistry/jobs/orca_runner.py takes its timeout from the setting (2 site(s)) -- 2 site(s)
+[PASS] app/chemistry/jobs/bagel_runner.py takes its timeout from the setting (1 site(s)) -- 1 site(s)
+
+3. R-012: giving up waiting is not the process exiting
+[PASS] the orphan watcher polls in a loop rather than waiting once
+[PASS] and a TimeoutExpired continues rather than falling through
+[PASS] the poll interval is short enough to finalise promptly -- 30.0s
+
+4. R-072: a spec that will not load releases its slot and says so
+[PASS] _on_admit handles a spec it cannot load -- no exception
+[PASS] the admission slot is handed back -- released=['badspec']
+[PASS] the job reaches a terminal status instead of sitting at pending -- status='failed'
+[PASS] and says what to do about it -- This job could not be started: its spec.json could not be read as a jo...
+[PASS] a vanished job directory still releases its slot -- ['no-such-job']
+[PASS] and the dispatcher logs a failed tick rather than passing silently
+
+5. R-056: a queued job is not a lost job
+[PASS] update.sh counts running and pending separately
+[PASS] update.sh no longer says pending jobs will be killed
+[PASS] update.sh says queued jobs are re-queued
+[PASS] check_destructive.sh reports only running jobs as destroyed
+[PASS] and tells the operator queued jobs are safe
+
+6. the setting is documented where an operator would look
+[PASS] README.md mentions it
+[PASS] docs/CONFIGURATION.md mentions it
+[PASS] .env.example mentions it
+
+27/27 checks passed in this script.

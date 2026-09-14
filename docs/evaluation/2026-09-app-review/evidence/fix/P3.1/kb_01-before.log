@@ -1,0 +1,27 @@
+R-006: identity before the fetch
+
+[FAIL] the caller is resolved before robots.txt is fetched -- owner at 751, robots at 301; the app fetches a URL of the caller's choosing before it knows who they are
+[FAIL] and before the page itself is fetched -- owner at 751, fetch at 636
+[FAIL] current_user_or_none is called, so an unauthenticated caller 401s first
+
+R-047: a source that cannot be kept is refused, not accepted and deleted
+[FAIL] there is an up-front single-item check
+[FAIL] add_source refuses an oversized source before writing it
+[FAIL] add_source reports a source the quota pass then removed -- a 201 naming an id that 404s on the next request is the worst of the three outcomes
+[FAIL] add_text_source refuses an oversized source before writing it
+[FAIL] add_text_source reports a source the quota pass then removed -- a 201 naming an id that 404s on the next request is the worst of the three outcomes
+[FAIL] add_url_source refuses an oversized source before writing it
+[FAIL] add_url_source reports a source the quota pass then removed -- a 201 naming an id that 404s on the next request is the worst of the three outcomes
+[FAIL] and POST /api/uploads does both too
+
+R-048: a failed ingest leaves nothing on disk
+[FAIL] add_source unlinks the file when ingestion raises -- the bytes stay on disk, counted by no quota, listed by no route, reclaimed by no eviction
+[FAIL] add_text_source unlinks the file when ingestion raises -- the bytes stay on disk, counted by no quota, listed by no route, reclaimed by no eviction
+[FAIL] add_url_source unlinks the file when ingestion raises -- the bytes stay on disk, counted by no quota, listed by no route, reclaimed by no eviction
+
+R-049: an admin can preview a per-user file
+[FAIL] the admin branch searches each per-user directory -- it searches UPLOADS_DIR itself, and an owned upload is one level deeper
+[PASS] a user can add a text source -- HTTP 201
+[FAIL] and an admin can read it back -- HTTP 404; HTTP 404: the admin lists every user's sources and can preview none of them
+
+1/17 checks passed in this script.

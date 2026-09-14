@@ -1,0 +1,34 @@
+perf_05_admission_cap_arithmetic.py :: 18/18 checks passed
+perf_06_lockfree_reads.py :: 4/4 checks passed
+=== perf_05_restart_queue.py
+(job1, which really was running when the container died, reconciled as: {'status': 'completed', 'message': 'done', 'updated_at': 1789315701.5839195})
+
+6/6 checks passed in this script.
+=== perf_06_admission_release_wiring.py
+[PASS] and its Future is recorded -- ['fictional-job-0000']
+
+7/7 checks passed in this script.
+=== cancel_01_notice_flow.py
+  [PASS] polling again does not notify twice
+
+11/11 checks passed
+=== deploy_01_rollback_target.py
+[PASS] a first-ever update that failed rolls back to the pre-install commit -- aaa
+
+6/6 checks passed in this script.
+=== deploy_02_deployed_commit.py
+[PASS] a stack compose cannot answer for falls back to the documented default -- https://127.0.0.1:8443
+
+14/14 checks passed in this script.
+=== deploy_03_failure_advice.py
+[PASS] a rebuild-only update writes nothing, since it would name one commit twice -- []
+
+11/11 checks passed in this script.
+=== deploy_04_deployment_activity.py
+[PASS] and the deployment reads as idle again once it is gone -- totals={'running_jobs': 0, 'pending_jobs': 0, 'open_streams': 0, 'users_interrupted': 0, 'others_interrupted': 0}
+
+24/24 checks passed in this script.
+=== deploy_06_deploy_requests.py
+[PASS] the deploy request was written to the audit log -- 4 deploy_* entries; looking for target=1b576b8e3bc4
+
+10/10 checks passed in this script.

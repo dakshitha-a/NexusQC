@@ -1,0 +1,13 @@
+R-003: a job id in a chat request is checked like a job id anywhere else
+
+1. the routes ask, in the source
+[PASS] post_message calls _require_attachments
+[PASS] troubleshoot_job calls _require_attachments
+[PASS] _require_attachments checks jobs
+[PASS] and plots, which ride in on the same request
+[PASS] and 404s an id that names no job at all
+
+2. the boundary, live
+[SKIP] the live probe -- job d4d136b4be5e is readable by any user through the ordinary job route too, so it is unowned and proves nothing here
+
+5/5 checks passed in this script. (1 skipped)

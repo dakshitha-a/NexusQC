@@ -1,0 +1,28 @@
+job already-running was submitted again while still running; returning the existing job rather than starting a second worker on the same directory
+R-013: the card is built from a verdict the resume can reproduce
+
+[PASS] the chained path re-validates with check_external=False
+
+R-017: a panel action refuses rather than voiding a card
+[PASS] there is a dedicated exception for it
+[PASS] every molecule-panel writer and the file attach are guarded -- ['clear_molecule', 'remove_frame', 'set_active_frame', 'add_built_frame', 'add_geometry_frames', 'append_attached_file']
+[PASS] and the route layer turns that refusal into a 409, not a 500
+
+R-038: posting a message over an open card is refused
+[PASS] post_message checks for a pending approval
+[PASS] and answers 409, mirroring approve_job's own refusal
+
+R-034: the tool text matches whether the app will speak
+[PASS] there is a helper that asks
+[PASS] the submission branch has both wordings
+[PASS] and the mixed-batch wording tells the model to say it itself
+[PASS] while the id stays greppable in both, as e2e_12 requires
+[PASS] a lone call means the app confirms
+[PASS] a mixed batch means the model has to
+
+R-018: one job id, one worker
+[PASS] submit refuses to start a second worker on a non-terminal job
+[PASS] the second submit returns the same id -- already-running
+[PASS] and enqueues nothing -- []
+
+15/15 checks passed in this script.

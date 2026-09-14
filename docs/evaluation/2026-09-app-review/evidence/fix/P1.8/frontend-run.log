@@ -1,3 +1,4 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
 
 ======================================================================
   cas_14_refinement_drawer.spec.mjs
@@ -223,7 +224,7 @@ locator.textContent: Timeout 30000ms exceeded.
 Call log:
 [2m  - waiting for locator('button:has-text("Purge"), button:has-text("purge")').first()[22m
 
-    at main (/data/qcuser/9.NexusQC/NexusQC-dev-repo/tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs:45:41) {
+    at main (<repo>/tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs:45:41) {
   log: [
     `  - waiting for locator('button:has-text("Purge"), button:has-text("purge")').first()`
   ],
@@ -534,7 +535,7 @@ seeded: {"thread_id":"98ab9852634741eca2efd600b3df9f77","constr_job_id":"211b6ea
 Call log:
 [2m  - waiting for locator('div.mb-4:has([data-testid="drawer-download-geometry"])').locator('button:has-text("coordinates")')[22m
 
-    at main (/data/qcuser/9.NexusQC/NexusQC-dev-repo/tests/frontend/opt_02_optimization_drawer.spec.mjs:223:63)
+    at main (<repo>/tests/frontend/opt_02_optimization_drawer.spec.mjs:223:63)
   page text was:
 NexusQC
 New here? Read the two-minute tutorial to see what NexusQC can do.

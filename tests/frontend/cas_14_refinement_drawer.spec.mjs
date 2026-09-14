@@ -51,6 +51,23 @@ function execApi(code) {
   }).trim();
 }
 
+/**
+ * Resolves once the job detail drawer has actually painted its job, not merely
+ * once the dialog element exists. See R-099: the two are seconds apart on a
+ * loaded host, and treating them as one event makes every assertion that
+ * follows a race against a fetch.
+ */
+async function drawerLoaded(page, timeout = 30000) {
+  await page.waitForFunction(
+    () => {
+      const d = document.querySelector('[role="dialog"]');
+      return !!d && !/^\s*Loading\.\.\./.test(d.textContent || "");
+    },
+    undefined,
+    { timeout },
+  );
+}
+
 async function main() {
   const browser = await newBrowser();
   const adminCtx = await newContext(browser);
@@ -169,6 +186,20 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
       console.log(`drawer did not open. Visible text was:\n${body}`);
       throw e;
     }
+    // R-099. The dialog element is NOT the same event as the job data
+    // arriving. JobDetailDrawer renders Dialog.Content unconditionally and
+    // puts "Loading..." inside it until useJobQuery resolves, so
+    // waitForSelector('[role="dialog"]') returns while the drawer is still
+    // empty. Every assertion below then raced a fetch.
+    //
+    // That is what the 2026-09 review recorded as an app defect: it saw the
+    // first four content checks fail and everything checked later pass, which
+    // is exactly the shape of a drawer that filled in partway through the
+    // assertions rather than one missing a summary key. Waiting for the
+    // loading state to clear is the fix, and `drawerLoaded` below is used
+    // everywhere this spec opens a drawer so the same race cannot come back
+    // one assertion at a time.
+    await drawerLoaded(page);
 
     console.log("\n== the three sections that had no rendering at all ==");
     check("the refined space is stated, with what it came from",
@@ -213,6 +244,60 @@ print(json.dumps({"thread_id": thread_id, "rec_id": rec_id, "ref_id": ref_id,
     const realErrors = consoleErrors.filter((e) => !/status of 401/.test(e));
     check("no console errors while rendering the drawer",
       realErrors.length === 0, realErrors.slice(0, 3).join(" | "));
+
+    console.log("\n== R-099: the loading state is not missing data ==");
+    // The positive control for the wait added above. Everything so far shows
+    // the drawer renders correctly when the fetch is quick; none of it shows
+    // that the review's reading, four content checks failing while everything
+    // later passed, is what a slow fetch produces. This delays the drawer's
+    // own job request by three seconds and measures both moments: what an
+    // assertion fired the instant the dialog appears would have seen, and what
+    // is there once the drawer has painted.
+    //
+    // Nothing about the app is changed here. Only the arrival time of a
+    // response the app was always waiting for.
+    const slowPage = await ctx.newPage();
+    await slowPage.route(`**/api/jobs/${seeded.refine}`, async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await slowPage.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+    await slowPage.waitForSelector(`text=${THREAD_LABEL}`, { timeout: 30000 });
+    await slowPage.click(`text=${THREAD_LABEL}`);
+    await slowPage.waitForSelector(`text=${seeded.refine}`, { timeout: 30000 });
+    const slowRow = slowPage.locator(`text=${seeded.refine}`).last();
+    await slowRow.scrollIntoViewIfNeeded();
+    await slowRow.click();
+    await slowPage.waitForSelector('[role="dialog"]', { timeout: 30000 });
+
+    const atDialog = {
+      refined: await slowPage.isVisible('[role="dialog"] >> text=Refined against a CASSCF'),
+      table: await slowPage.locator('[data-testid="cas-refine-orbitals"]').count(),
+      rotations: await slowPage.locator('[data-testid="cas-refine-rotations"]').count(),
+    };
+    console.log(`   the instant [role="dialog"] appears: refined-space=${atDialog.refined}, ` +
+      `occupation tables=${atDialog.table}, rotation tables=${atDialog.rotations}`);
+    check(
+      "with the job request held for three seconds, the dialog element exists while the drawer " +
+      "is still empty, which is the whole of R-099: an assertion fired here reads a loading " +
+      "drawer as an app that published no data",
+      atDialog.table === 0 && atDialog.rotations === 0 && !atDialog.refined,
+      JSON.stringify(atDialog),
+    );
+
+    await drawerLoaded(slowPage);
+    const afterLoad = {
+      refined: await slowPage.isVisible('[role="dialog"] >> text=Refined against a CASSCF'),
+      rows: await slowPage.locator('[data-testid="cas-refine-orbitals"] tbody tr').count(),
+    };
+    console.log(`   after waiting for the drawer to paint: refined-space=${afterLoad.refined}, ` +
+      `occupation rows=${afterLoad.rows}`);
+    check(
+      "and waiting for the drawer to paint finds the same content as before, so the data was " +
+      "never missing, only late",
+      afterLoad.refined && afterLoad.rows > 0,
+      JSON.stringify(afterLoad),
+    );
   } finally {
     console.log("\n== clean up everything this spec created ==");
     const ids = [seeded.rec, seeded.refine].filter(Boolean);

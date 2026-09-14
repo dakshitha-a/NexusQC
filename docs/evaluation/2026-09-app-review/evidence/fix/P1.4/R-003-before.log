@@ -1,0 +1,16 @@
+R-003: a job id in a chat request is checked like a job id anywhere else
+
+1. the routes ask, in the source
+[PASS] post_message calls _require_attachments
+[PASS] troubleshoot_job calls _require_attachments
+[PASS] _require_attachments checks jobs
+[PASS] and plots, which ride in on the same request
+[PASS] and 404s an id that names no job at all
+
+2. the boundary, live
+[FAIL] attaching another user's job to your own thread is refused -- HTTP 202; HTTP 202: the turn was accepted
+[FAIL] and no part of it reached the caller's conversation -- the job's context is in the thread (5305 chars of state)
+[FAIL] troubleshooting another user's job is refused -- HTTP 409; HTTP 409: 409 would mean the job was read and found not to have failed, which is already a read
+[FAIL] a job id that names nothing is a 404, not a silent no-op -- HTTP 202
+
+5/9 checks passed in this script.

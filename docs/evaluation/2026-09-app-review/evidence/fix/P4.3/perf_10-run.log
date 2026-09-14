@@ -1,0 +1,31 @@
+# host at start:  20:50:56 up 294 days, 21:45,  5 users,  load average: 135.05, 137.96, 139.08
+restarting the api so the measurement starts from a known floor
+R0 at rest after restart:      333.9 MB, 142 threads, 15 open fds
+   seeded 6a21d2176adf for the cube renders
+   load L1: 50 state polls, 5 turns, 5 submissions, 20 cube renders in 354s
+   RSS after L1: 524.6 MB (+190.7 MB), 1173 threads, 32 open fds
+   idling 300s with nothing driving the process
+   RSS after 300s idle: 550.9 MB (+26.3 MB), 912 threads, 30 open fds
+   load L2: 50 state polls, 5 turns, 5 submissions, 20 cube renders in 361s
+   RSS after L2: 568.3 MB (+17.4 MB), 664 threads, 32 open fds
+   load L3: 50 state polls, 5 turns, 5 submissions, 20 cube renders in 638s
+   RSS after L3: 610.6 MB (+42.3 MB), 663 threads, 32 open fds
+   load L4: 50 state polls, 5 turns, 5 submissions, 20 cube renders in 171s
+   RSS after L4: 620.5 MB (+9.9 MB), 664 threads, 31 open fds
+
+RESULT R-103
+  R0                         333.9 MB   142 threads   15 fds
+  after L1                   524.6 MB  1173 threads   32 fds
+  after 300s idle            550.9 MB   912 threads   30 fds
+  after L2                   568.3 MB   664 threads   32 fds
+  after L3                   610.6 MB   663 threads   32 fds
+  after L4                   620.5 MB   664 threads   31 fds
+  cost of each load, in MB of RSS: L1 +190.7, L2 +17.4, L3 +42.3, L4 +9.9
+  returned unprompted during the 300s idle: +26.3 MB
+  verdict: WARM CACHE: the loads cost 190.7, 17.4, 42.3, 9.9 MB in order, so the last cost 9.9 MB against the first load's 190.7 MB, under the 62.9 MB threshold. The same work costs less each time, which is a working set filling rather than memory being lost
+[PASS] the same load costs less each time rather than the same again (loads cost 190.7, 17.4, 42.3, 9.9 MB; the last must be under 62.9 MB, a third of the first) -- WARM CACHE: the loads cost 190.7, 17.4, 42.3, 9.9 MB in order, so the last cost 9.9 MB against the first load's 190.7 MB, under the 62.9 MB threshold. The same work costs less each time, which is a working set filling rather than memory being lost
+[PASS] the thread count is not still climbing by the last load, so nothing leaks threads load on load -- after 300s idle 912 -> last 664
+[PASS] open file descriptors are stable across the whole series -- 15 -> 31
+   cleanup: 21 jobs {200: 21}, 24 threads {200: 24}
+
+3/3 checks passed in this script.

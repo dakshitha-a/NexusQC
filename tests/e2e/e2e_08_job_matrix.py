@@ -249,13 +249,30 @@ def run_cell(user, cell, admin) -> None:
     t0 = time.perf_counter()
 
     if task == "neb_ts":
+        # Ammonia inversion, and the end point has to be the OTHER pyramid.
+        #
+        # This cell reported `RuntimeError: ORCA exited with code 2` through
+        # the whole 2026-09 review and was carried into the fix phase as an
+        # ENV-versus-CODE question. It was neither. The end point used to have
+        # the nitrogen at the origin with all three hydrogens at z = -0.290,
+        # which puts the nitrogen on the SAME side of the H3 plane as the start
+        # geometry does. The two endpoints were therefore the same pyramid
+        # written twice, the pre-optimisation relaxed both to the same minimum
+        # at -55.45542 Eh, and ORCA said so in as many words: "No barrier was
+        # found. Skipping NEB-TS run here." A NEB with no barrier between its
+        # endpoints has nothing to find.
+        #
+        # Inverting the sign of z on the hydrogens puts the nitrogen below
+        # their plane instead, which is the umbrella flipped over, and the path
+        # between the two runs through the planar D3h transition state that
+        # ammonia inversion is the textbook example of.
         s.say("Set the molecule to ammonia.", timeout=300)
         s.say("Now set the scan/NEB end point to this geometry:\n"
               "4\n\n"
               "N  0.000  0.000  0.000\n"
-              "H  0.000  0.939 -0.290\n"
-              "H  0.813 -0.470 -0.290\n"
-              "H -0.813 -0.470 -0.290\n", timeout=300)
+              "H  0.000  0.939  0.290\n"
+              "H  0.813 -0.470  0.290\n"
+              "H -0.813 -0.470  0.290\n", timeout=300)
         text = ("Run a NEB-TS transition state search using ORCA at the "
                 "Hartree-Fock level with the STO-3G basis, 6 images, with "
                 "endpoint pre-optimization turned on. Go ahead and submit it.")

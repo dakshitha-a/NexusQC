@@ -1,0 +1,28 @@
+R-006: identity before the fetch
+
+[PASS] the caller is resolved before robots.txt is fetched -- owner at 257, robots at 368
+[PASS] and before the page itself is fetched -- owner at 257, fetch at 703
+[PASS] current_user_or_none is called, so an unauthenticated caller 401s first
+
+R-047: a source that cannot be kept is refused, not accepted and deleted
+[PASS] there is an up-front single-item check
+[PASS] add_source refuses an oversized source before writing it
+[PASS] add_source reports a source the quota pass then removed
+[PASS] add_text_source refuses an oversized source before writing it
+[PASS] add_text_source reports a source the quota pass then removed
+[PASS] add_url_source refuses an oversized source before writing it
+[PASS] add_url_source reports a source the quota pass then removed
+[PASS] and POST /api/uploads does both too
+
+R-048: a failed ingest leaves nothing on disk
+[PASS] add_source unlinks the file when ingestion raises
+[PASS] add_text_source unlinks the file when ingestion raises
+[PASS] add_url_source unlinks the file when ingestion raises
+
+R-049: an admin can preview a per-user file
+[PASS] the admin branch searches each per-user directory
+[PASS] a user can add a text source -- HTTP 201
+[PASS] and an admin can read it back -- HTTP 200
+[PASS] with the content the user wrote -- KB01 marker text.
+
+18/18 checks passed in this script.

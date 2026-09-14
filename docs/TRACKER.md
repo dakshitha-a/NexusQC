@@ -168,14 +168,14 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 
 ## Phase 4: Settle, then fix
 
-- [todo] P4.1: R-098 - scheduler fairness, instrumented and classified
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.1
-- [todo] P4.2: R-099 - the refinement drawer's empty occupation table
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.2
-- [todo] P4.3: R-103 - api memory, a leak or a warm cache
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.3
-- [todo] P4.4: e2e_13 and M23 - ORCA under load, ENV or CODE
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.4
+- [done] P4.1: R-098 - scheduler fairness, instrumented and classified
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.1 → "both causes: perf_09's control reproduces the review's A,A,B order from a late enqueue, and its run 3 caught a real one, an owner queued during the tick's one-second CPU sample losing its turn; sched_01 4/6 before the fix and 6/6 after"
+- [done] P4.2: R-099 - the refinement drawer's empty occupation table
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.2 → "cas_14 17/17 on the repro as written; the dialog element appears before the job is fetched, and a control that holds the fetch for three seconds reproduces the review's exact four failures. 19/19 with the wait. A two-state variation also found the refinement willing to publish CAS(2,1), which holds one determinant; a two-orbital floor and cas_15 close that"
+- [done] P4.3: R-103 - api memory, a leak or a warm cache
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.3 → "four identical loads cost 190.7, 17.4, 42.3 and 9.9 MB of RSS in order, so it is a working set filling and not a leak; the 658 threads the review could not explain are two Chroma tokio runtimes sized to this host's 255 cores"
+- [done] P4.4: e2e_13 and M23 - ORCA under load, ENV or CODE
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P4.4 → "both HARNESS, reproduced identically on an idle stack: M23's two NEB endpoints were the same pyramid so ORCA found no barrier, 4/5 before and 6/6 after; e2e_13's probe carried no task and died at dispatch, 4/10 before, 7/10 with the task, 10/10 once the cap transient is captured as it happens. ORCA's own reason for an exit now reaches the user"
 - merged:
 
 ## Phase 5: The remaining S3 and S4 findings

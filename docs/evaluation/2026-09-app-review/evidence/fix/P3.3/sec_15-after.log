@@ -1,0 +1,28 @@
+redis unreachable while checking the active session; treating the session as superseded (the caller sees a 401)
+redis unreachable while clearing the active session
+R-007: the maintenance check never blocks the caller
+
+[PASS] _maintenance_mode does no database work of its own
+[PASS] the refresh is a separate function, run off the loop
+[PASS] a cold cache answers immediately even when the database is slow -- 0.2 ms
+[PASS] and the refresh does land, so the answer is not stale for ever
+
+R-032 and R-050: the Redis client
+[PASS] the client is built with a socket timeout
+[PASS] and a connect timeout
+[PASS] the timeout is short, because Redis is a local container answering a GET -- 2.0s
+[PASS] an unreachable Redis answers 'not the active session' rather than raising -- returned False
+[PASS] and logging out does not raise either -- no exception
+
+R-033: an SSE stream costs no threadpool token
+[PASS] there is an async generator for the route to use
+[PASS] the route hands back the async one
+[PASS] and the handler is still a plain def, per CLAUDE.md's absolute rule
+[PASS] the async stream yields its opening comment and then a real event -- [': connected\n\n', 'event: turn_complete\ndata: {"t']
+
+R-097: the Stop button is disarmed only by its own turn
+[PASS] _pop_cancel_event takes the event it is removing
+[PASS] a finished turn does not deregister the turn that replaced it
+[PASS] and its own turn does deregister it
+
+16/16 checks passed in this script.

@@ -1,0 +1,29 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+R-013: the card is built from a verdict the resume can reproduce
+
+[FAIL] the chained path re-validates with check_external=False -- the resume re-runs this validation with the external checks on, so a source job that disappeared makes the approval evaporate on click
+
+R-017: a panel action refuses rather than voiding a card
+[FAIL] there is a dedicated exception for it
+[FAIL] every molecule-panel writer and the file attach are guarded -- []; only [] are guarded; the rest silently discard a pending approval
+        (server.main could not be imported: ImportError: cannot import name 'ApprovalCardOpen' from 'app.agent.graph' (<repo>/app/agent/graph.py))
+[FAIL] and the route layer turns that refusal into a 409, not a 500 -- nothing maps it, so a guarded panel action would be a 500
+
+R-038: posting a message over an open card is refused
+[FAIL] post_message checks for a pending approval -- invoking the graph with new input discards the interrupt, so the user's later Approve is a silent no-op
+[FAIL] and answers 409, mirroring approve_job's own refusal
+
+R-034: the tool text matches whether the app will speak
+[FAIL] there is a helper that asks
+[FAIL] the submission branch has both wordings -- one branch still claims the user has been shown a confirmation regardless of whether the app's node will run
+[FAIL] and the mixed-batch wording tells the model to say it itself
+[PASS] while the id stays greppable in both, as e2e_12 requires
+[FAIL] a lone call means the app confirms -- there is no such helper, so the wording cannot depend on the answer
+[FAIL] a mixed batch means the model has to
+
+R-018: one job id, one worker
+[FAIL] submit refuses to start a second worker on a non-terminal job -- an approval card carries the job id, so a second approval of the same card enqueues the same directory twice
+[PASS] the second submit returns the same id -- already-running
+[FAIL] and enqueues nothing -- ['already-running']; two workers would run in one job directory, each overwriting the other's status and result
+
+2/15 checks passed in this script.

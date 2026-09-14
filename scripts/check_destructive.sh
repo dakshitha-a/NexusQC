@@ -300,10 +300,18 @@ if changed_any '^(Dockerfile|requirements\.txt)$'; then
         "$(printf '%s\n' "$CHANGED" | grep -E '^(Dockerfile|requirements\.txt)$' | sed 's/^/  /')"
     )
     [ -n "$DEP_LINES" ] && REBUILD_DETAIL+=("$DEP_LINES")
-    warn "the api image must be rebuilt (Dockerfile or requirements.txt changed)" \
+    warn "the api image rebuild will be a SLOW one (Dockerfile or requirements.txt changed)" \
          "${REBUILD_DETAIL[@]}"
 else
-    ok "no image rebuild needed"
+    # Not "no rebuild needed": update.sh runs `docker compose build`
+    # unconditionally, and it has to, because the api image COPYs the source
+    # in and a Python change reaches the running deployment no other way. What
+    # this branch means is that the build will hit its layer cache and finish
+    # in seconds without reaching the network, which is the thing an operator
+    # deciding whether to update right now actually needs to know. Saying "no
+    # image rebuild needed" invited the opposite reading, that a code change
+    # could reach the deployment without one.
+    ok "the image rebuild will be a fast one (no Dockerfile or dependency change)"
 fi
 
 # 2. New REQUIRED compose variables. `${VAR:?}` aborts `compose up`, and it

@@ -1,0 +1,52 @@
+
+== a list route with no limit returns exactly what it always did ==
+[PASS] no limit returns the list itself, not a page object -- list
+[PASS] a limit returns a page object with the total
+[PASS] the page starts where the offset says
+[PASS] an offset past the end is an empty page, not an error
+[PASS] a limit past the ceiling is clamped rather than honoured -- ceiling=500
+[PASS] a negative offset is treated as the start
+
+== a conversation is windowed from its end, not its front ==
+[PASS] the window holds the LAST n messages -- [90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
+[PASS] the true total comes back with it -- 100
+[PASS] no limit returns everything and the real total
+
+== one shared index answers what five loops used to walk for ==
+  360 jobs on disk: cold build 34.04 ms, cached read 0.0014 ms
+[PASS] the index is a dict of job_id -> (task, parent, status)
+[PASS] a second read inside the TTL is served from the cache, not rebuilt
+[PASS] the cached read is at least ten times cheaper than the walk -- cold 34.039 ms vs cached 0.0014 ms
+[PASS] invalidating drops it, so the next read rebuilds
+
+== the orchestrators and the admission gate read that index ==
+[PASS] scan reads job_index() rather than walking JOBS_DIR
+[PASS] ensemble reads job_index() rather than walking JOBS_DIR
+[PASS] batch reads job_index() rather than walking JOBS_DIR
+[PASS] the admission gate reads job_index() rather than walking JOBS_DIR
+[PASS] write_status invalidates the index, so a change here is visible at once
+
+== the watcher stops re-reading jobs that can never change ==
+[PASS] a terminal, already-reported job is skipped before the status read
+
+== quota enforcement no longer runs on the watcher's own thread ==
+[PASS] the loop starts the pass rather than calling it inline
+[PASS] the pass runs on its own thread
+[PASS] a pass still running skips the next tick rather than stacking threads
+
+== a queued job's status is rewritten only when it changes ==
+[PASS] the no-headroom branch compares against the last message written
+[PASS] dequeue forgets the remembered message, so the cache cannot grow
+[PASS] _pop_if_head forgets the remembered message, so the cache cannot grow
+
+== a wave of sub-jobs runs one quota sweep, not one per child ==
+[PASS] submit() skips the sweep for a sub-job
+[PASS] the scan orchestrator runs it once for the wave, outside the dispatch lock
+[PASS] the ensemble orchestrator runs it once for the wave, outside the dispatch lock
+[PASS] the batch orchestrator runs it once for the wave, outside the dispatch lock
+
+== the live NEB path is read from the end of the file ==
+[PASS] it seeks rather than reading the whole trajectory
+[PASS] a window read is realigned to a frame boundary -- a mid-frame start would be handed to split_xyz_frames
+
+31/31 checks passed in this script.

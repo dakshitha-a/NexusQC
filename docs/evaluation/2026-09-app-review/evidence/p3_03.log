@@ -1,0 +1,26 @@
+START 2026-09-13T11:23:50Z
+EXIT 0 2026-09-13T11:44:11Z
+    [01] new-conversation  835 ms
+    [02] load-water  4108 ms
+    [03] underspecified-1  4743 ms
+    [04] underspecified-2  5810 ms
+    [05] underspecified-3  3877 ms
+    [06] underspecified-4  123479 ms
+    [07] reject-first-card  1548 ms
+    [08] complete-request  126228 ms
+    [09] reject-second-card  1552 ms
+    [10] misspelled-basis  124932 ms
+    [11] reject-misspelled  1545 ms
+    [12] misspelled-functional  125632 ms
+    [13] reject-misspelled-2  1551 ms
+    [14] lpdft-request  100966 ms
+    [15] reject-lpdft  1549 ms
+    [16] unsupported-pairing  11980 ms
+    [17] reject-if-any-3  4 ms
+    [18] registry-offers-runner-refuses  24957 ms
+     note: MP2 opt on PySCF: card present = false
+    [19] card-for-editing  129452 ms
+    [20] card-readability  120004 ms
+    [24] stale-card-state  120020 ms
+    [26] approve-and-time-confirmation  1588 ms
+    [27] job-completes  7 ms

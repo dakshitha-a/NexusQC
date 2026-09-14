@@ -1,0 +1,37 @@
+# e2e_13 with the probe given a task and subtype. host:  22:06:23 up 294 days, 23:01,  7 users,  load average: 11.25, 10.78, 14.71
+original max_concurrent_jobs_per_user = 1
+
+=== S1: per-user concurrency cap (slow ORCA CASSCF probe) ===
+
+    j1=2e6b9fbff707 completed | j2=5daeaa7fc624 running
+    j2 reason: ''
+[FAIL] S1a the second job was held pending while the first ran -- j1=completed j2=running
+[FAIL] S1b the pending reason names the PER-USER JOB SLOT cap, not generic CPU/memory headroom -- reason=''
+[PASS] S1c cancel() reached both jobs and drove them terminal -- completed / cancelled
+
+=== S2: the cap is PER USER, not global ===
+
+    userA job d03f54031080 -> completed
+    userB job e2aa4da2363f -> completed ('done')
+[FAIL] S2 a DIFFERENT user's job is not blocked by user A's per-user cap -- userB job is completed: 'done'
+
+=== S3: cancel actually kills the subprocess ===
+
+    job 86184e28a433 pid=4150 alive before/after cancel: True/False in 0.02s
+[PASS] S3a the worker subprocess was genuinely alive before cancel -- {'job': '86184e28a433', 'pid': 4150, 'alive_before': True, 'alive_after': False, 'cancel_seconds': 0.02, 'final': 'cancelled'}
+[PASS] S3b cancel() left no surviving worker process -- {'job': '86184e28a433', 'pid': 4150, 'alive_before': True, 'alive_after': False, 'cancel_seconds': 0.02, 'final': 'cancelled'}
+[PASS] S3c the job's status reached 'cancelled' -- final=cancelled
+
+=== S4: orphan reconciliation after an api restart ===
+
+    (the api is PID 1 of its container, so a restart also kills
+     the detached worker -- what is asserted is that the job is
+     CLASSIFIED, not that it survives)
+[PASS] S4a a job was left running on disk before the restart -- status=running
+    after restart, orphan 51078a40ff4d -> failed (the server restarted while this job was running and its outcome could not be recovered -- its worker)
+[PASS] S4b _reconcile_orphaned_jobs classified the orphan into a terminal state instead of leaving it stuck 'running' forever -- status=failed message=the server restarted while this job was running and its outcome could not be recovered -- its worker process is no longer alive and left no result
+[PASS] S4c the reconciliation explains itself in the job's message -- the server restarted while this job was running and its outcome could not be recovered -- its worker process is no longer alive and left no result
+
+restored max_concurrent_jobs_per_user = 1
+
+7/10 checks passed in this script.

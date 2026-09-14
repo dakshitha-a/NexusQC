@@ -1,0 +1,57 @@
+[16:54:35] SMILES Parse Error: syntax error while parsing: water
+[16:54:35] SMILES Parse Error: check for mistakes around position 1:
+[16:54:35] water
+[16:54:35] ^
+[16:54:35] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+Possible xc_code ['MGGA_XC_ZLP', 'LDA_XC_ZLP'] matches ZLP. XC parser takes MGGA_XC_ZLP
+You can add prefix to ZLP for a specific functional (e.g. GGA_X_ZLP, HYB_MGGA_X_ZLP)
+
+== a draft is built one answered question at a time ==
+  [PASS] the first reply asks for the basis set
+  [PASS] and names the exact key to write next
+  [PASS] the free-text task was resolved, and said so
+  [PASS] the draft is in state, not in the transcript
+  [PASS] answering it produces a ready draft
+  [PASS] the ready draft names the engine and why
+  [PASS] routing's choice is not reported as the user's request
+  [PASS] defaults that were applied are stated, not hidden
+  [PASS] the user's engine field stays empty when they named none
+  [PASS] a ready draft carries the engine input, so it can be shown without running
+  [PASS] and names submit_draft as the next step, not as an option
+  [PASS] while making clear the job has not started
+  [FAIL] a complete draft raises the approval card by itself
+         0 interrupt(s); a draft that is ready and does not pause means reaching the card still depends on the model choosing to call submit_draft
+
+== updating or submitting without a draft says so ==
+  [PASS] update_job_draft with no draft in progress explains itself
+  [PASS] submit_draft with no draft explains itself
+
+== a geometry is never absorbed as a job parameter ==
+  [PASS] with no molecule set, the draft asks for one
+  [PASS] and points at set_geometry, not at update_job_draft
+  [PASS] writing a molecule into the draft is refused, not absorbed
+  [PASS] and the parameter that came with it is not silently kept either
+
+== a complete draft reaches the approval gate ==
+  [FAIL] the graph is paused on a job_approval interrupt
+         payload=None
+
+== the approval verdict cannot change between render and click ==
+  [PASS] with the external check on, a vanished source job is caught
+  [PASS] with it off -- as at submission -- the same draft is ready
+  [PASS] so the verdict cannot flip between rendering the card and the click
+
+== an impossible combination is explained, not rerouted ==
+  [PASS] it comes back as unavailable
+  [PASS] naming the reason
+  [PASS] and offering the engine that can
+  [PASS] nothing was silently rerouted
+
+== the consolidated plot tool dispatches and refuses cleanly ==
+  [PASS] an unknown kind is named, with the real ones listed
+  [PASS] a comparison with no field says which fields exist
+  [PASS] an ensemble plot with no job id says so
+  [PASS] a plot with no jobs at all does not fabricate one
+
+29/31 checks passed
+[FAIL] 2 check(s) failed

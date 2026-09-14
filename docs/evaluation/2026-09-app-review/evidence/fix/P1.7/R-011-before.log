@@ -1,0 +1,37 @@
+R-011: the job timeout is a setting, and it is off
+
+1. the setting
+[FAIL] app/config.py has a job-timeout setting at all -- the six-hour cap is a literal in four files and overridable by nothing
+
+2. no six-hour literal survives anywhere that runs a job
+[FAIL] no hard-coded six-hour timeout anywhere that runs a job -- app/chemistry/jobs/bagel_runner.py:722; app/chemistry/jobs/base.py:1194; app/chemistry/jobs/base.py:1781; app/chemistry/jobs/orca_runner.py:778; app/chemistry/jobs/orca_runner.py:807
+[FAIL] app/chemistry/jobs/base.py takes its timeout from the setting (1 site(s)) -- 0 site(s)
+[FAIL] app/chemistry/jobs/orca_runner.py takes its timeout from the setting (2 site(s)) -- 0 site(s)
+[FAIL] app/chemistry/jobs/bagel_runner.py takes its timeout from the setting (1 site(s)) -- 0 site(s)
+
+3. R-012: giving up waiting is not the process exiting
+[FAIL] the orphan watcher polls in a loop rather than waiting once -- a single bounded wait still finalises a live job when it expires
+[FAIL] and a TimeoutExpired continues rather than falling through -- TimeoutExpired is still swallowed with every other exception
+[FAIL] the poll interval is short enough to finalise promptly -- Nones
+
+4. R-072: a spec that will not load releases its slot and says so
+[FAIL] _on_admit handles a spec it cannot load -- TypeError: JobSpec.__init__() got an unexpected keyword argument 'unexpected_key'
+[FAIL] the admission slot is handed back -- released=[]; the slot counts against the total and per-user caps for the life of the process
+[FAIL] the job reaches a terminal status instead of sitting at pending -- status='pending'; status='pending': a job stuck at pending with no explanation is the hardest state here to diagnose
+[FAIL] and says what to do about it -- None...
+[PASS] a vanished job directory still releases its slot -- ['no-such-job']
+[FAIL] and the dispatcher logs a failed tick rather than passing silently -- a bare pass here is what made the leaked slot invisible
+
+5. R-056: a queued job is not a lost job
+[FAIL] update.sh counts running and pending separately
+[FAIL] update.sh no longer says pending jobs will be killed
+[FAIL] update.sh says queued jobs are re-queued
+[FAIL] check_destructive.sh reports only running jobs as destroyed
+[FAIL] and tells the operator queued jobs are safe
+
+6. the setting is documented where an operator would look
+[FAIL] README.md mentions it
+[FAIL] docs/CONFIGURATION.md mentions it
+[FAIL] .env.example mentions it
+
+1/22 checks passed in this script.

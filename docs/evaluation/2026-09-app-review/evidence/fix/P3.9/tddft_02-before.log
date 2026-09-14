@@ -1,0 +1,21 @@
+R-030: ORCA intensities on an open shell
+
+[PASS] the real triplet output is committed -- orca_triplet_tddft_absorption.txt
+[PASS] the absorption section is found
+[FAIL] all three triplet rows are parsed -- []; 0 of 3 -- the row labels are 0-3A, and the pattern only ever matched 0-1A
+[FAIL] and the values are the ones ORCA printed -- []
+
+   and a singlet still parses, so this is not a widened pattern that stopped discriminating
+[PASS] a singlet section parses both rows -- ['0.012360000', '0.925430000']
+[FAIL] and a symmetry-labelled row parses too (0-1B1u, not just 0-1A)
+
+R-076: per-state subdirectories are swept
+[FAIL] the sweep reaches state_<n>/ and pair_<a>_<b>/ scratch -- ['input.tmp']; only the top level is swept, so one full scratch set survives per state
+[PASS] and still finds the top-level scratch -- ['input.tmp']
+[PASS] without listing output.out, which is never scratch
+
+R-078: a BAGEL vector list is complete or it is refused
+[PASS] a complete section parses to one vector per atom -- 3
+[FAIL] a gapped section is refused -- it returned a short list, which every consumer reads as atom k's vector belonging to atom k
+
+6/11 checks passed in this script.

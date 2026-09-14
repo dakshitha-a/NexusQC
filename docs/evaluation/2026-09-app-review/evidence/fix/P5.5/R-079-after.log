@@ -1,0 +1,17 @@
+
+== the same call, run serially, is byte-for-byte reproducible ==
+  loud style, 4 serial renders: ['3c25191b61b10fbf']
+  plain style, 4 serial renders: ['27474ef6ccfa2d23']
+[PASS] 4 serial renders of each style agree, so byte equality is a fair test -- loud=['3c25191b61b10fbf'] plain=['27474ef6ccfa2d23']
+
+== 8 renders at once, 3 rounds, must match those references ==
+  round 1: 8/8 matched their serial reference
+  round 2: 8/8 matched their serial reference
+  round 3: 8/8 matched their serial reference
+[PASS] all 24 concurrent renders match the style they asked for
+
+== and the lock is where the reason for it is written down ==
+[PASS] every pyplot render in spectrum.py is inside the lock (8 of them) -- 8 of 8 locked
+[PASS] every pyplot render in job_charts.py is inside the lock (5 of them) -- 5 of 5 locked
+
+4/4 checks passed in this script.

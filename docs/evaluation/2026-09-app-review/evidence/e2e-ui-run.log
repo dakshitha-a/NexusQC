@@ -1,0 +1,35 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+START 2026-09-13T10:00:28Z
+EXIT 1 2026-09-13T10:08:24Z
+
+=== ui_01_shell_and_chat.spec.mjs
+[FAIL] assistant reply streamed token-by-token (bubble grew in >1 step, not one buffered blob) -- observed lengths: 
+[FAIL] assistant produced visible text -- final length 0
+21/23 checks passed in this script.
+=== ui_02_approval_jobs_drawer.spec.mjs
+[FAIL] [hf] drawer correctly OMITS "Molecular orbitals" -- section rendered where it should be gated off
+[FAIL] [] job exposes "View raw input"
+[FAIL] [dft] drawer correctly OMITS "Optimization energy" -- section rendered where it should be gated off
+[FAIL] [casscf] job detail drawer opened -- 2 elements matched job id c817c51432b1
+38/42 checks passed in this script.
+=== ui_03_molecule_kb.spec.mjs
+[FAIL] KB search input present -- not found
+14/15 checks passed in this script.
+=== ui_04_admin_visual.spec.mjs
+[FAIL] section "overview" shows "Public web access"
+39/40 checks passed in this script.
+=== ui_05_viewer_controls.spec.mjs
+13/13 checks passed in this script.
+=== ui_06_bug_reports.spec.mjs
+    at async file://<repo>/tests/e2e/ui/ui_06_bug_reports.spec.mjs:32:1 {
+=== ui_07_frame_scrubber.spec.mjs
+11/11 checks passed in this script.
+=== ui_08_frame_stability.spec.mjs
+17/17 checks passed in this script.
+=== ui_09_orbital_and_mode_panels.spec.mjs
+[FAIL] the loading spinner clears once the cube arrives
+[FAIL] the isosurface actually renders -- 12930 b
+[FAIL] a whole scrubber drag costs at most one cube render -- 3 during the drag, 4 in total [2,3,4,5]
+21/24 checks passed in this script.
+SUMMARY: 3 spec(s) passed, 6 failed
+  failed: ui_01_shell_and_chat.spec.mjs, ui_02_approval_jobs_drawer.spec.mjs, ui_03_molecule_kb.spec.mjs, ui_04_admin_visual.spec.mjs, ui_06_bug_reports.spec.mjs, ui_09_orbital_and_mode_panels.spec.mjs

@@ -1,0 +1,31 @@
+active-space literature: the knowledge base backend raised: boom
+R-015: a backend that raises found nothing
+
+[PASS] a raising backend's answer reads as empty -- BACKEND UNAVAILABLE: the knowledge base search raised (boom)...
+[PASS] and a genuine 'nothing found' still reads as empty
+[PASS] while a real hit does not
+
+R-016: the configuration count knows about spin
+[PASS] CAS(4,4) at multiplicity 1 holds 36 configurations -- got 36, correct 36
+[PASS] CAS(6,6) at multiplicity 1 holds 400 configurations -- got 400, correct 400
+[PASS] CAS(5,5) at multiplicity 2 holds 100 configurations -- got 100, correct 100
+[PASS] CAS(7,6) at multiplicity 2 holds 300 configurations -- got 300, correct 300, the closed-shell formula gives 400
+[PASS] CAS(6,6) at multiplicity 3 holds 225 configurations -- got 225, correct 225, the closed-shell formula gives 400
+
+R-035: the active-space tool can be called the way the prompt says
+[PASS] active_space does not require a basis -- required=['n_excited_states']
+[PASS] search_active_space_literature does not require a basis -- required=['n_excited_states']
+
+R-084: the cas_reco notice branch tests the subtype
+[PASS] the second clause reads the subtype, not the task again
+[PASS] and the allow-list matches what the registry actually defines -- ['', 'refine'] vs ['', 'refine']
+
+R-086: a non-JSON 200 from the scholar API degrades
+[PASS] resp.json() is inside a try
+
+R-014, R-041, R-042: the troubleshooting message
+[PASS] every tool the message names is actually bound -- names ['search']
+[PASS] it describes the job by what it was, not by its level of theory
+[PASS] R-041: the architecture no longer claims a troubleshooting budget
+
+16/16 checks passed in this script.

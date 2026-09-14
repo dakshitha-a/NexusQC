@@ -1,0 +1,14 @@
+R-028: every routed cell has a builder that accepts it
+
+119 routed cell(s); 105 built, 14 refused, 0 skipped for a missing parameter
+
+[FAIL] every one of the 119 routed cells builds an input -- 105/119; \x0a        freq/- mp2 on orca: ValueError: Unsupported method 'mp2' for ORCA (use 'hf' or 'dft')\x0a        neb_ts/- mp2 on orca: ValueError: Unsupported method 'mp2' for ORCA (use 'hf' or 'dft')\x0a        neb_ts/- casscf on orca: ValueError: Unsupported method 'casscf' for ORCA (use 'hf' or 'dft'...
+
+A blind job previews as the text the user wrote:
+[FAIL] build_input_preview returns a blind job's own input -- KeyError: 'basis'
+
+And the two specific routings R-028 named:
+[FAIL] single_point/gs with eom_ccsd resolves to the eom_ccsd runner -- 'single_point' (None); it resolves to the plain single_point runner, which then rejects the method -- the eom_ccsd branch was gated on subtype == 'ee'
+[PASS] and so does single_point/ee -- 'eom_ccsd' (None)
+
+1/4 checks passed in this script.

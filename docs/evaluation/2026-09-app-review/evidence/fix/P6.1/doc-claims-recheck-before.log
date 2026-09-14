@@ -1,0 +1,42 @@
+== the fourteen claims the review falsified from code alone ==
+
+[PASS] update.sh --rollback really moves the checkout back
+        the rollback path uses a checkout rather than a fast-forward merge that is a no-op on a branch
+[PASS] the rebuilt image is stamped with the commit it was actually built from
+        update.sh stamps a commit label on the image it builds
+[PASS] DEPLOYMENT.md's bootstrap-admin command carries every required argument
+        documented: bootstrap-admin \
+  --email you@yourlab.edu --username admin \
+  --first-name Ada --last-name Lovelace
+[PASS] backup.sh --full archives every child of data/ except a named few
+        excluded: ['rag']; the old include list FULL_DATA_DIRS is gone
+[PASS] the bind-mount check reads the live mounts, not just whether the override file exists
+        check_destructive.sh reads LIVE_MOUNTS
+[PASS] the welcome screen's capability table is generated from the registry
+        frontend/src/chat/capabilityRows.json exists and is what the screen renders
+[PASS] the welcome screen no longer claims BAGEL runs potential-energy scans
+        engines_supporting('casscf','pes_1d') = ['orca', 'pyscf']; the table is generated from that same call
+[PASS] the welcome screen's committed table is what the registry generates today
+        regenerating produces the committed file byte for byte
+[PASS] DEPLOYMENT.md does not point at a docker-compose.dev.yml that is not in the repo
+        no reference to a file that does not exist
+[PASS] DEPLOYMENT.md's status table does not list the removed public listener or iptables switch
+        both rows are gone
+[PASS] nginx.conf does not point at toggle_public_access.sh as something that exists
+        named only in the sentence recording its removal
+[PASS] CONFIGURATION.md's parameter tables list nothing the registry has retired
+        retired parameters still in a table: none; 8 are retired in total
+[PASS] every registry parameter that has a default is in the table
+        14 of 41 parameters carry a default; missing from the table: none
+[PASS] and the table claims a default for nothing that has none
+        listed with a default but required in the registry: none
+[FAIL] CONFIGURATION.md lists the tasks and subtypes that exist, and no others
+        missing: ['batch', 'blind', 'cas_reco', 'cas_reco/refine', 'freq', 'geometry_set', 'interp_pes', 'interp_pes/ee', 'neb_ts', 'opt/ci', 'opt/constrained', 'opt/min', 'opt_freq', 'pes_1d', 'pes_1d/ee', 'single_point/ee', 'single_point/grad', 'single_point/gs', 'single_point/nac']; listed but not real: none
+[PASS] the help flyout does not offer AVAS, which was retired
+        named only to say it is no longer offered
+[PASS] README's "no size limit on a recommended active space" is no longer contradicted
+        README states it: True; CONFIGURATION.md still names max_active_orbitals: False
+
+16/17 of the code-falsifiable documentation claims now hold.
+Still wrong:
+  - CONFIGURATION.md lists the tasks and subtypes that exist, and no others

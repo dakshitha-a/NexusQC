@@ -1,0 +1,29 @@
+# R-099 variation: the cas_14 seeding with two states instead of one
+{
+  "n_states": 2,
+  "recommendation": {
+    "job_id": "737c23c1bde5",
+    "status": "completed"
+  },
+  "refinement": {
+    "job_id": "826f7204d6ab",
+    "status": "completed"
+  },
+  "the three keys the drawer's three sections are gated on": {
+    "quick_active_orbitals (gates the refined-space line)": 6,
+    "natural_occupations (gates the occupation table)": [
+      2.0
+    ],
+    "rotations (gates the rotation trail)": 1
+  },
+  "refined space, as published": [
+    2,
+    1
+  ],
+  "orbital_characters": [
+    "pi"
+  ],
+  "converged": true,
+  "stopped_because": "pruning would leave no correlated pair, so the space is left as it is"
+}
+deleted 737c23c1bde5 826f7204d6ab

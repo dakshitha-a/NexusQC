@@ -58,6 +58,28 @@ its own against the same stack, minutes later and with no other change, it came
 back ['A', 'B', 'A', 'A', 'A', 'A', 'A'] and all six checks passed, which is
 the fair round-robin behaviour this exists to prove.
 
+R-098, AND WHY THE HOLD BELOW IS NOT A WORKAROUND
+--------------------------------------------------
+The 2026-09 review then got ['A', 'A', 'B', 'A', 'A', 'A', 'A'] on a stack it
+had confirmed idle, twice, byte-identical, which the paragraph above does not
+explain. That was recorded as R-098 with its cause left open, because an
+admission order on its own cannot separate a scheduler that admits A twice
+while B waits from a test whose B was not yet queued.
+
+tests/backend/perf_09_scheduler_fairness_trace.py settled it by timing every
+enqueue as well as every admission. In three unforced runs B was queued before
+A's second admission every time and admitted second every time, which is the
+rotation working. A fourth run then held B's submission back until A had been
+admitted twice and reproduced the review's exact order, which is the missing
+half: the harness explanation is measured rather than assumed.
+
+So the defect was in this script, and the hold below is the fix for it. The
+seven submissions are not synchronised against the dispatcher thread, and on a
+loaded host a submit can take longer than an admit-and-cancel cycle. Holding
+admission until both users are queued is not a way of avoiding a failure, it is
+what makes the test measure the thing its name claims: an admission order
+between two users who are both actually waiting.
+
 So a red result here inside a suite run is not evidence of unfair scheduling.
 Re-run it on a quiet stack before believing it. The same applies to
 `perf_02_ttft_and_concurrency.py`, which measures latency under a controlled
@@ -140,8 +162,32 @@ def submit(owner):
         owner_user_id=owner,
     )
 
-a_ids = [submit("{user_a["id"]}") for _ in range({N_USER_A_JOBS})]
-b_id = submit("{user_b["id"]}")
+# R-098. Hold admission until BOTH users' jobs are queued, then let the
+# dispatcher go. Without this the test races itself: `submit` returns as soon
+# as the job is enqueued, the dispatcher thread is free to admit A's first job
+# immediately, and on a loaded host the seven `submit` calls can take longer
+# than an admission-and-cancel cycle. B is then still unsubmitted when the
+# rotation comes round a second time, there is no second owner to rotate to,
+# and the admission order reads A, A, B through no fault of the scheduler.
+# That is what the review saw twice, and
+# tests/backend/perf_09_scheduler_fairness_trace.py reproduced it deliberately
+# by holding B back: the scheduler was fair in all three unforced runs and
+# produced the review's own order the moment B was late.
+#
+# The hold replaces the scheduler's block-reason callback rather than lowering
+# the configured cap, because the cap is read through Postgres with its own
+# caching and "the cap is now 0" would not be a synchronous fact. Restoring
+# the callback and calling wake() is.
+_real_block_reason = sched._block_reason
+sched._block_reason = lambda job_id, in_flight: (
+    "held while this test queues both users' jobs")
+try:
+    a_ids = [submit("{user_a["id"]}") for _ in range({N_USER_A_JOBS})]
+    b_id = submit("{user_b["id"]}")
+finally:
+    sched._block_reason = _real_block_reason
+sched.wake()
+
 label = {{}}
 for jid in a_ids:
     label[jid] = "A"

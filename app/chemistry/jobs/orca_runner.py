@@ -808,6 +808,40 @@ def _orca_env() -> dict:
     return env
 
 
+def _orca_failure_reason(output: str) -> str | None:
+    """ORCA's own explanation for a non-zero exit, in a sentence, or None.
+
+    ORCA reports why it stopped in plain English and then exits 2, so the exit
+    code carries none of the information and the tail of the output is a
+    convergence table. A user who asked for a transition state and got back
+    "ORCA exited with code 2" followed by four identical rows of an SCF table
+    has been told nothing they can act on, which is what the 2026-09 review's
+    M23 cell recorded.
+
+    Every entry here is a string taken from a real failing run in this
+    repository, not from the manual, per the standing rule about ORCA parsers.
+    The raw tail is still attached to whatever this returns, because a
+    recognised reason is a summary and not a replacement for the evidence.
+    """
+    if "No barrier was found" in output:
+        return (
+            "ORCA found no barrier between the two endpoints, so there is no transition state "
+            "on this path. That happens when the start and end geometries relax to the same "
+            "structure during the endpoint pre-optimisation, which makes them the same minimum "
+            "written two ways rather than two ends of a reaction. Check that the end point is "
+            "genuinely a different species or a different conformer, and remember that a "
+            "geometry related to the start by a rotation or a translation is not."
+        )
+    return None
+
+
+def _orca_exit_error(returncode: int, output: str) -> RuntimeError:
+    reason = _orca_failure_reason(output)
+    head = (f"{reason}\n\n(ORCA exited with code {returncode}.)" if reason
+            else f"ORCA exited with code {returncode}.")
+    return RuntimeError(f"{head} Last 3000 chars of output:\n{output[-3000:]}")
+
+
 def _write_and_run(job_dir: str, input_text: str) -> str:
     input_path = os.path.join(job_dir, "input.inp")
     out_path = os.path.join(job_dir, "output.out")
@@ -822,7 +856,7 @@ def _write_and_run(job_dir: str, input_text: str) -> str:
     with open(out_path) as f:
         output = f.read()
     if proc.returncode != 0 or "FINAL SINGLE POINT ENERGY" not in output:
-        raise RuntimeError(f"ORCA exited with code {proc.returncode}. Last 3000 chars of output:\n{output[-3000:]}")
+        raise _orca_exit_error(proc.returncode, output)
     return output
 
 
@@ -851,7 +885,7 @@ def _write_and_run_generic(job_dir: str, input_text: str) -> str:
     with open(out_path) as f:
         output = f.read()
     if proc.returncode != 0 or "ORCA TERMINATED NORMALLY" not in output:
-        raise RuntimeError(f"ORCA exited with code {proc.returncode}. Last 3000 chars of output:\n{output[-3000:]}")
+        raise _orca_exit_error(proc.returncode, output)
     return output
 
 

@@ -1,0 +1,37 @@
+# e2e_13 alone on an idle stack. host:  21:59:52 up 294 days, 22:54,  7 users,  load average: 11.45, 11.19, 16.90
+original max_concurrent_jobs_per_user = 1
+
+=== S1: per-user concurrency cap (slow ORCA CASSCF probe) ===
+
+    j1=97f5471f4656 failed | j2=41e5465297cc failed
+    j2 reason: ''
+[FAIL] S1a the second job was held pending while the first ran -- j1=failed j2=failed
+[FAIL] S1b the pending reason names the PER-USER JOB SLOT cap, not generic CPU/memory headroom -- reason=''
+[PASS] S1c cancel() reached both jobs and drove them terminal -- failed / failed
+
+=== S2: the cap is PER USER, not global ===
+
+    userA job 2506ab02a36c -> failed
+    userB job 2aac79a6ae40 -> failed ('done')
+[FAIL] S2 a DIFFERENT user's job is not blocked by user A's per-user cap -- userB job is failed: 'done'
+
+=== S3: cancel actually kills the subprocess ===
+
+    job e4f3c58f347d pid=18194 alive before/after cancel: False/False in 0.0s
+[FAIL] S3a the worker subprocess was genuinely alive before cancel -- {'job': 'e4f3c58f347d', 'pid': 18194, 'alive_before': False, 'alive_after': False, 'cancel_seconds': 0.0, 'final': 'failed'}
+[PASS] S3b cancel() left no surviving worker process -- {'job': 'e4f3c58f347d', 'pid': 18194, 'alive_before': False, 'alive_after': False, 'cancel_seconds': 0.0, 'final': 'failed'}
+[FAIL] S3c the job's status reached 'cancelled' -- final=failed
+
+=== S4: orphan reconciliation after an api restart ===
+
+    (the api is PID 1 of its container, so a restart also kills
+     the detached worker -- what is asserted is that the job is
+     CLASSIFIED, not that it survives)
+[FAIL] S4a a job was left running on disk before the restart -- status=failed
+    after restart, orphan 2e27f5a54cb3 -> failed (done)
+[PASS] S4b _reconcile_orphaned_jobs classified the orphan into a terminal state instead of leaving it stuck 'running' forever -- status=failed message=done
+[PASS] S4c the reconciliation explains itself in the job's message -- done
+
+restored max_concurrent_jobs_per_user = 1
+
+4/10 checks passed in this script.

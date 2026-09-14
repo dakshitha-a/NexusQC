@@ -1,0 +1,14 @@
+R-028: every routed cell has a builder that accepts it
+
+116 routed cell(s); 116 built, 0 refused, 0 skipped for a missing parameter
+
+[PASS] every one of the 116 routed cells builds an input -- 116/116
+
+A blind job previews as the text the user wrote:
+[PASS] build_input_preview returns a blind job's own input
+
+And the two specific routings R-028 named:
+[PASS] single_point/gs with eom_ccsd resolves to the eom_ccsd runner -- 'eom_ccsd' (None)
+[PASS] and so does single_point/ee -- 'eom_ccsd' (None)
+
+4/4 checks passed in this script.

@@ -1,0 +1,35 @@
+R-095: every raw fetch reports 401 and maintenance the way request() does
+
+[FAIL] there is one shared checker -- each raw fetch handles its own failure, so none of them reaches the 401 or maintenance handlers that live inside request()
+[FAIL] it calls the auth handler
+[FAIL] and the maintenance handler
+[FAIL] every other raw fetch is routed through it -- files/FilesSection.tsx:105; jobs/EnsembleFrameViewer.tsx:45; jobs/GeometrySetViewer.tsx:51; jobs/JobDetailDrawer.tsx:140; jobs/JobDetailDrawer.tsx:181; jobs/MoCubeViewer.tsx:178; jobs/NebFrameViewer.tsx:45; jobs/NebFrameViewer.tsx:63; jobs/ScanFrameViewer.tsx:48; kb/KbSection.tsx:188
+
+R-068: a multi-frame viewer says so when the artifact will not load
+[FAIL] ScanFrameViewer keeps a load error
+[FAIL] ScanFrameViewer renders it instead of a permanent 'Loading'
+[FAIL] GeometrySetViewer keeps a load error
+[FAIL] GeometrySetViewer renders it instead of a permanent 'Loading'
+[FAIL] EnsembleFrameViewer keeps a load error
+[FAIL] EnsembleFrameViewer renders it instead of a permanent 'Loading'
+[PASS] NebFrameViewer keeps a load error
+[PASS] NebFrameViewer renders it instead of a permanent 'Loading'
+
+R-069: the composer does not follow the user between conversations
+[FAIL] the composer is keyed on the conversation -- its text is component-local state and nothing resets it, so a half-typed message is sent to whichever conversation the user switched to
+
+R-027: the drawer can tell whether the open stream covers this job
+[FAIL] useJobQuery compares the job's thread with the active one -- it suppresses polling whenever ANY stream is connected, and the one stream is the active conversation's
+[FAIL] and the single-job route supplies it
+[FAIL] while the polled list route strips it, so it costs that route nothing
+
+R-061: the welcome table is generated, not typed
+[FAIL] it imports the generated rows
+[FAIL] and no longer carries a hand-written table
+[PASS] the generated table is non-empty and shaped as the component expects -- 17 rows
+[FAIL] and it is current with registry2 -- the generator cannot produce this table
+
+R-094: main.tsx describes what queries.ts actually does
+[FAIL] the comment no longer claims refetchInterval is never set -- queries.ts sets it 13 times
+
+3/21 checks passed in this script.

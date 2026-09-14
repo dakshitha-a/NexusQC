@@ -1,0 +1,16 @@
+! HF sto-3g TightSCF NEB-TS LargePrint
+
+%pal nprocs 4 end
+
+%neb
+  Product "product.xyz"
+  NImages 6
+  PreOpt true
+end
+
+* xyz 0 1
+N   0.00229808  0.00515967  0.29553984
+H   0.92819970 -0.14323251 -0.10326656
+H  -0.58770854 -0.73535594 -0.08113959
+H  -0.34278924  0.87342878 -0.11113369
+*

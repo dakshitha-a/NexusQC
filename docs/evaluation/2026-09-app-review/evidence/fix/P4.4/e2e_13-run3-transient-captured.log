@@ -1,0 +1,42 @@
+# e2e_13 with the transient captured as it happens. host:  22:16:17 up 294 days, 23:11,  7 users,  load average: 13.60, 14.75, 14.96
+original max_concurrent_jobs_per_user = 1
+
+=== S1: per-user concurrency cap (slow ORCA CASSCF probe) ===
+
+    j1=2260e3024e70 completed | j2=773db90b82c6 running
+    j2 reason: 'waiting for a free job slot (you have 1/1 running)'
+    what the cap actually did, as it happened (t, j1, j2, j2's message):
+      [7.53, 'running', 'pending', 'queued']
+      [8.03, 'running', 'pending', 'waiting for a free job slot (you have 1/1 running)']
+      [8.28, 'completed', 'pending', 'waiting for a free job slot (you have 1/1 running)']
+      [9.28, 'completed', 'running', 'running casscf via orca']
+[PASS] S1a the second job was held pending while the first was running -- never saw j2 pending while j1 ran; end state was j1=completed j2=running
+[PASS] S1b the pending reason names the PER-USER JOB SLOT cap, not generic CPU/memory headroom -- reason='waiting for a free job slot (you have 1/1 running)'
+[PASS] S1c cancel() reached both jobs and drove them terminal -- completed / cancelled
+
+=== S2: the cap is PER USER, not global ===
+
+    userA job 8d7036551340 -> completed
+    userB job d80806b2a8cd -> completed ('done')
+[PASS] S2 a DIFFERENT user's job is not blocked by user A's per-user cap -- userB job is completed: 'done'
+
+=== S3: cancel actually kills the subprocess ===
+
+    job 56c0681e84fc pid=5072 alive before/after cancel: True/False in 0.02s
+[PASS] S3a the worker subprocess was genuinely alive before cancel -- {'job': '56c0681e84fc', 'pid': 5072, 'alive_before': True, 'alive_after': False, 'cancel_seconds': 0.02, 'final': 'cancelled'}
+[PASS] S3b cancel() left no surviving worker process -- {'job': '56c0681e84fc', 'pid': 5072, 'alive_before': True, 'alive_after': False, 'cancel_seconds': 0.02, 'final': 'cancelled'}
+[PASS] S3c the job's status reached 'cancelled' -- final=cancelled
+
+=== S4: orphan reconciliation after an api restart ===
+
+    (the api is PID 1 of its container, so a restart also kills
+     the detached worker -- what is asserted is that the job is
+     CLASSIFIED, not that it survives)
+[PASS] S4a a job was left running on disk before the restart -- status=running
+    after restart, orphan 8b0632ca0041 -> failed (the server restarted while this job was running and its outcome could not be recovered -- its worker)
+[PASS] S4b _reconcile_orphaned_jobs classified the orphan into a terminal state instead of leaving it stuck 'running' forever -- status=failed message=the server restarted while this job was running and its outcome could not be recovered -- its worker process is no longer alive and left no result
+[PASS] S4c the reconciliation explains itself in the job's message -- the server restarted while this job was running and its outcome could not be recovered -- its worker process is no longer alive and left no result
+
+restored max_concurrent_jobs_per_user = 1
+
+10/10 checks passed in this script.

@@ -1,0 +1,37 @@
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user via the admin API -- qatest_ui15_ye8zn1
+
+== seed one completed frequency job ==
+[PASS] the seeded frequency job reached status=completed -- completed
+
+== the job manager row is a keyboard control ==
+[PASS] the job row is a <tr> that kept its table semantics -- tag=tr role=null
+[FAIL] the job row is reachable by Tab -- tabindex=null
+[FAIL] the job row says whether it is the selected one -- aria-selected=null
+[FAIL] a focused row looks different from an unfocused one -- byte-identical, so the focus ring is not drawn
+[FAIL] Enter on the job row opens the drawer
+[FAIL] Space on the job row opens the drawer
+[PASS] Space did not scroll the page out from under the row -- 0 -> 0
+
+== the orbital and vibration tables are keyboard controls ==
+[FAIL] a vibrational mode row is reachable by Tab -- tabindex=null
+[FAIL] a vibrational mode row says whether it is the chosen mode -- aria-selected=null
+[FAIL] Enter chooses that vibrational mode
+[FAIL] an orbital row is reachable by Tab -- tabindex=null
+[FAIL] Enter chooses that orbital
+
+== a control inside a row does not fire the row ==
+[PASS] Enter on the row's own checkbox does not open the drawer -- no per-row checkbox in this build, nothing to shadow
+
+== the conversation list is a keyboard control ==
+[FAIL] a conversation row announces itself as a button -- role=null
+[FAIL] a conversation row is reachable by Tab -- tabindex=null
+
+== a replaced viewer stops observing its container ==
+  ResizeObserver: live 1 -> 11, cumulative observe() calls 2 -> 22 over 10 drawer cycles
+[FAIL] ten drawer cycles do not leave ten more live ResizeObservers behind -- live grew by 10 across 10 cycles (20 observe() calls made)
+[PASS] no console errors during any of this
+
+7/20 checks passed in this script.

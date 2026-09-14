@@ -1,0 +1,90 @@
+# host at start:  19:25:07 up 294 days, 20:19,  7 users,  load average: 139.34, 138.01, 131.66
+[PASS] admin sets max_concurrent_jobs_total=1 -- 200
+
+=== run 1 of 3 ===
+    t(s)   event    owner  rr_pos  in_flight  order
+     0.362  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     1.511  ADMIT    A           1          1  []
+     7.921  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     9.375  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    11.104  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    13.729  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    16.333  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    19.117  enqueue  B                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184', '4112e507-b60e-4b79-bb01-132314ab1bbd']
+    20.142  ADMIT    B           2          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    22.664  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    23.888  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    25.103  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    26.333  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    27.549  ADMIT    A           1          1  []
+    admission order: ['A', 'B', 'A', 'A', 'A', 'A', 'A']
+    verdict: FAIR
+    user B's job was enqueued at t=19.117s, before A's second admission at t=22.664s, and B was admitted in position 2. That is the rotation working.
+
+=== run 2 of 3 ===
+    t(s)   event    owner  rr_pos  in_flight  order
+     0.356  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     1.475  ADMIT    A           1          1  []
+     6.924  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     8.845  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    10.241  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    11.506  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    12.730  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    13.500  enqueue  B                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184', '4112e507-b60e-4b79-bb01-132314ab1bbd']
+    16.510  ADMIT    B           2          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    17.729  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    18.943  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    20.157  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    21.369  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    22.580  ADMIT    A           1          1  []
+    admission order: ['A', 'B', 'A', 'A', 'A', 'A', 'A']
+    verdict: FAIR
+    user B's job was enqueued at t=13.500s, before A's second admission at t=17.729s, and B was admitted in position 2. That is the rotation working.
+
+=== run 3 of 3 ===
+    t(s)   event    owner  rr_pos  in_flight  order
+     0.255  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     1.316  ADMIT    A           1          1  []
+     5.426  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     6.544  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     7.454  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     8.332  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     9.075  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     9.785  enqueue  B                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184', '4112e507-b60e-4b79-bb01-132314ab1bbd']
+    10.614  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184', '4112e507-b60e-4b79-bb01-132314ab1bbd']
+    11.629  ADMIT    B           2          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    12.653  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    13.670  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    14.687  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    15.704  ADMIT    A           1          1  []
+    admission order: ['A', 'A', 'B', 'A', 'A', 'A', 'A']
+    verdict: CODE
+    user B's job was enqueued at t=9.785s, before A's second admission at t=10.614s, and was still admitted only in position 3. The scheduler had both owners queued and chose A twice, which is the round-robin defect.
+
+=== positive control: B submitted only after A's second admission ===
+    t(s)   event    owner  rr_pos  in_flight  order
+     0.232  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     1.247  ADMIT    A           1          1  []
+     5.972  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     7.193  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     8.295  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+     9.316  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    10.189  enqueue  A                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    11.352  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    11.597  enqueue  B                         ['cd451f5c-a70d-41f1-91e0-3ce4f8575184', '4112e507-b60e-4b79-bb01-132314ab1bbd']
+    13.389  ADMIT    B           2          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    14.420  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    15.437  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    16.455  ADMIT    A           1          1  ['cd451f5c-a70d-41f1-91e0-3ce4f8575184']
+    17.473  ADMIT    A           1          1  []
+    admission order: ['A', 'A', 'B', 'A', 'A', 'A', 'A']
+    verdict: HARNESS
+    user B's job was enqueued at t=11.597s, which is AFTER user A's second admission at t=11.352s. At the moment the scheduler chose A a second time, B had nothing queued, so there was no other owner to rotate to and the round robin had no opportunity to be unfair. The submissions are not synchronised against the dispatcher thread, which is the race.
+
+RESULT R-098 over 3 runs: ['FAIR', 'FAIR', 'CODE']
+[FAIL] the three runs agree on one cause, so the classification is not itself a coin flip -- verdicts were ['FAIR', 'FAIR', 'CODE']
+[FAIL] the round robin does not admit one owner twice while another owner's job is already queued (a CODE verdict here is a real starvation defect and must be fixed, not recorded) -- verdicts were ['FAIR', 'FAIR', 'CODE']
+[PASS] holding B's submission until after A's second admission reproduces the review's own order, which is what makes the harness explanation a measurement rather than an inference -- control order was ['A', 'A', 'B', 'A', 'A', 'A', 'A']
+[PASS] and the control is classified as the harness race, not as a scheduler defect -- control verdict was HARNESS
+
+3/5 checks passed in this script.

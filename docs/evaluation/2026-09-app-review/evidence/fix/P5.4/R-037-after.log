@@ -1,0 +1,30 @@
+Blanked the attached results for job job00 in the current turn to fit the context budget; the model is told to re-fetch them rather than guess.
+Blanked the attached results for job job01 in the current turn to fit the context budget; the model is told to re-fetch them rather than guess.
+Blanked the attached results for job job02 in the current turn to fit the context budget; the model is told to re-fetch them rather than guess.
+Blanked tool result 'check_job_status' in the current turn to fit the context budget; the model is told to re-fetch it rather than guess.
+
+== R-037: an attached job's results can be shrunk like any other result ==
+  3 attached jobs in one turn: about 34464 tokens, budget 500
+  after the trim: about 297 tokens
+[PASS] the trim gets the window under budget -- 297 tokens against a budget of 500
+[PASS] it did not simply delete the messages -- 3 messages left of 3
+[PASS] every shrunk message says its results were omitted -- 3 of 3 carry the marker
+[PASS] and each marker names the job it lost, so the model can fetch it back -- [The attached results for job job00 were omitted because the conversation is ove; [The attached results for job job01 were omitted because the conversation is ove; [The attached results for job job02 were omitted because the conversation is ove
+[PASS] the marker names the tool to call, not just the fact of the loss
+[PASS] a plain tool result is still blanked the way it always was
+
+== R-036: the pointer says what to do when the results are gone ==
+[PASS] it no longer asserts the results are visible
+[PASS] it names the tool that fetches them back
+[PASS] and it says why they might be missing
+[PASS] a job already in the history produces exactly one pointer message -- 1
+  the pointer, as built: (attached job context for job abc123, not typed by the user) Its full results were given earlier in this conversation and are not repeated here. Read them there if they are still visible to you. If they are not, this conversation has been trimmed to fit the context window: call check_job_status(job_id='abc123') to read them again rather than answering from memory or guessing.
+[PASS] the pointer is short, not another copy of the summary -- 378 characters
+[PASS] it names the job id it points at -- (attached job context for job abc123, not typed by the user) Its full results were given earlier in this conversation an
+
+== the marker is one definition, shared by the route and the graph ==
+[PASS] app/agent/state.py owns the marker
+[PASS] the route uses that definition rather than its own copy
+[PASS] the graph recognises it through the same name, not a literal
+
+15/15 checks passed in this script.

@@ -1,0 +1,49 @@
+# host at start:  19:42:33 up 294 days, 20:37,  6 users,  load average: 139.84, 138.99, 136.60
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user -- qatest_cas14_rr3m0o
+
+== seed a real recommendation, then a real refinement of it ==
+seeded: d8b0bfb9e549 (completed) / 6065b6c7fdf5 (completed)
+[PASS] the recommendation job completed -- completed
+[PASS] the refinement job completed -- completed
+summary keys seen from status(): (none)
+
+== open the refinement job's drawer ==
+
+== the three sections that had no rendering at all ==
+[PASS] the refined space is stated, with what it came from
+[PASS] the natural-orbital occupation table renders
+[PASS] it has one row per active orbital (4 rows) -- 4
+[PASS] each row carries a character label
+[PASS] and the continuous weights beside the label, never instead of it -- #	Occupation	Character	Weights
+1	1.9794	n	pi 0.00, sigma 0.98, lone_pair 0.60
+2	1.9778	sigma	pi 0.00, sigma 0.98, lone_pair 0.00
+3	0.0214	sigma*	pi 0.00, sigma 
+[PASS] the table says which orbital set it describes
+[PASS] the rotation trail renders
+[PASS] it has one row per change made (2 rows) -- 2
+[PASS] each row says why, not just what -- Cycle	Action	Orbital	Why
+1	prune	out 2 (occ 1.9994)	state-averaged natural occupation 1.999 lies outside [0.02, 1.98], so it carries no correlation for these states
+1	prune	out 3 (occ 1.9991)	state-av
+[PASS] and names the orbital it acted on -- Cycle	Action	Orbital	Why
+1	prune	out 2 (occ 1.9994)	state-averaged natural occupation 1.999 lies outside [0.02, 1.98], so it carries no correlation for these states
+1	prune	out 3 (occ 1.9991)	state-av
+[PASS] and the index convention is stated
+
+== nothing is drawn twice ==
+[PASS] the raw 'rotations' key does not also appear in the Summary table
+[PASS] no console errors while rendering the drawer
+
+== R-099: the loading state is not missing data ==
+   the instant [role="dialog"] appears: refined-space=false, occupation tables=0, rotation tables=0
+[PASS] with the job request held for three seconds, the dialog element exists while the drawer is still empty, which is the whole of R-099: an assertion fired here reads a loading drawer as an app that published no data -- {"refined":false,"table":0,"rotations":0}
+   after waiting for the drawer to paint: refined-space=true, occupation rows=4
+[PASS] and waiting for the drawer to paint finds the same content as before, so the data was never missing, only late -- {"refined":true,"rows":4}
+
+== clean up everything this spec created ==
+removed the seeded jobs and thread
+removed the test user
+
+19/19 checks passed in this script.

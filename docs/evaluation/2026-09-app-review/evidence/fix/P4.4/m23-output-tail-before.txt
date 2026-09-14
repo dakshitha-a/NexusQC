@@ -1,0 +1,70 @@
+
+Straight line distance between images along the path:
+        D( 0- 1) =   0.0000 Ang.
+        D( 1- 2) =   0.0000 Ang.
+        D( 2- 3) =   0.0000 Ang.
+        D( 3- 4) =   0.0000 Ang.
+        D( 4- 5) =   0.0000 Ang.
+        D( 5- 6) =   0.0000 Ang.
+        D( 6- 7) =   0.0000 Ang.
+
+---------------------------------------------------------------
+               INFORMATION ABOUT SADDLE POINT     
+---------------------------------------------------------------
+
+Climbing image                            ....  7 
+Energy                                    ....  -55.45541978 Eh
+Max. abs. force                           ....  5.0194e-06 Eh/Bohr
+
+-----------------------------------------
+  SADDLE POINT (ANGSTROEM)
+-----------------------------------------
+N      0.002487     0.005576     0.319416 
+H      0.929000    -0.143503    -0.111231 
+H     -0.588317    -0.736174    -0.089082 
+H     -0.343171     0.874101    -0.119103 
+
+-----------------------------------------
+  FORCES (Eh/Bohr)
+-----------------------------------------
+N     -0.000004     0.000001    -0.000003 
+H     -0.000004     0.000001    -0.000000 
+H      0.000005     0.000004     0.000002 
+H      0.000003    -0.000005     0.000002 
+
+-----------------------------------------
+  UNIT TANGENT
+-----------------------------------------
+N      0.012896     0.000958     0.147301 
+H     -0.300778     0.044612    -0.043998 
+H      0.241479     0.616205    -0.063612 
+H      0.046403    -0.661775    -0.039691 
+ => Unit tangent is an approximation to the TS mode at the saddle point
+No barrier was found. Skipping NEB-TS run here.
+----------
+STATISTICS
+----------
+
+For the individual parts of the NEB, NEB-CI or NEB-TS run:
+
+Number of iterations:
+     Total                             ... 8
+     Reactant and product optimization ... 7  87.5%
+     NEB                               ... 1  12.5%
+Number of SCF / gradient calculations:
+     Total                             ... 15
+     Reactant and product optimization ... 7  46.7%
+     NEB                               ... 8  53.3%
+
+----------
+ TIMINGS
+----------
+
+For the individual parts of the NEB, NEB-CI or NEB-TS run:
+
+Total                                  ...      199.419 sec
+Reactant and product optimization      ...      162.763 sec  81.6%
+NEB                                    ...       36.656 sec  18.4%
+
+[file orca_main/run.cpp, line 1557]: ORCA finished with error return - aborting the run
+[file orca_main/run.cpp, line 1557]: ORCA finished with error return - aborting the run

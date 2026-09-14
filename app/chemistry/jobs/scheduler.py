@@ -259,12 +259,37 @@ class JobScheduler:
         admission for every other queued job, across every owner, for as
         long as it took.
         """
+        # Two reads of `_order`, a second apart, and the second one is the one
+        # that decides anything. R-098 is why.
+        #
+        # `_resources_available` samples host CPU with
+        # `psutil.cpu_percent(interval=1.0)`, which BLOCKS for a full second.
+        # This used to snapshot the owner list once, before that call, and then
+        # walk the second-old snapshot. Any owner who queued their first job
+        # during that second was therefore invisible to the tick that admitted
+        # somebody: the rotation could not reach them because they were not in
+        # the list it was walking, and they lost their turn even though the
+        # pointer was sitting on them. Measured on this deployment with
+        # tests/backend/perf_09_scheduler_fairness_trace.py: user B queued at
+        # t=9.785s, the tick admitted user A a second time at t=10.614s with
+        # `_rr_pos` already pointing at B, and B went third. It is a
+        # one-admission loss per occurrence rather than indefinite starvation,
+        # but it is exactly the shape of unfairness this module exists to
+        # remove, and the window is a full second wide on every single tick.
+        #
+        # The cheap emptiness check stays before the sample, so an idle
+        # scheduler still costs nothing: there is no point paying a CPU sample
+        # a second to discover that nothing is queued.
+        with self._lock:
+            if not self._order:
+                return
+
+        has_headroom, n_idle, message = self._resources_available()
+
         with self._lock:
             owners_snapshot = list(self._order)
         if not owners_snapshot:
             return
-
-        has_headroom, n_idle, message = self._resources_available()
         if not has_headroom:
             # R-075: only write when the message actually changed. While the
             # host has no headroom this branch runs about once a second and

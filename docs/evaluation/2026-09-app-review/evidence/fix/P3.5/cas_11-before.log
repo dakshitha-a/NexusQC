@@ -1,0 +1,30 @@
+R-015: a backend that raises found nothing
+
+[FAIL] a raising backend's answer reads as empty -- knowledge base search failed (boom)....; it is absorbed as a literature hit, so a recommendation is reported as grounded in a paper on the strength of a stack trace
+[PASS] and a genuine 'nothing found' still reads as empty
+[PASS] while a real hit does not
+
+R-016: the configuration count knows about spin
+[PASS] CAS(4,4) at multiplicity 1 holds 36 configurations -- got 36, correct 36
+[PASS] CAS(6,6) at multiplicity 1 holds 400 configurations -- got 400, correct 400
+[PASS] CAS(5,5) at multiplicity 2 holds 100 configurations -- got 100, correct 100
+[FAIL] CAS(7,6) at multiplicity 2 holds 300 configurations -- got 400, correct 300, the closed-shell formula gives 400
+[FAIL] CAS(6,6) at multiplicity 3 holds 225 configurations -- got 400, correct 225, the closed-shell formula gives 400
+
+R-035: the active-space tool can be called the way the prompt says
+[FAIL] active_space does not require a basis -- required=['basis', 'n_excited_states']; the prompt says not to ask for one, so the model must either ask anyway or invent one
+[FAIL] search_active_space_literature does not require a basis -- required=['n_excited_states', 'basis']; the prompt says not to ask for one, so the model must either ask anyway or invent one
+
+R-084: the cas_reco notice branch tests the subtype
+[FAIL] the second clause reads the subtype, not the task again -- it still reads spec.get("task") == "cas_reco" twice, so it tests nothing
+[FAIL] and the allow-list matches what the registry actually defines -- None vs ['', 'refine']; there is no allow-list, so nothing narrows the branch to the subtypes that actually produce a recommendation
+
+R-086: a non-JSON 200 from the scholar API degrades
+[FAIL] resp.json() is inside a try -- a 200 carrying an HTML error page raises JSONDecodeError straight out of the tool, where the docstring promises 'use web_search instead'
+
+R-014, R-041, R-042: the troubleshooting message
+[FAIL] every tool the message names is actually bound -- names ['search_knowledge_base']; names ['search_knowledge_base'], which are not bound
+[FAIL] it describes the job by what it was, not by its level of theory -- it reads spec['method'] and calls that the job type, so a failed optimisation is described to the model as 'a dft job'
+[FAIL] R-041: the architecture no longer claims a troubleshooting budget -- the cap belonged to the auto-retry loop that was removed
+
+5/16 checks passed in this script.

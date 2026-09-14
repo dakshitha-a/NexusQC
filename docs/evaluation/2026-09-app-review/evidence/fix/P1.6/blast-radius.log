@@ -1,0 +1,12 @@
+grad_01_gradients_and_nac.py :: 53/53 checks passed
+grad_02_multi_target_parsing.py :: 24/24 checks passed
+grad_03_engine_matrix.py :: 24/24 checks passed
+scan_01_draft_shapes.py :: 13/13 checks passed
+scan_01_no_double_dispatch.py :: 
+scan_02_excited_state_scans.py :: 64/64 checks passed
+units_01_energy_conversions.py :: 
+tddft_01_full_response_default.py :: 12/12 checks passed
+mrpdft_01_multireference_methods.py :: 
+scan_01_no_double_dispatch.py :: 4/4 checks passed
+units_01_energy_conversions.py :: 22/22 checks passed
+mrpdft_01_multireference_methods.py :: 153 passed, 0 failed

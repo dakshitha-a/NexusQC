@@ -1336,8 +1336,35 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
             break
 
         keep = [j for j in range(ncas) if j not in cand]
-        if not keep or not any(occ[j] > 0.5 for j in keep) \
-                or not any(occ[j] < 1.5 for j in keep):
+        # Three ways a prune would destroy the thing being refined, and the
+        # first of them is structural rather than a matter of occupations.
+        #
+        # Found during the 2026-09 fix phase, while settling R-099; the run is
+        # in docs/evaluation/2026-09-app-review/evidence/fix/P4.2. An active
+        # space of ONE orbital has exactly one determinant
+        # in it whatever its occupation turns out to be, so it is not a
+        # multireference space at all: CAS(2,1) is a closed-shell reference
+        # written the long way, and CASSCF on it reduces to an orbital
+        # optimisation with no correlation recovered. The occupation tests
+        # below cannot catch that, because they run on the occupations BEFORE
+        # the trial space is re-solved, and a single kept orbital that looks
+        # partially occupied in a larger space necessarily goes to 2.0 once it
+        # is the only orbital left. Found by the R-099 variation, which asked
+        # for two states on water and got back a "refined" CAS(2,1) whose one
+        # natural occupation was 2.0000 and whose stop reason claimed the
+        # space had been left alone because pruning would leave no correlated
+        # pair. It had already left no correlated pair.
+        #
+        # The other two are the original guard: keep at least one orbital that
+        # is meaningfully occupied and one that is meaningfully empty, or
+        # there is no excitation for the CI to make.
+        if len(keep) < 2:
+            stopped = (f"pruning would leave {len(keep)} active orbital(s), and a space of "
+                       f"fewer than two orbitals holds a single determinant, so it is not a "
+                       f"multireference space at all; the space is left as it is")
+            log(f"[refine]   {stopped}")
+            break
+        if not any(occ[j] > 0.5 for j in keep) or not any(occ[j] < 1.5 for j in keep):
             stopped = ("pruning would leave no correlated pair, so the space is "
                        "left as it is")
             log(f"[refine]   {stopped}")

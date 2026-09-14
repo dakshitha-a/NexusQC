@@ -1,0 +1,9 @@
+# the scheduler with the fix, from the working tree
+[PASS] the first tick admits user A, the only owner with anything queued -- admitted ['a1']
+[PASS] and the rotation pointer has moved past user A, so the next turn is not theirs -- _rr_pos is 1
+[PASS] user B has queued nothing yet, so there is nothing for the pointer to reach -- queued ids are ['a2']
+[PASS] user B's job was queued during the second tick's sample, which is the setup -- queued ids are ['a2'], admitted ['a1', 'b1']
+[PASS] the second tick admits user B, not user A a second time: an owner who queued while the dispatcher was sampling the host is visible to the tick that admits, and the rotation pointer was already on them -- admission order was ['a1', 'b1'], which means the tick decided who to admit from an owner list captured before the sample and never saw user B
+[PASS] and user A's second job is still waiting its turn rather than having taken B's -- still queued: ['a2']
+
+6/6 checks passed in this script.

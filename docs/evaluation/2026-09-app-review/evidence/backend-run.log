@@ -1,0 +1,257 @@
+START 2026-09-13T06:48:12Z commit=c9f03c4 stack=ca7e0ff
+EXIT 1 2026-09-13T08:08:18Z
+
+  tests/backend/_00_bootstrap.py
+1/1 checks passed in this script.
+  tests/backend/active_01_named_orbitals.py
+44/44 checks passed
+  tests/backend/agent_01_token_budget.py
+13/13 checks passed
+  tests/backend/agent_02_draft_flow.py
+35/35 checks passed
+  tests/backend/agent_03_context_bounding.py
+12/12 checks passed
+  tests/backend/agent_04_old_thread_resume.py
+15/15 checks passed
+  tests/backend/agent_05_context_budget.py
+  tests/backend/agent_06_capability_params_and_guards.py
+18/18 checks passed
+  tests/backend/agent_06_job_retrieval.py
+  tests/backend/agent_07_excited_state_count.py
+  tests/backend/agent_08_tools_are_callable.py
+  tests/backend/agent_09_unstated_parameters.py
+  tests/backend/approval_01_stale_card_clears.py
+6/6 checks passed
+  tests/backend/attach_01_path_geometries.py
+17/17 checks passed in this script.
+  tests/backend/attach_02_job_from_path_image.py
+13/13 checks passed in this script.
+  tests/backend/bagel_01_casscf_oscillator_strengths.py
+  tests/backend/batch_01_multi_geometry.py
+11/11 checks passed
+  tests/backend/batch_02_child_params.py
+23/23 checks passed
+  tests/backend/blind_01_bagel_artifacts.py
+11/11 checks passed
+  tests/backend/cancel_01_notice_flow.py
+11/11 checks passed
+  tests/backend/cas_01_geometry_axes.py
+  tests/backend/cas_02_projector_invariance.py
+  tests/backend/cas_03_lone_pairs_and_sigma.py
+  tests/backend/cas_04_open_shell.py
+  tests/backend/cas_05_tiers.py
+  tests/backend/cas_06_excited_character.py
+  tests/backend/cas_07_verification.py
+  tests/backend/cas_08_prompt_names_real_tools.py
+  tests/backend/cas_09_portable_spec.py
+  tests/backend/cas_10_refinement.py
+  tests/backend/cas_11_lone_pair_labels.py
+  tests/backend/cas_12_orbital_identity.py
+  tests/backend/cas_13_narrowing.py
+  tests/backend/cas_15_spec_handoff.py
+  tests/backend/cas_16_narrowing_stability.py
+  tests/backend/cas_17_refine_narrowing_call.py
+  tests/backend/cas_18_constants_reach_the_engine.py
+  tests/backend/cas_20_rotation_invariance.py
+  tests/backend/cas_21_reference_stability.py
+  tests/backend/casreco_01_capability_axis.py
+40/40 checks passed
+  tests/backend/casreco_04_literature_step.py
+42/42 checks passed
+  tests/backend/casreco_05_reporting_hygiene.py
+24/24 checks passed
+  tests/backend/chain_01_ready_draft_submits.py
+24/24 checks passed
+  tests/backend/ci_01_reference_determinant.py
+12/12 checks passed
+  tests/backend/conf_01_require_admin_boundary.py
+20/20 checks passed in this script.
+  tests/backend/conf_02_role_demotion_live_effect.py
+2/2 checks passed in this script.
+  tests/backend/conf_03_access_channel_spoof.py
+1/1 checks passed in this script.
+  tests/backend/conf_04_pool_redis_cold_start_race.py
+2/2 checks passed in this script.
+  tests/backend/deploy_01_rollback_target.py
+6/6 checks passed in this script.
+  tests/backend/deploy_02_deployed_commit.py
+14/14 checks passed in this script.
+  tests/backend/deploy_03_failure_advice.py
+11/11 checks passed in this script.
+  tests/backend/deploy_04_deployment_activity.py
+24/24 checks passed in this script.
+  tests/backend/deploy_06_deploy_requests.py
+10/10 checks passed in this script.
+  tests/backend/dft_01_functional_resolution.py
+58/58 checks passed in this script.
+  tests/backend/draft_01_summary_defer.py
+41/41 checks passed
+  tests/backend/dz_01_self_purge.py
+12/12 checks passed in this script.
+  tests/backend/elic_01_draft_scenarios.py
+205/205 checks passed
+  tests/backend/fail_01_notice_flow.py
+22/22 checks passed
+  tests/backend/grad_01_gradients_and_nac.py
+53/53 checks passed
+  tests/backend/grad_02_multi_target_parsing.py
+24/24 checks passed
+  tests/backend/grad_03_engine_matrix.py
+24/24 checks passed
+  tests/backend/install_01_static.py
+27/27 checks passed in this script.
+  tests/backend/install_02_units.py
+27/27 checks passed in this script.
+  tests/backend/jobs_01_orphan_directories.py
+  tests/backend/jobs_01_status_semantics.py
+5/5 checks passed
+  tests/backend/model_compat.py
+13/13 checks passed in this script.
+  tests/backend/mrpdft_01_multireference_methods.py
+  tests/backend/name_01_job_labels.py
+23/23 checks passed
+  tests/backend/opt_01_optimization_family.py
+43/43 checks passed
+  tests/backend/p1_01_registration_validation.py
+18/18 checks passed in this script.
+  tests/backend/p1_02_login_and_session_lifecycle.py
+15/15 checks passed in this script.
+  tests/backend/p1_04_invite_lifecycle.py
+15/15 checks passed in this script.
+  tests/backend/p1_05_user_admin_actions.py
+10/10 checks passed in this script.
+  tests/backend/p1_06_change_password_status.py
+5/5 checks passed in this script.
+  tests/backend/p1_08_password_reset.py
+26/26 checks passed in this script.
+  tests/backend/p7_01_children_pagination.py
+15/15 checks passed
+  tests/backend/p7_02_bagel_pes1d_denial.py
+17/17 checks passed
+  tests/backend/p7_03_interp_pes_cascade_and_reorder.py
+22/22 checks passed
+  tests/backend/p7_04_batch_master.py
+72/72 checks passed
+  tests/backend/p7_05_neb_regression.py
+11/11 checks passed
+  tests/backend/p7_orchestrator_fault_isolation.py
+4/4 checks passed
+  tests/backend/p8_01_orbital_reuse.py
+  tests/backend/p8_02_cas_reco_followup.py
+  tests/backend/p8_03_wigner_cap.py
+  tests/backend/p8_04_ccsd_energy_and_ee_zero_states.py
+  tests/backend/perf_01_login_concurrency.py
+1/1 checks passed in this script.
+  tests/backend/perf_02_ttft_and_concurrency.py
+4/4 checks passed in this script. (1 skipped)
+  tests/backend/perf_03_jobmanager_cap_enforcement.py
+7/7 checks passed in this script.
+  tests/backend/perf_04_fair_scheduling.py
+[FAIL] user A's own burst does not occupy every admission ahead of user B -- order=['A', 'A', 'B', 'A', 'A', 'A', 'A'] -- user B's single job should be admitted in the very next rotation after user A's first (round-robin: A, then B, then back to A), not after all of A's remaining jobs
+[FAIL] admission interleaves both users rather than draining user A's queue first -- order=['A', 'A', 'B', 'A', 'A', 'A', 'A']
+4/6 checks passed in this script.
+  tests/backend/perf_05_admission_cap_arithmetic.py
+18/18 checks passed
+  tests/backend/perf_05_restart_queue.py
+6/6 checks passed in this script.
+  tests/backend/perf_06_admission_release_wiring.py
+7/7 checks passed in this script.
+  tests/backend/perf_06_lockfree_reads.py
+4/4 checks passed
+  tests/backend/plot_02_style_vocabulary.py
+  tests/backend/plot_03_style_actually_lands.py
+  tests/backend/plot_04_vector_export.py
+  tests/backend/plot_05_job_charts.py
+  tests/backend/plot_06_legend_units_panels.py
+  tests/backend/proj_01_registry.py
+29/29 checks passed
+  tests/backend/proj_02_lifecycle.py
+32/32 checks passed in this script.
+  tests/backend/proj_03_ownership.py
+15/15 checks passed in this script.
+  tests/backend/proj_04_zip_streams.py
+14/14 checks passed in this script.
+  tests/backend/proj_05_eviction_order.py
+10/10 checks passed
+  tests/backend/purge_01_user_projects.py
+9/9 checks passed in this script.
+  tests/backend/reg_01_wigner_prep.py
+  tests/backend/reg2_01_registry_v2_payload.py
+20/20 checks passed
+  tests/backend/reg2b_01_no_v1_redecision.py
+15/15 checks passed
+  tests/backend/reg2b_02_scan_dispatch_e2e.py
+12/12 checks passed
+  tests/backend/reg2b_03_matrix_v2_taxonomy.py
+186/186 checks passed
+  tests/backend/reject_01_decline_message.py
+24/24 checks passed
+  tests/backend/scan_01_draft_shapes.py
+13/13 checks passed
+  tests/backend/scan_01_no_double_dispatch.py
+4/4 checks passed in this script.
+  tests/backend/scan_02_excited_state_scans.py
+64/64 checks passed
+  tests/backend/sec_01_csrf_origin_bypass.py
+2/2 checks passed in this script.
+  tests/backend/sec_02_concurrent_register_race.py
+2/2 checks passed in this script.
+  tests/backend/sec_03_login_rate_limit.py
+4/4 checks passed in this script.
+  tests/backend/sec_04_change_password_session_leak.py
+3/3 checks passed in this script.
+  tests/backend/sec_05_login_timing_oracle.py
+1/1 checks passed in this script.
+  tests/backend/sec_06_ownership_sweep.py
+8/8 checks passed in this script.
+  tests/backend/sec_07_async_ownership_window.py
+4/4 checks passed in this script.
+  tests/backend/sec_08b_delete_user_running_job.py
+4/4 checks passed in this script.
+  tests/backend/sec_08_delete_user_orphaned_files.py
+7/7 checks passed in this script.
+  tests/backend/sec_09_kb_delete_filename_collision.py
+11/11 checks passed in this script.
+  tests/backend/share_01_user_search.py
+15/15 checks passed in this script.
+  tests/backend/share_02_copy_fidelity.py
+17/17 checks passed in this script.
+  tests/backend/share_03_lifecycle.py
+34/34 checks passed in this script.
+  tests/backend/share_04_quota_refusal.py
+8/8 checks passed in this script.
+  tests/backend/share_05_master_and_plots.py
+15/15 checks passed in this script.
+  tests/backend/sniff_01_pasted_inputs.py
+129/129 checks passed
+  tests/backend/spec_01_spectra_overlay.py
+22/22 checks passed in this script.
+  tests/backend/submit_01_confirmation.py
+27/27 checks passed
+  tests/backend/tax_01_v2_specs.py
+36/36 checks passed
+  tests/backend/tax_02_job_rows.py
+21/21 checks passed
+  tests/backend/tddft_01_full_response_default.py
+12/12 checks passed
+  tests/backend/tools_01_no_dead_tool_names.py
+11/11 checks passed
+  tests/backend/trim_01_stable_prefix.py
+15/15 checks passed
+  tests/backend/units_01_energy_conversions.py
+22/22 checks passed in this script.
+  tests/backend/up_01_lifecycle.py
+31/31 checks passed in this script.
+  tests/backend/wig_01_oscillator_strength_requirement.py
+  tests/backend/wig_02_equilibrium_marker.py
+10/10 checks passed in this script.
+  tests/backend/zz_98_thread_cleanup.py
+  9 conversation(s) pre-existed, 13 present now, 4 created by this run
+[PASS] and no conversation that pre-existed the run was destroyed by it -- 0 pre-existing conversation(s) are gone: []
+3/3 checks passed in this script.
+  tests/backend/zz_99_job_cleanup.py
+  8 job(s) pre-existed, 339 present now, 331 created by this run
+[PASS] and nothing that pre-existed the run was destroyed by it -- 0 pre-existing job(s) are gone: []. Something in this run performed a global purge rather than deleting only what it created
+3/3 checks passed in this script.
+  SUMMARY: 141/142 scripts reported all checks passing
+Scripts with at least one FAIL. Every sec_* script is now a

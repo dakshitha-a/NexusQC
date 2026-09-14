@@ -47,6 +47,17 @@ __pycache__/
 .env.bak.*
 *.log
 
+# ...except an evaluation's own evidence logs, which are the record of the run
+# rather than build noise. docs/TRACKER.md's `evidence:` paths point at these
+# directories and the READMEs in them quote numbers a reader is invited to
+# check, so the before/after logs behind those numbers have to be in the
+# repository or the citation goes nowhere. Caught during the 2026-09 fix
+# phase: ninety-six logs had accumulated under
+# docs/evaluation/2026-09-app-review/evidence/ and not one of them was
+# tracked, so every evidence directory in the tracker held only its README.
+# All of them together are under 1.5 MB.
+!docs/evaluation/**/evidence/**/*.log
+
 # Site-specific Docker Compose overrides -- bind-mount paths for the
 # licensed QC engines (ORCA/BAGEL). See docker-compose.override.yml.example.
 docker-compose.override.yml

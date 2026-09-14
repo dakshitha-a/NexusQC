@@ -28,6 +28,29 @@ Sub-tests:
   S2  the cap is per-user: another user is not blocked by it
   S3  cancel kills the real subprocess and reaches "cancelled"
   S4  orphan reconciliation after an api restart
+
+WHY THIS REPORTED 4 OF 10 FOR SO LONG
+--------------------------------------
+The probe was built as `JobSpec(method="casscf", engine="orca", ...)`, with no
+task and no subtype. That is the pre-v2 JobSpec shape, and CLAUDE.md's own
+testing section warns about it by name: a spec with an empty task is accepted
+by `submit()`, reaches dispatch, and dies there with "No runner is wired up for
+/ yet.". Every probe job in every sub-test therefore went straight to `failed`
+without an ORCA process ever starting.
+
+Six of the ten checks are about what happens to a job that is genuinely
+running, so all six failed, and they failed in a way that reads like a resource
+problem: a job that never runs looks exactly like a job the host would not
+admit. The 2026-09 review recorded this as 4 of 10 "downstream of its ORCA
+CASSCF probe reaching failed under host load 12-13" and carried it forward as
+an environment-versus-code question. It was neither. Re-run alone on a stack at
+load 11 it produced the identical 4 of 10, and submitting the same spec by hand
+returned `No runner is wired up for / yet.` in the job's own result.json.
+
+The task and subtype are supplied now. The lesson worth keeping is that an
+empty task fails LATE, at dispatch, rather than at construction, so a script
+that never reads a failed job's error can lose six checks to one missing
+keyword argument and look like an infrastructure report.
 """
 from __future__ import annotations
 
@@ -92,7 +115,8 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
 m = resolve_molecule("water").to_dict()
 mgr = get_job_manager()
 def mk():
-    return JobSpec(method="casscf", engine="orca", molecule=m, params={json.dumps(CAS)})
+    return JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m, params={json.dumps(CAS)})
+t_start = time.time()
 j1 = mgr.submit(mk(), owner_user_id="{uid}")
 time.sleep(3)
 j2 = mgr.submit(mk(), owner_user_id="{uid}")
@@ -102,20 +126,42 @@ out = {{"j1": j1, "j2": j2}}
 # _wait_for_resources only overwrites it with the SPECIFIC reason on its
 # next poll -- so breaking on the first non-empty message reads the
 # placeholder and reports no cap. Skip it and keep waiting for a real one.
+# The TRANSIENT is the measurement, so it is captured at the instant it is
+# seen rather than reconstructed from the end state afterwards. This loop used
+# to break out and then read both jobs' statuses, which is a different question
+# asked seconds later: an ORCA CASSCF(4,4)/STO-3G on water takes about 7 s here
+# (timed 2026-09-13), so by the time the loop was done j1 had finished and the
+# check reported "j1=completed j2=running" whatever the cap had actually done.
+# Polling is also four times a second rather than once, because the whole
+# window this is looking for is only a few seconds wide.
 reason = ""
-for _ in range(40):
+saw_pending_while_first_ran = False
+j1_when_seen = None
+timeline = []
+deadline = time.time() + 60
+while time.time() < deadline:
+    s1 = read_status(j1) or {{}}
     s2 = read_status(j2) or {{}}
-    if s2.get("status") == "pending":
-        msg = s2.get("message") or ""
-        if msg and msg != "queued":
+    st1, st2 = s1.get("status"), s2.get("status")
+    msg = s2.get("message") or ""
+    row = [st1, st2, msg[:90]]
+    if not timeline or timeline[-1][1:] != row:
+        timeline.append([round(time.time() - t_start, 2)] + row)
+    if st2 == "pending" and st1 == "running":
+        saw_pending_while_first_ran = True
+        if j1_when_seen is None:
+            j1_when_seen = st1
+        if msg and msg != "queued" and not reason:
             reason = msg
-            break
-    if s2.get("status") == "running":
+    if st2 in ("running", "completed", "failed", "cancelled"):
         break
-    time.sleep(1)
+    time.sleep(0.25)
 out["j1_status"] = (read_status(j1) or {{}}).get("status")
 out["j2_status"] = (read_status(j2) or {{}}).get("status")
 out["j2_reason"] = reason
+out["saw_pending_while_first_ran"] = saw_pending_while_first_ran
+out["j1_when_j2_seen_pending"] = j1_when_seen
+out["timeline"] = timeline
 for j in (j1, j2):
     try: mgr.cancel(j)
     except Exception as e: out.setdefault("cancel_err", str(e))
@@ -138,9 +184,14 @@ print("@@@" + json.dumps(out))
         res = marker(api_py(code, timeout=900))
         print(f"    j1={res['j1']} {res['j1_status']} | j2={res['j2']} {res['j2_status']}")
         print(f"    j2 reason: {res['j2_reason']!r}")
-        check("S1a the second job was held pending while the first ran",
-              res["j2_status"] == "pending" and res["j1_status"] == "running",
-              f"j1={res['j1_status']} j2={res['j2_status']}")
+        print("    what the cap actually did, as it happened "
+              "(t, j1, j2, j2's message):")
+        for row in res.get("timeline") or []:
+            print(f"      {row}")
+        check("S1a the second job was held pending while the first was running",
+              bool(res.get("saw_pending_while_first_ran")),
+              f"seen pending while j1 ran: {bool(res.get('saw_pending_while_first_ran'))}; "
+              f"end state j1={res['j1_status']} j2={res['j2_status']}")
         reason = (res.get("j2_reason") or "").lower()
         check("S1b the pending reason names the PER-USER JOB SLOT cap, not "
               "generic CPU/memory headroom",
@@ -164,7 +215,7 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
 m = resolve_molecule("water").to_dict()
 mgr = get_job_manager()
 def mk():
-    return JobSpec(method="casscf", engine="orca", molecule=m, params={json.dumps(CAS)})
+    return JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m, params={json.dumps(CAS)})
 a = mgr.submit(mk(), owner_user_id="{uid}")
 time.sleep(3)
 b = mgr.submit(mk(), owner_user_id="{uid2}")
@@ -181,10 +232,18 @@ print("@@@" + json.dumps(out))
         res2 = marker(api_py(code2, timeout=900))
         print(f"    userA job {res2['a']} -> {res2['a_status']}")
         print(f"    userB job {res2['b']} -> {res2['b_status']} ({res2.get('b_reason')!r})")
+        # "not blocked" is the claim, and both `running` and `completed` are
+        # ways of not being blocked. This used to require `running` exactly,
+        # which turned the probe's own speed into a failure: user B's job is
+        # read six seconds after it is submitted and an ORCA CASSCF(4,4)/STO-3G
+        # on water finishes in about seven, so a job that sailed through the
+        # cap and completed was scored the same as one the cap had held. What
+        # a blocked job looks like is `pending`, and that is what this refuses.
+        b_ok = res2["b_status"] in ("running", "completed")
         check("S2 a DIFFERENT user's job is not blocked by user A's per-user cap",
-              res2["b_status"] == "running",
+              b_ok,
               f"userB job is {res2['b_status']}: {res2.get('b_reason')!r}")
-        record("S2", "PASS" if res2["b_status"] == "running" else "FAIL", **res2)
+        record("S2", "PASS" if b_ok else "FAIL", **res2)
         cleanup_user(admin, uid2)
 
         # ------------------------------------------------------------ S3
@@ -196,7 +255,7 @@ from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status, read_meta
 m = resolve_molecule("water").to_dict()
 mgr = get_job_manager()
-j = mgr.submit(JobSpec(method="casscf", engine="orca", molecule=m,
+j = mgr.submit(JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m,
                        params={json.dumps(CAS)}), owner_user_id="{uid}")
 for _ in range(30):
     if (read_status(j) or {{}}).get("status") == "running":
@@ -236,7 +295,7 @@ from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
 m = resolve_molecule("water").to_dict()
 mgr = get_job_manager()
-j = mgr.submit(JobSpec(method="casscf", engine="orca", molecule=m,
+j = mgr.submit(JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m,
                        params={json.dumps(CAS)}), owner_user_id="{uid}")
 for _ in range(30):
     if (read_status(j) or {{}}).get("status") == "running":

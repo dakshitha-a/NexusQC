@@ -3,15 +3,25 @@
 # (see tests/README.md for bring-up steps), aggregating PASS/FAIL and
 # exiting non-zero if any script reports a failure.
 #
-# Four scripts are deliberately EXCLUDED from this default run and must be
+# Five scripts are deliberately EXCLUDED from this default run and must be
 # invoked explicitly:
 #
 #   python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py
 #   python3 tests/backend/p1_07_purge_status_source.py
 #   python3 tests/backend/p1_03_admin_config_purge_audit.py
 #   python3 tests/backend/perf_02_admin_storage_latency.py
+#   python3 tests/backend/perf_10_api_memory_settle.py
 #
 # sec_10 is isolated/opt-in; see its own docstring for why.
+#
+# perf_10 is excluded for a different reason from the other three: it is not
+# destructive, it is incompatible with a suite. It RESTARTS the api container
+# to start its measurement from a known floor, which would pull the process
+# out from under whatever else the suite is doing, and it then runs four
+# passes of a fixed load with an idle period in the middle, which takes the
+# better part of an hour. It also cannot measure what it exists to measure
+# with other scripts driving the same process. Run it on its own, on a stack
+# nobody is using.
 #
 # The other three call POST /api/admin/purge/jobs, which is purge_all_jobs: it
 # destroys EVERY job on the stack, not only the ones the suite created. On
@@ -57,7 +67,8 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' \
     ! -name 'sec_10_*' ! -name 'p1_07_*' \
-    ! -name 'p1_03_*' ! -name 'perf_02_admin_storage_latency.py' | sort)
+    ! -name 'p1_03_*' ! -name 'perf_02_admin_storage_latency.py' \
+    ! -name 'perf_10_api_memory_settle.py' | sort)
 
 n_total=0
 n_failed=0
