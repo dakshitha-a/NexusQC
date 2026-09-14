@@ -116,6 +116,7 @@ in-app reports).
 
 ## Phase 3: Release
 
-- [todo] P3.1: Dry run shown to the user, re-run after Phase 2B changed release.sh
+- [done] P3.1: Dry run shown to the user, re-run after Phase 2B changed release.sh
+  evidence: scripts/release.sh → "--dry-run at 5c61b3c: ten gates green, the two-commit placeholder recognised, the history scan clean over all 798 commits (content and author emails), and the announcement plan: 147,857-byte notes to be cut at 100,000 with a link, no public issues referenced, no closing keywords; would publish v1.1.0 to the public remote"
 - [todo] P3.2: Live release on the user's go
 - [todo] P3.3: Verify the public remote, rebuild the dev stack, clear the handoff
