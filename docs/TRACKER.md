@@ -88,6 +88,7 @@ Decisions the user made on 2026-09-14, recorded so they are not re-asked:
 
 ## Phase 3: Release
 
-- [todo] P3.1: Dry run shown to the user
+- [done] P3.1: Dry run shown to the user
+  evidence: scripts/release.sh → "--dry-run against the real remotes: ten gates green, the two-commit placeholder recognised, the history scan over every commit clean, would publish v1.1.0; the public repository has no branch protection or rules and the token has push; the three release-gated handoff entries were cleared because their decisions are now made"
 - [todo] P3.2: Live release on the user's go
 - [todo] P3.3: Verify the public remote, rebuild the dev stack, clear the handoff
