@@ -1,0 +1,23 @@
+#  02:02:04 up 295 days,  2:56,  6 users,  load average: 48.80, 41.73, 38.82
+
+Checking model: qwen3.8:27b
+
+[PASS] the model emits tool calls at all -- tools called: ['set_geometry']
+[PASS] pyscf: the request reaches an approval card -- single_point
+[PASS] pyscf: the card names the engine that was asked for -- card engine='pyscf'
+[PASS] pyscf: the job completed -- completed
+[PASS] pyscf: the agent reports the number the job produced -- result.json has -74.96444910599566
+[PASS] orca: the request reaches an approval card -- single_point
+[PASS] orca: the card names the engine that was asked for -- card engine='orca'
+[PASS] orca: the job completed -- completed
+[PASS] orca: the agent reports the number the job produced -- result.json has -75.960123319126
+[PASS] the missing basis is either asked for or flagged on the card as something nobody said -- asked
+[PASS] the missing active space is either asked for or flagged on the card as something nobody said -- asked
+[PASS] reports the value on disk, not the one it expects -- artifact was set to +12.3456 hartree
+[PASS] says a value is absent instead of inventing one -- single point has no frequencies
+
+cleaned up 2 job(s)
+
+Model checked: qwen3.8:27b
+
+13/13 checks passed in this script.

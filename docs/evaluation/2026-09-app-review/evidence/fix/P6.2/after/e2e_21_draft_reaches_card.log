@@ -1,0 +1,30 @@
+#  02:14:44 up 295 days,  3:09,  6 users,  load average: 38.89, 38.38, 38.41
+
+  M-wigner (e2e_19, 0/3 deterministic): 3/3 reached the approval card, 0 asked the user a question, 0 ended silently
+    1:card; 2:card; 3:card
+[PASS] M-wigner (e2e_19, 0/3 deterministic): no fresh thread ended without a card or a question -- 0 of 3 silent; 1:card; 2:card; 3:card
+[PASS] M-wigner (e2e_19, 0/3 deterministic): every fresh thread reached the approval card -- 3/3 carded, 0 asked; 1:card; 2:card; 3:card
+
+  M13-M17 (excited-state single point, flaky 1-2/3): 3/3 reached the approval card, 0 asked the user a question, 0 ended silently
+    1:card; 2:card; 3:card
+[PASS] M13-M17 (excited-state single point, flaky 1-2/3): no fresh thread ended without a card or a question -- 0 of 3 silent; 1:card; 2:card; 3:card
+[PASS] M13-M17 (excited-state single point, flaky 1-2/3): every fresh thread reached the approval card -- 3/3 carded, 0 asked; 1:card; 2:card; 3:card
+
+  M26 (cas_reco, flaky): 3/3 reached the approval card, 0 asked the user a question, 0 ended silently
+    1:card; 2:card; 3:card
+[PASS] M26 (cas_reco, flaky): no fresh thread ended without a card or a question -- 0 of 3 silent; 1:card; 2:card; 3:card
+[PASS] M26 (cas_reco, flaky): every fresh thread reached the approval card -- 3/3 carded, 0 asked; 1:card; 2:card; 3:card
+
+  M34 (conical intersection optimisation on BAGEL, flaky): 3/3 reached the approval card, 0 asked the user a question, 0 ended silently
+    1:card; 2:card; 3:card
+[PASS] M34 (conical intersection optimisation on BAGEL, flaky): no fresh thread ended without a card or a question -- 0 of 3 silent; 1:card; 2:card; 3:card
+[PASS] M34 (conical intersection optimisation on BAGEL, flaky): every fresh thread reached the approval card -- 3/3 carded, 0 asked; 1:card; 2:card; 3:card
+
+  M37 (optimisation plus frequencies on BAGEL, flaky): 3/3 reached the approval card, 0 asked the user a question, 0 ended silently
+    1:card; 2:card; 3:card
+[PASS] M37 (optimisation plus frequencies on BAGEL, flaky): no fresh thread ended without a card or a question -- 0 of 3 silent; 1:card; 2:card; 3:card
+[PASS] M37 (optimisation plus frequencies on BAGEL, flaky): every fresh thread reached the approval card -- 3/3 carded, 0 asked; 1:card; 2:card; 3:card
+
+RESULT R-101 across 5 families, 15 fresh threads: 15 reached the approval card, 0 ended by asking the user for something, 0 ended with neither.
+
+10/10 checks passed in this script.

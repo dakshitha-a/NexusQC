@@ -1,0 +1,27 @@
+#  02:09:29 up 295 days,  3:04,  6 users,  load average: 35.78, 38.41, 38.40
+[PASS] A7 POST /approvals/job returns 409 when no approval is pending -- 409 {"detail":"No job approval is pending on this conversation."}
+[PASS] A1a a PySCF single_point request produced an approval card
+[PASS] A1b the graph genuinely PAUSED (interrupt is readable from state)
+[PASS] A1c the card carries the input preview the human is shown
+[PASS] A1d the card carries KB manual grounding (mechanical, every submit_draft) -- kb_context len=353
+[PASS] [XN-06] No hand-edit textarea on a PySCF approval card -- read-only <pre> instead. _EDITABLE_ENGIN -- frontend renders read-only <pre> for this engine
+[PASS] A1e approval created exactly one job -- ['ae932aae81c2']
+[PASS] A1f the approved job completed -- None
+[PASS] A1g what ran matches what was approved (method+engine) -- approved=hf/pyscf ran=hf/pyscf
+[PASS] A1h the job that ran carries the SAME id as the approved spec (the re-executed spec is discarded, not submitted) -- approved=ae932aae81c2 ran=ae932aae81c2
+[PASS] A2a reject scenario produced an approval card
+[PASS] A2b rejecting created NO job -- 6 -> 6
+[PASS] A2c the interrupt is cleared after a rejection
+[PASS] A2d the tool reported the non-approval back to the model -- declined by the user: the 'single_point' draft was not run and nothing was queued. the user has already been shown a message saying so and asking what they would like to change, so do not ask again an
+[PASS] A6a tamper scenario produced an approval card
+[PASS] A6b a body carrying an extra `spec` key is accepted without error (the field simply is not in JobApprovalIn) -- 200 {"resumed":true}
+[PASS] A6c the ORIGINAL spec ran -- a client cannot substitute a spec -- ran method=hf (tampered asked for casscf)
+[PASS] A3a an ORCA request produced an approval card
+[PASS] A3b ORCA card carries editable input text
+[PASS] A4a a structurally invalid hand-edit is rejected -- 400 {"detail":"The edited orca input was not run: 1 '%...' block(s) appear unterminated (missing a closing 'end' line)."}
+[PASS] A4b the interrupt STAYS pending after an invalid edit, so the user can fix it and retry
+[PASS] A3c a valid hand-edit is accepted -- 200 {"resumed":true}
+[PASS] A3d the edited text was used BYTE-IDENTICALLY, not regenerated -- raw_input status=200, marker present, job status=completed
+[PASS] A3e the hand-edited job reached a terminal state -- completed
+
+24/24 checks passed in this script.

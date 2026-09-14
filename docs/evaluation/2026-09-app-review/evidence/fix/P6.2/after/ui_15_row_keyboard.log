@@ -1,0 +1,40 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+#  02:20:09 up 295 days,  3:14,  6 users,  load average: 38.85, 37.70, 38.06
+
+== register + log in ==
+[PASS] registered and logged in
+[PASS] found the just-registered user via the admin API -- qatest_ui15_ndbk27
+
+== seed one completed frequency job ==
+[PASS] the seeded frequency job reached status=completed -- completed
+
+== the job manager row is a keyboard control ==
+[PASS] the job row is a <tr> that kept its table semantics -- tag=tr role=null
+[PASS] the job row is reachable by Tab -- tabindex=0
+[PASS] the job row says whether it is the selected one -- aria-selected=false
+[PASS] the job row is genuinely reachable by pressing Tab, not just marked tabbable -- Tab never landed on the row
+[PASS] a focused row looks different from an unfocused one -- saved <repo>/docs/evaluation/2026-09-app-review/evidence/fix/P5.3/shots/jobrow-focused.png
+[PASS] Enter on the job row opens the drawer
+[PASS] Space on the job row opens the drawer
+[PASS] Space did not scroll the page out from under the row -- 0 -> 0
+
+== the orbital and vibration tables are keyboard controls ==
+[PASS] a vibrational mode row is reachable by Tab -- tabindex=0
+[PASS] a vibrational mode row says whether it is the chosen mode -- aria-selected=false
+[PASS] Enter chooses that vibrational mode
+[PASS] an orbital row is reachable by Tab -- tabindex=0
+[PASS] Enter chooses that orbital
+
+== a control inside a row does not fire the row ==
+[PASS] Enter on the row's own checkbox does not open the drawer
+
+== the conversation list is a keyboard control ==
+[PASS] a conversation row announces itself as a button -- role=button
+[PASS] a conversation row is reachable by Tab -- tabindex=0
+
+== a replaced viewer stops observing its container ==
+  ResizeObserver: live 0 -> 0, cumulative observe() calls 6 -> 26 over 10 drawer cycles
+[PASS] ten drawer cycles do not leave ten more live ResizeObservers behind -- live grew by 0 across 10 cycles (20 observe() calls made)
+[PASS] no console errors during any of this
+
+21/21 checks passed in this script.

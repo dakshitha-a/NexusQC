@@ -1,0 +1,21 @@
+#  02:31:33 up 295 days,  3:26,  6 users,  load average: 39.16, 37.24, 37.54
+[PASS] expired invite token is rejected -- 400 {"detail":"invite token has expired"}
+[PASS] already-redeemed invite token is rejected on a second use -- 400 {"detail":"invalid or already-used invite token"}
+[PASS] malformed email 'not-an-email' rejected -- 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"Value error, invalid email address","input":"not-an-email
+[PASS] malformed email 'a@b' rejected -- 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"Value error, invalid email address","input":"a@b","ctx":{
+[PASS] malformed email '@nodomain.com' rejected -- 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"Value error, invalid email address","input":"@nodomain.co
+[PASS] malformed email 'spaces in@email.com' rejected -- 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"Value error, invalid email address","input":"spaces in@em
+[PASS] malformed email '' rejected -- 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"Value error, invalid email address","input":"","ctx":{"er
+[PASS] invalid username 'ab' rejected -- 422
+[PASS] invalid username 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' rejected -- 422
+[PASS] invalid username 'has spaces' rejected -- 422
+[PASS] invalid username 'has/slash' rejected -- 422
+[PASS] invalid username 'semi;colon' rejected -- 422
+[PASS] boundary-length valid username (3 chars) accepted -- 200 {"id":"1cab8984-9020-4ea3-be82-b351d2ef0ab3","email":"7os@example.test","username":"7os","role":"user"}
+[PASS] boundary-length valid username (32 chars) accepted -- 200 {"id":"f1868db1-d9f1-4840-8fb1-b17c2c997956","email":"q80rj9ybf3rodi5uijxhdvakmml9idly@example.test","username":"q80rj9ybf3rodi5uijxhdvakmml9idly","ro
+[PASS] 7-character password rejected -- 422
+[PASS] 8-character password accepted -- 200 {"id":"df46206c-37c6-49b4-a9b6-395b67d2e07a","email":"qatest_xxy9g562@example.test","username":"qatest_xxy9g562","role":"user"}
+[PASS] first registration with a fresh email succeeds
+[PASS] second registration with the SAME email (different token) is cleanly rejected -- 400 {"detail":"email or username already registered"}
+
+18/18 checks passed in this script.

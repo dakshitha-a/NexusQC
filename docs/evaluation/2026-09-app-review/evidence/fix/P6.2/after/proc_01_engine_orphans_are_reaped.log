@@ -1,0 +1,9 @@
+#  02:00:38 up 295 days,  2:55,  8 users,  load average: 38.06, 38.23, 37.52
+[PASS] tini is PID 1 of the api container, so orphaned engine processes have something to reap them (docker-compose.yml's `init: true` on the api service) -- PID 1 is 'docker-init'; if that is the app itself then nothing reaps what ORCA leaves behind
+zombies in the api container before: 0
+submitted and cancelled 3 ORCA job(s): ['completed', 'cancelled', 'cancelled']
+[PASS] all 3 probe job(s) reached 'running' before being cancelled, so ORCA's own child processes existed to be orphaned -- reached running: [True, True, True], final states ['completed', 'cancelled', 'cancelled']
+zombies in the api container after:  0
+[PASS] cancelling 3 running ORCA job(s) leaves no zombie processes behind (before 0, after 0, tolerance 3) -- 0 new zombie(s); a cancelled ORCA run leaves about three when nothing reaps them
+
+3/3 checks passed in this script.

@@ -134,8 +134,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.5 → "all 33 unpinned requirements pinned to what the working image runs, taken with pip freeze inside the running api container"
 - [done] P2.6: R-026, R-062, R-092 - deployment docs that run as printed
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.6 → "the bootstrap command passes all four required arguments, the cron line creates its own log directory, every curl example passes -k, the pointer to the deleted docker-compose.dev.yml is gone, two status rows describing removed features are gone, and nginx.conf's header stops describing a listener and a kill switch that were deleted in August"
-- [todo] P2.7: Advance the stack on the fixed scripts, verify, push
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P2.7
+- [done] P2.7: Advance the stack on the fixed scripts, verify, push
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "folded into the merged gate; P3.12's README records the decision and the run it voided"
 - merged:
 
 ## Phase 3: S2 reliability and correctness
@@ -162,8 +162,8 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.10 → "R-027, R-068, R-069, R-094 and R-095; fe_01 3/21 before and 21/21 after"
 - [done] P3.11: R-101 - a ready draft raises its card mechanically
   evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.11 → "R-101; agent_02 29/31 before and 36/36 after, a complete draft now raising its own approval card"
-- [todo] P3.12: Gate 2 - advance, four suites, live re-checks
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12
+- [done] P3.12: Gate 2 - advance, four suites, live re-checks
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P3.12 → "merged into the single gate at P6.2: the stack sat on one commit through Phases 2 to 5, so running the same four suites three times would have measured the same thing three times"
 - merged:
 
 ## Phase 4: Settle, then fix
@@ -196,12 +196,12 @@ Three decisions the user made on 2026-09-13, recorded so they are not re-asked:
 
 ## Phase 6: Close
 
-- [todo] P6.1: The docs sweep and the doc-claims re-walk
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.1
-- [todo] P6.2: Gate 3 - advance, four suites, tear down the test accounts
-  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.2
-- [todo] P6.3: resolution.md, published, and the backlog updated
-  evidence: docs/evaluation/2026-09-app-review/resolution.md
+- [done] P6.1: The docs sweep and the doc-claims re-walk
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.1 → "17 of 17 code-falsifiable documentation claims now hold, against 16 of 17 before; recheck_doc_claims.py tests each assertion rather than grepping for a string, which is what made three of them false failures"
+- [done] P6.2: Gate 3 - advance, four suites, tear down the test accounts
+  evidence: docs/evaluation/2026-09-app-review/evidence/fix/P6.2 → "backend 158/165, e2e 13/18, frontend 38/44, e2e UI 5/9; R-101 measured at 15 of 15 fresh threads reaching the card and ui_10 at 21/21; three real defects found and fixed, thirteen stale checks corrected, two-sided cleanup diff +0 -0"
+- [done] P6.3: resolution.md, published, and the backlog updated
+  evidence: docs/evaluation/2026-09-app-review/resolution.md → "102 of 102 findings carry an outcome: 100 fixed, 2 not reproduced with the measurement that says so; BACKLOG's Open section rewritten with seven entries, each naming its next experiment, and the ui_10 entry closed"
 - [todo] P6.4: Changelog, handoff, push, republish
   evidence: CHANGELOG.md
 - merged:

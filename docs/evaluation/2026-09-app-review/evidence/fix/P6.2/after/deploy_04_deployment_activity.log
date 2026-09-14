@@ -1,0 +1,27 @@
+#  02:22:19 up 295 days,  3:17,  6 users,  load average: 36.39, 37.34, 37.89
+[PASS] GET /api/version answers without a session -- 200 {"commit":"f6381d0b5d3586763d741d8f663c3c7f24c6c7b5"}
+[PASS] /api/version reports a commit field -- 'f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
+[PASS] GET /api/admin/deployment answers for an admin -- 200 {"api_commit":"f6381d0b5d3586763d741d8f663c3c7f24c6c7b5","api_commit_known":true,"runner":{"installed":false,"alive":false,"last_seen":null},"history"
+[PASS] the deployment route and /api/version report the same commit -- deployment='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5' version='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
+[PASS] api_commit_known agrees with whether the commit is a real sha -- known=True commit='f6381d0b5d3586763d741d8f663c3c7f24c6c7b5'
+[PASS] a known commit is a full 40-character sha, not a truncated one -- f6381d0b5d3586763d741d8f663c3c7f24c6c7b5
+[PASS] GET /api/admin/activity answers for an admin -- 200 {"users":[{"id":"47ba5ff5-ff44-4a22-ab4d-b603419fe56d","username":"dakshitha","email":"dakshitha-a@users.noreply.github.com","role":"admin","is_active":true,"last_login
+[PASS] activity carries a 'users' block -- totalsunownedusers
+[PASS] activity carries a 'unowned' block -- totalsunownedusers
+[PASS] activity carries a 'totals' block -- totalsunownedusers
+[PASS] totals['running_jobs'] equals the sum of the rows plus the unowned count -- total=0 rows=0 unowned=0
+[PASS] totals['pending_jobs'] equals the sum of the rows plus the unowned count -- total=0 rows=0 unowned=0
+[PASS] totals['open_streams'] equals the sum of the rows plus the unowned count -- total=0 rows=0 unowned=0
+[PASS] users_interrupted counts exactly the rows flagged would_be_interrupted -- total=0
+[PASS] would_be_interrupted is true for a row if and only if it has a running job or an open stream -- one or more rows disagree with their own counts
+[PASS] the admin running this script appears in the user list -- 17 rows, roles=['admin', 'user']
+[PASS] an admin user id was found to attribute a job to -- 47ba5ff5-ff44-4a22-ab4d-b603419fe56d
+[PASS] a running job owned by the admin was staged -- rc=0 id='qatest623cb1' 
+[PASS] the staged job is counted against its owner's row -- row running_jobs=1
+[PASS] and it is not double-counted into the unowned bucket -- unowned running=0
+[PASS] its owner is therefore flagged as one an update would interrupt -- would_be_interrupted=True
+[PASS] and the totals moved with it -- totals={'running_jobs': 1, 'pending_jobs': 0, 'open_streams': 0, 'users_interrupted': 1, 'others_interrupted': 1}
+[PASS] the staged job was removed again
+[PASS] and the deployment reads as idle again once it is gone -- totals={'running_jobs': 0, 'pending_jobs': 0, 'open_streams': 0, 'users_interrupted': 0, 'others_interrupted': 0}
+
+24/24 checks passed in this script.

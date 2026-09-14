@@ -1,0 +1,24 @@
+#  02:04:55 up 295 days,  2:59,  6 users,  load average: 41.25, 40.99, 39.00
+=== Non-job tools ===
+
+[PASS] T01 set_geometry by common name -- 1/1; tools=['set_geometry']
+[PASS] T02 set_geometry by SMILES -- 1/1; tools=['set_geometry']
+[PASS] T03 a draft shows its input WITHOUT submitting it -- 1/1; tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[PASS] T04 the manuals source is used for manual syntax questions -- 1/1; tools=['search', 'search', 'search', 'search', 'search', 'search', 'search']
+[PASS] T05 the scholar source is used for a literature question -- 1/1; tools=['search']
+[PASS] T06 the web source is used for a current-events question -- 1/1; tools=['search', 'search']
+
+=== Required-param elicitation (agent must ASK, never guess) ===
+
+[PASS] E01 no basis given -> elicit, do not guess -- 1/1; tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'start_job_draft']
+[PASS] E02 no active space given -> elicit, do not guess -- 1/1; tools=['set_geometry', 'start_job_draft']
+[PASS] E03 no n_states given -> elicit -- 1/1; tools=['set_geometry', 'start_job_draft', 'update_job_draft', 'update_job_draft']
+
+=== Disallowed task/engine pairings must be refused ===
+
+[PASS] D01 single_point/gs on orca is refused -- ORCA has no CASPT2 at all -- it has NEVPT2 -- tools=['set_geometry', 'lookup_capabilities', 'lookup_capabilities', 'lookup_capabilities', 'lookup_capabilities'] refusal_seen=True pending_engine=None
+[PASS] D02 single_point/gs on pyscf is refused -- tools=['set_geometry', 'start_job_draft', 'update_job_draft'] refusal_seen=True pending_engine=None
+[PASS] D03 neb_ts on pyscf is refused -- PySCF has no native NEB and this app doesn't build one -- tools=['start_job_draft', 'set_geometry', 'update_job_draft', 'update_job_draft'] refusal_seen=False pending_engine=None
+[PASS] D04 neb_ts on bagel is refused -- tools=['set_geometry', 'lookup_capabilities'] refusal_seen=False pending_engine=None
+
+13/13 checks passed in this script.

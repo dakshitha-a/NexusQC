@@ -11,6 +11,7 @@ isolates each attempt from the others.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,14 +39,32 @@ def _try_register(token, email=None, username=None, password="a valid password 1
     )
 
 
+_COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _expire_invite(token: str) -> None:
+    """Backdates an invite token's expiry in place."""
+    subprocess.run(
+        ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "qc_agent",
+         "-d", "qc_agent", "-c",
+         f"UPDATE invite_tokens SET expires_at = now() - interval '1 hour' "
+         f"WHERE token = '{token}';"],
+        cwd=str(_COMPOSE_DIR), capture_output=True, check=False,
+    )
+
+
 def main() -> None:
     admin = admin_client()
 
-    # Expired invite
-    r = admin.post("/api/admin/invites", json={"role": "user", "ttl_hours": 0})
+    # Expired invite. Minted at the shortest lifetime the route will accept
+    # and then backdated in the database, because R-089 floored `ttl_hours` at
+    # 1 and there is no longer any way to ask the API for an already-dead
+    # token. This used to pass 0 and take the 400 that bound now returns, which
+    # crashed the script before its first check; p1_08_password_reset.py has
+    # had the same helper since the same bound landed on the reset route.
+    r = admin.post("/api/admin/invites", json={"role": "user", "ttl_hours": 1})
     r.raise_for_status()
-    import time
-    time.sleep(1)
+    _expire_invite(r.json()["token"])
     r_expired = _try_register(r.json()["token"])
     check("expired invite token is rejected", r_expired.status_code == 400, f"{r_expired.status_code} {r_expired.text[:150]}")
 

@@ -116,10 +116,29 @@ m = resolve_molecule("water").to_dict()
 mgr = get_job_manager()
 def mk():
     return JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m, params={json.dumps(CAS)})
+# Queue BOTH jobs before the dispatcher may admit either, then let it go.
+#
+# Without this the test measures the probe's runtime rather than the cap. An
+# ORCA CASSCF(4,4)/STO-3G on water takes about 7 s here, and on a loaded host
+# `submit` itself can take several, so the first job could finish before the
+# second was even submitted: the gate run at load 40 recorded its first
+# observation at t=14.5 s with j1 already completed and j2 running, and the
+# cap had had no occasion to hold anything. perf_04_fair_scheduling.py holds
+# admission the same way and for the same reason.
+#
+# The block-reason callback is swapped rather than the configured cap lowered,
+# because the cap is read through Postgres with its own caching and "the cap
+# is now 0" is not a synchronous fact, while restoring a callback is.
+sched = mgr._scheduler
+_real_block_reason = sched._block_reason
+sched._block_reason = lambda job_id, in_flight: "held while this test queues both jobs"
+try:
+    j1 = mgr.submit(mk(), owner_user_id="{uid}")
+    j2 = mgr.submit(mk(), owner_user_id="{uid}")
+finally:
+    sched._block_reason = _real_block_reason
 t_start = time.time()
-j1 = mgr.submit(mk(), owner_user_id="{uid}")
-time.sleep(3)
-j2 = mgr.submit(mk(), owner_user_id="{uid}")
+sched.wake()
 out = {{"j1": j1, "j2": j2}}
 # watch for job2 to report WHY it is waiting
 # submit() writes a generic "queued" placeholder immediately, and

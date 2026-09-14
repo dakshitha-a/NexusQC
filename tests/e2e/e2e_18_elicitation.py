@@ -172,7 +172,8 @@ def main() -> None:
             check("E18-15 the card shows the input that would run",
                   bool(pending.get("input_preview")),
                   f"input_preview length={len(pending.get('input_preview') or '')}")
-        record_turn("E18-10", "PASS" if pending else "FAIL", t5)
+        record_turn("E18-10", "PASS" if pending else "FAIL",
+                    t5 if not carded_on_the_answer else t4)
     finally:
         session.close()
 

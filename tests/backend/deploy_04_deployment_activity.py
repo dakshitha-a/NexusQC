@@ -212,7 +212,16 @@ def main() -> None:
         )
         check("the staged job was removed again", rc == 0, err[-160:])
 
+        # Poll on the way down too, for the same reason as on the way up: the
+        # index is rebuilt at most once a second and the staged job was
+        # removed by a separate process, so the route can still be reporting
+        # it for up to that long. Reading once here left the check asserting
+        # the cache's age rather than the removal.
+        deadline = time.time() + 3.0
         after = admin.get("/api/admin/activity").json()
+        while time.time() < deadline and after["totals"]["running_jobs"] != 0:
+            time.sleep(0.25)
+            after = admin.get("/api/admin/activity").json()
         check(
             "and the deployment reads as idle again once it is gone",
             after["totals"]["running_jobs"] == 0,

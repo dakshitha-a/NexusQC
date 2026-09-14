@@ -1,0 +1,44 @@
+#  02:19:09 up 295 days,  3:13,  6 users,  load average: 36.20, 37.15, 37.92
+[PASS] both accounts registered and logged in
+[PASS] the left rail has a Shared with me section
+[PASS] it starts collapsed, like the other rail sections
+[PASS] an empty inbox says so
+[PASS] no pending badge when there is nothing pending
+[06:19:12] SMILES Parse Error: syntax error while parsing: water
+[06:19:12] SMILES Parse Error: check for mistakes around position 1:
+[06:19:12] water
+[06:19:12] ^
+[06:19:12] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[06:19:20] SMILES Parse Error: syntax error while parsing: water
+[06:19:20] SMILES Parse Error: check for mistakes around position 1:
+[06:19:20] water
+[06:19:20] ^
+[06:19:20] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[06:19:30] SMILES Parse Error: syntax error while parsing: water
+[06:19:30] SMILES Parse Error: check for mistakes around position 1:
+[06:19:30] water
+[06:19:30] ^
+[06:19:30] SMILES Parse Error: Failed parsing SMILES 'water' for input: 'water'
+[PASS] Alice's three jobs are in her job manager
+[PASS] the share dialog says a copy is what gets sent
+[PASS] a colleague is findable by surname, not only by username
+[PASS] the picker shows a human name -- Grace Hopper qatest_389evhml
+[PASS] the picker does not show an email address -- Grace Hopper qatest_389evhml
+[PASS] the offer is sent
+[PASS] a pending count appears in Bob's rail
+[PASS] the offer names the sender -- water SP HF/sto-3g (PYSCF) | Job | · | from qatest_5g7q0j8r | · | 6.2 kB | “the sto-3g one” | Accept | Decline
+[PASS] the offer shows how much space it would take
+[PASS] the offer carries the note
+   Bob's job list holds 5 row(s) before any offer is answered
+[PASS] Bob can read his own job list before any offer is answered -- 5 job(s)
+[PASS] accepting puts a copy in Bob's job manager
+[PASS] the copy is badged with who sent it -- from qatest_5g7q0j8r
+[PASS] the copy has its own job id, not the sender's -- 1d034d6ba239 -> ca94460e0982
+[PASS] the inbox is quiet again
+[PASS] declining copies nothing -- 6 job(s) against a baseline of 5 plus the one accepted copy
+[PASS] Alice's outbox shows the unanswered offer
+[PASS] a withdrawn offer disappears from the recipient's inbox
+[PASS] Bob's copy survives Alice deleting her original -- GET /api/jobs/ca94460e0982 -> 200
+[PASS] no console or page errors during the whole workflow
+
+25/25 checks passed in this script.

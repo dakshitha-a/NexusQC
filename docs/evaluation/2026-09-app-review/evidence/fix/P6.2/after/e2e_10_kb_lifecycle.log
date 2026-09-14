@@ -1,0 +1,40 @@
+#  02:10:47 up 295 days,  3:05,  6 users,  load average: 37.45, 38.50, 38.45
+=== K1: file upload -> list -> content ===
+
+[PASS] K1a upload accepted -- 201 {"source":"e2e_zorblatt_notes.txt","doc_type":"paper","n_chunks":1}
+[PASS] K1b upload reports chunks ingested -- {"source":"e2e_zorblatt_notes.txt","doc_type":"paper","n_chunks":1}
+[PASS] K1c the source appears in the owner's listing -- 1 matches
+[PASS] K1d the raw source content is retrievable by its owner -- status=200
+[PASS] K1e the uploaded file is on disk under the owner's directory -- ['e2e_zorblatt_notes.txt']
+
+=== K3: rejected file extension ===
+
+[PASS] K3 a disallowed extension is rejected (allowed: .pdf .txt .md .docx) -- 400 {"detail":"Unsupported file type '.exe' -- only PDF, TXT, MD, and DOCX files are accepted"}
+
+=== K2: text-paste ingest route ===
+
+[PASS] K2 POST /api/kb/sources/text ingests pasted text -- 201 {"source":"e2e_pasted_note.txt","doc_type":"paper","n_chunks":1}
+
+=== K4: per-user scoping ===
+
+[PASS] K4a user B does NOT see user A's upload -- B sees 211 sources
+[PASS] K4b user B DOES see the shared pre-seeded manual corpus -- 211 shared sources visible to B
+[PASS] K4c user B cannot fetch user A's source content -- status=404
+
+=== K5: the agent's own search reaches the caller's upload ===
+
+[PASS] K5a the agent searched the knowledge base -- tools=['search', 'search']
+[PASS] K5b user A's OWN upload was reachable through the tool (owner scoping is threaded into the tool, not just the REST list) -- [contents__modelchemistries__dispersioncorrections.html.txt]\x0a%method\x0a  D3S6     1.000\x0a  D3RS6    1.094\x0a  D3S8     1.682\x0a  D3alpha6 14\x0aend\x0aFor some functionals, there are also special parameters, which were optimized for use with the def2-TZVPP triple
+[PASS] K5c user B's identical search does NOT surface user A's private upload -- [contents__modelchemistries__dispersioncorrections.html.txt]\x0a%method\x0a  D3S6     1.000\x0a  D3RS6    1.094\x0a  D3S8     1.682\x0a  D3alpha6 14\x0aend\x0aFor some functionals, there are also special parameters, which were optimized for use with the def2-TZVPP triple
+
+=== K6: DELETE a source -- chunks AND the file on disk ===
+
+[PASS] K6a DELETE returns 200 and reports deleted chunks -- 200 {"deleted_chunks":1}
+[PASS] K6b the source is gone from the listing
+[PASS] K6c [F-001] the RAW UPLOADED FILE is also removed from disk -- before=['e2e_pasted_note.txt', 'e2e_zorblatt_notes.txt'] after=['e2e_pasted_note.txt'] -- an orphaned file here is unreachable by every cleanup path in the app, since both _kb_candidates() and _kb_usage_by_owner() enumerate from Chroma
+
+=== K7: deleting the owning user reclaims their KB files ===
+
+[PASS] K7 deleting a user removes their remaining KB uploads from disk -- before=['e2e_pasted_note.txt'] after=[]
+
+17/17 checks passed in this script.

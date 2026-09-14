@@ -1,0 +1,14 @@
+#  02:01:50 up 295 days,  2:56,  8 users,  load average: 51.14, 41.81, 38.80
+recommendation 30eea69c3193: completed
+refinement     b07335a8083f: completed
+quick space had 6 orbitals; refined to CAS(8, 6)
+natural occupations: [1.9986, 1.992, 1.6009, 1.6, 0.4078, 0.4009]
+orbital characters:  ['sigma', 'sigma', 'n', 'pi', 'sigma*', 'sigma*']
+stopped because: the prune was rejected and undone: the ground state rose 18.9 mHartree (0.51 eV), past the 5 mHartree tolerance -- the orbitals were carrying correlation their occupations understated
+[PASS] the recommendation completed -- completed
+[PASS] the refinement completed -- completed
+[PASS] the refined active space has at least two orbitals, since one orbital holds a single determinant and is not a multireference space at all -- refined to CAS(8, 6) with occupations [1.9986, 1.992, 1.6009, 1.6, 0.4078, 0.4009]
+[PASS] there is one natural occupation per active orbital, so the table describes the space the summary claims -- 6 occupations for 6 orbitals
+[PASS] at least one occupation is below 1.99, so the space has something to correlate rather than merely having two orbitals in it -- occupations [1.9986, 1.992, 1.6009, 1.6, 0.4078, 0.4009]
+
+5/5 checks passed in this script.

@@ -1,0 +1,18 @@
+#  02:01:01 up 295 days,  2:55,  8 users,  load average: 40.17, 38.70, 37.69
+user A: job 7983a1d4e3db
+[PASS] user A can upload a geometry file -- 201 {"id":"5a3aa9fd7357","original_name":"dz01.xyz","extension":".xyz","size_bytes":11,"uploaded_at":1789365670.577612,"sniff":{"n_geometries":1,"kind":"single"},"owner":"2fdf56e0-d542-45ae-8194-af7533da2
+[PASS] user A can add a KB text source -- 201 {"source":"dz01_test.txt","doc_type":"manual","n_chunks":1}
+[PASS] job/upload/kb all exist before the purge -- job=200, uploads=[{'id': '5a3aa9fd7357', 'original_name': 'dz01.xyz', 'extension': '.xyz', 'size_bytes': 11, 'uploaded_at': 1789365670.577612, 'sniff': {'n_geometries': 1, 'kind': 'single'}, 'owner': '2fdf56e0-d542-45ae-8194-af7533da21de'}], kb sources present=['dz01_test.txt', 'tddft_properties.txt...
+[PASS] POST /api/auth/purge-my-data succeeds for a non-admin, self-scoped caller -- 200 {"purged":true,"purged_jobs":1,"purged_kb_sources":1,"purged_uploads":1,"purged_plots":0,"purged_projects":0}
+purge response: {'purged': True, 'purged_jobs': 1, 'purged_kb_sources': 1, 'purged_uploads': 1, 'purged_plots': 0, 'purged_projects': 0}
+[PASS] the purge response reports exactly the one job/upload/kb-source purged -- body={'purged': True, 'purged_jobs': 1, 'purged_kb_sources': 1, 'purged_uploads': 1, 'purged_plots': 0, 'purged_projects': 0}
+[PASS] the job is gone after self-purge -- 404
+[PASS] the upload is gone after self-purge -- []
+[PASS] the KB source is gone after self-purge -- ['tddft_properties.txt', 'solvation_models.txt', 'qmmm_embedding.txt', 'periodic_systems.txt', 'mrpt_nevpt2.txt', 'mcscf_active_space.txt', 'mcpdft_lpdft.txt', 'localized_orbitals.txt', 'integral_approximations.txt', 'gw_agf2_pprpa.txt', 'geometry_optimization_extended.txt', 'extensions_ecosystem.tx...
+[PASS] purge_own_data's return shape carries no thread_ids key -- chat threads are structurally out of scope for a self-purge, unlike admin-driven purge_user_data -- keys=['job_ids', 'kb_sources', 'orphaned_kb_files', 'plot_ids', 'project_ids', 'upload_ids']
+user B: job 4d27afc26cef, status immediately before purge_own_data ran: running
+[PASS] a genuinely pending/running job is cancelled and purged by purge_own_data, never left orphaned -- info={'job_id': '4d27afc26cef', 'status_before_purge': 'running', 'purged': {'job_ids': ['4d27afc26cef'], 'kb_sources': [], 'orphaned_kb_files': [], 'upload_ids': [], 'plot_ids': [], 'project_ids': []}, 'dir_exists_after_purge': False}
+[PASS] GET /api/auth/download-my-data returns 200 with a zip body -- 200, content-type=application/zip
+[PASS] the downloaded zip is well-formed and contains this user's job, upload and KB source -- names=['jobs/20260914_water_SP_HF_sto-3g_PYSCF_a147eb76_summary.txt', 'uploads/0ff059a7203f_dz01c.xyz', 'kb/dz01c_test.txt']
+
+12/12 checks passed in this script.

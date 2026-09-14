@@ -1,0 +1,21 @@
+#  02:18:59 up 295 days,  3:13,  6 users,  load average: 36.60, 37.26, 37.96
+
+== register + log in ==
+[PASS] registered and logged in
+   job list holds 5 row(s) before anything is drafted
+
+== drive a draft to an approval card ==
+[PASS] the approval card is up
+
+== decline, and time the answer ==
+[PASS] the answer appears in 0.19s, under the 10s budget -- 188ms
+[PASS] it names what was turned down -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+[PASS] it invites a change rather than closing the exchange -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+[PASS] it does not leak an internal task identifier -- Nothing was run. I've left the setup for water SP HF/sto-3g (PYSCF) as it is, so tell me what you'd like to change and I'll update it, or say to drop it and I will.
+
+== nothing was submitted, and the turn ended ==
+[PASS] rejecting created no job -- 5 before, 5 after: [{"job_id":"22b3fdaa7986","status":"completed","message":"3 geometries","updated_at":1789362618.158532,"created_at":1789362618.158039,"method":"","task":"geometry_set","subtype":"","engine":"","label"
+[PASS] the composer is usable again
+[PASS] the approval card is gone
+
+9/9 checks passed in this script.

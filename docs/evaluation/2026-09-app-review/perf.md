@@ -97,3 +97,101 @@ that comparison is recorded there.
   were deprioritised once the route-latency two-point measurement already
   confirmed the O(n) findings the perf audit raised; they are worth doing in
   the fix phase against the specific routes being changed.
+
+## Fix phase, measured before and after (2026-09-13 and 2026-09-14)
+
+Every number here is a before/after pair taken on this deployment, with the
+command that produced it and the conditions it ran under. Host load is quoted
+because the machine is shared with other tenants and three of these figures
+move with it. Fuller write-ups, including what each test actually does, are in
+`evidence/fix/P<step>/README.md`.
+
+### The polled list routes and the shared job index (R-051, R-075, R-080)
+
+`tests/backend/perf_08_list_paging_and_walks.py`, in-container, 360 job
+directories on disk: **0 of 20 checks before, 31 of 31 after**. The measurement
+behind it is that answering "what is on disk and in what state" by walking
+`JOBS_DIR` and parsing two JSON files per job costs **about 30 ms**, and a read
+of the shared index costs **about 0.0015 ms**. Five loops made roughly 2.3
+walks a second between them at the old cadence, so about **70 ms of every
+second** went on rediscovering the same answer with nothing running.
+
+The index is rebuilt at most once a second per calling thread rather than once
+per second for the process: the walk happens outside the lock deliberately, so
+that a caller is never parked behind a disk traversal. See `P5.1/README.md`.
+
+### Matplotlib called from three threads at once (R-079)
+
+`tests/backend/plot_04_concurrent_render.py`: with twenty-four renders issued
+concurrently across three styles, **6 of 24 came out in the style they asked
+for before, and 24 of 24 after**. Serial renders agreed 4 of 4 on both sides,
+which is what makes this a concurrency defect rather than a styling one.
+
+### The context budget with attached jobs (R-036, R-037)
+
+`tests/backend/budget_01_attached_job_trim.py`: **3 of 8 before, 15 of 15
+after**. Three attached jobs cost **34,464 tokens** and trim to **about 297**
+against a 500-token budget. The budget is 500 rather than 200 because three
+replacement markers cost more than 200 tokens between them, so a lower budget
+would be asking the impossible rather than testing the trim.
+
+### The frontend's own costs (R-065, R-067)
+
+Live `ResizeObserver` count across ten open-and-close cycles of the job detail
+drawer: **1 before the first cycle, 11 after the tenth**, one leaked per cycle,
+measured by `tests/frontend/ui_15_row_keyboard.spec.mjs` patching
+`ResizeObserver.prototype`.
+
+Script time per streamed token on a 40-message transcript, read from CDP
+`Performance.getMetrics` over three repetitions and taken as the median:
+**11.40 ms per token** before the transcript rows were memoised
+(`tests/frontend/perf_08_transcript_render.spec.mjs`).
+
+### The api process's memory, settled (R-103)
+
+`tests/backend/perf_10_api_memory_settle.py`, four identical loads over a
+freshly restarted api at host load average 135, each load being 50 state polls,
+5 agent turns, 5 job submissions and 20 orbital cube renders:
+
+| reading | RSS | threads |
+|---|---|---|
+| at rest after the restart | 333.9 MB | 142 |
+| after load 1 | 524.6 MB | 1173 |
+| after 300 s idle | 550.9 MB | 912 |
+| after load 2 | 568.3 MB | 664 |
+| after load 3 | 610.6 MB | 663 |
+| after load 4 | 620.5 MB | 664 |
+
+Cost of each identical load, in MB of RSS: **190.7, 17.4, 42.3, 9.9**. The
+fourth costs about a twentieth of the first, which is a working set filling
+rather than memory being lost. The review's two readings, 551 MB and 1,231 MB a
+day apart, are the first half of that curve.
+
+The 658 threads the review could not explain are two ChromaDB tokio runtimes
+sized to this host's 255 cores: 510 `tokio-rt-worker`, 146 `python`, 2
+`sqlx-sqlite-wor` on the settled process. They are allocated once and sized by
+the hardware rather than by the workload, which is why the review saw them
+stable at 658 to 660 across a whole day.
+
+### The fair scheduler's one-second blind spot (R-098)
+
+`tests/backend/perf_09_scheduler_fairness_trace.py`, three unforced runs plus a
+positive control, each timing every enqueue as well as every admission. Two
+runs were fair; the third caught the defect live, with user B queued at
+**t=9.785 s** and user A admitted a second time at **t=10.614 s**, 0.83 s
+later, with the rotation pointer already on B. The tick was choosing from an
+owner list read before a `psutil.cpu_percent(interval=1.0)` call that blocks
+for a full second.
+
+`tests/backend/sched_01_owner_snapshot_window.py` makes that deterministic in
+process: **4 of 6 before the fix, 6 of 6 after**, in milliseconds and
+independent of host load, which matters because the thing under test is a
+host-load measurement.
+
+### Zombie processes from cancelled engine jobs
+
+`tests/backend/proc_01_engine_orphans_are_reaped.py`: cancelling three running
+ORCA jobs took the api container from **20 zombies to 30** before `init: true`,
+and from **0 to 0** after. Two ORCA jobs run to completion added none on either
+side, which is what identifies cancellation rather than ORCA itself as the
+source.

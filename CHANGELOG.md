@@ -144,6 +144,28 @@ were re-run in isolation, and the answers are in
   MB and 1,231 MB a day apart, are the first half of that curve. Nothing needed
   fixing, and the numbers are recorded so nobody has to wonder again.
 
+#### Found while running the suites, at the close of the same review
+
+- **Cancelling a calculation left three processes behind, every time.** The
+  engine starts a shell, a launcher and a worker of its own. A calculation that
+  finishes cleans all of them up; one that is stopped with the Stop button
+  leaves them parented to the server as zombies, where they stay until the
+  server restarts. Measured: stopping three running jobs took the container
+  from twenty to thirty. The container now runs a proper init process in front
+  of the app, which is what reaps them, and stopping three jobs leaves none.
+- **"Delete all my data" could answer with a database error.** The route asks
+  for the caller's project archives first, and the lookup passed the caller's
+  id into a column that only accepts a particular id format, so a malformed id
+  produced a five-hundred carrying the database's own message rather than a
+  plain answer of "there was nothing to delete".
+- **A refined active space could still come back with one orbital in it.** The
+  floor added earlier in this release covered the pruning loop; the refinement
+  can also narrow a space on its own, in two other places, and neither had the
+  check. All three share one now.
+- **An update's own report said "no image rebuild needed" on a deployment that
+  rebuilds the image every time.** It meant "this will be a fast rebuild, with
+  no dependency changes and no network", which is what it says now.
+
 ### Added
 
 - **Updating from the admin panel.** A new Deployment section reports the

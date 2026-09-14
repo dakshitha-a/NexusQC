@@ -1,0 +1,32 @@
+#  02:13:59 up 295 days,  3:08,  6 users,  load average: 36.30, 37.96, 38.28
+
+----- step 1: source frequency job (water, HF/STO-3G, PySCF)
+[PASS] W19-freq agent reached an approval card for the source frequency job --  | tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[PASS] W19-freq approval card appeared -- tools=['set_geometry', 'start_job_draft', 'update_job_draft']
+[PASS] W19-freq approval produced a job -- no job id
+[PASS] W19-freq source job completed -- status=completed err=None
+    source frequency job fc4795410334 completed
+
+----- step 2: wigner_spectra ensemble sampling that job
+[PASS] W19-ensemble agent reached an approval card for the ensemble job --  | tools=['start_job_draft', 'update_job_draft'] timed_out=False
+[PASS] W19-ensemble approval card appeared -- tools=['start_job_draft', 'update_job_draft']
+[PASS] W19-ensemble approval card is a wigner_spectra draft -- card says task=wigner_spectra
+[PASS] W19-ensemble approval card carries the source frequency job id -- card params={'use_tda': False, 'want_oscillator_strengths': True, 'fwhm_eV': 0.2, 'low_freq_cutoff_cm1': 100.0, 'temperature_K': 298.15, 'basis': 'sto-3g', 'functional': 'b3lyp', 'n_excited_states': 3, 'n_samples': 5, 'source_frequency_job_id': 'fc4795410334', 'n_states': 3, 'random_seed': 882057520...
+[PASS] W19-ensemble approval produced a master job -- no job id
+    master job 0f80645dc52b submitted, polling to terminal...
+[PASS] W19-ensemble master job completed -- status=completed err=None
+    master summary keys: ['engine', 'low_freq_cutoff_cm1', 'n_complete', 'n_completed', 'n_dispatched', 'n_failed_or_pending', 'n_modes_dropped_low_freq', 'n_modes_dropped_zero_norm', 'n_modes_imaginary_dropped', 'n_modes_retained', 'n_modes_total', 'n_no_intensity', 'n_samples', 'n_sub_jobs', 'n_transitions_pooled', 'per_sample_harmonic_potential_hartree', 'random_seed', 'scan_job_type', 'source_frequency_job_id', 'temperature_K']
+[PASS] W19-ensemble summary reports the requested sample count -- n_samples=5
+[PASS] W19-ensemble every sample was dispatched -- n_dispatched=5
+[PASS] W19-ensemble every sample reached a terminal state -- n_complete=5
+[PASS] W19-ensemble the pool actually produced usable (energy, oscillator strength) pairs -- n_completed=5 plot_error=None
+    sub-job _ensemble_index values: [0, 1, 2, 3, 4]
+[PASS] W19-ensemble every sub-job has a distinct _ensemble_index (no double-dispatch) -- indices=[0, 1, 2, 3, 4] -- a repeated value proves the same sample was dispatched twice
+[PASS] W19-ensemble the dispatched indices are exactly 0..N-1 (nothing skipped either) -- indices=[0, 1, 2, 3, 4] expected=[0, 1, 2, 3, 4]
+    master artifacts: ['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_xyz' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_spectrum' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble artifact 'ensemble_spectrum_data' is declared -- declared artifacts=['ensemble_spectrum', 'ensemble_spectrum_data', 'ensemble_xyz']
+[PASS] W19-ensemble all declared artifacts are downloadable -- 3 artifacts
+
+20/20 checks passed in this script.

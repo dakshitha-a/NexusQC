@@ -47,28 +47,94 @@ said to exceed the refinement cap was not the one that did.
 
 ## Open
 
+Everything here came out of the 2026-09 fix phase's final gate. Each entry says
+what was observed, what has been ruled out, and the next experiment, because an
+entry with no next step is a note rather than a backlog item.
+
+**The approval resume no longer shows a tool chip.**
+`tests/e2e/e2e_04_harness_gate.py`'s H12 asserts that resuming a turn after the
+user clicks Approve publishes an `agent_step` event, and it did: at the Phase 1
+gate it recorded `steps=[('update_job_draft', 'finished')]`. At the final gate
+it recorded `steps=[]`. This is a consequence of R-101 rather than a break in
+the streaming path. The card used to be raised by `submit_draft`; it is now
+raised inside `update_job_draft`, which returns a `Command` when it resumes, so
+the tools node in `_stream_resume`'s payload carries no message to publish.
+Token deltas still stream, so the screen is not blank after the click, which is
+what F-008 was about. What is lost is the chip naming the tool.
+
+Next experiment: drive one approval on a quiet stack with the raw stream
+payloads printed, and see whether the resumed `update_job_draft` appears under
+a node name `_stream_resume` does not handle. If it does, publishing an
+`agent_step` for it is a two-line change; if it does not, H12 should be
+retired and say why.
+
+**The admin console's purge controls cannot be found by their own spec.**
+`tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs` times out
+waiting for `button:has-text("Purge")` after the admin console opens. It was
+failing this way at the Phase 1 gate too, so it predates every change in the
+fix phase, and the console was reorganised in the UI pass before that.
+
+Next experiment: open the admin console in a browser and read what the purge
+controls are actually called now; the selector is almost certainly describing a
+button that was renamed, and if it is not, the controls are genuinely missing
+and that is a real gap in a destructive surface.
+
+**A scrubber drag costs three cube renders, not one.**
+`tests/e2e/ui/ui_09_orbital_and_mode_panels.spec.mjs` reports "3 during the
+drag, 4 in total" against a bound of one. Rendering an orbital cube is the
+heaviest per-request allocation the app makes on a read path, so a drag across
+five orbitals asking for four of them is real work nobody asked for. Failing
+since the review.
+
+Next experiment: read what debounces the scrubber in `JobDetailDrawer`, and
+whether the requests are fired on `input` rather than on `change` or after a
+settle.
+
+**Two drawer sections render where they should be gated off.**
+`ui_01_shell_and_chat` and `ui_02_approval_jobs_drawer` both report that an HF
+job's drawer shows "Molecular orbitals" and a DFT job's shows "Optimization
+energy", and that a job with no engine exposes "View raw input". Failing since
+the review.
+
+Next experiment: compare each section's render condition in
+`JobDetailDrawer.tsx` against what the job summaries for those cells actually
+carry. A section keyed on a summary field that is present but empty would
+explain all three at once.
+
+**`e2e_11`'s keyword correction returns None.** C2 reports `method=None` for an
+RHF request and C3 reports no candidate menu for a mistyped functional or
+basis. The review recorded this and left it open: "whether keyword suggestion
+regressed or the assertion is stale".
+
+Next experiment: call `keyword_suggest` directly with `b3lp` and with `ccpvdz`
+and see whether it returns candidates. That splits the two possibilities in one
+step and needs no browser.
+
+**`e2e_12`'s source-geometry draft never reaches ready.** The draft correctly
+carries `source_geometry_job_id` and never calls `set_geometry`, which is the
+half the check is about, but `reached_ready=False`.
+
+Next experiment: run `validate_draft` on that exact draft and read what it says
+is missing. If it wants a molecule the source job already supplies, the
+resolution path is not consulting the source job.
+
+**`e2e_17`'s L9b: no unprompted summary after a logout.** A job that completes
+while the user is logged out injects its notice but produces no assistant
+reply, so there is nothing waiting in the conversation on return. L1 to L8, the
+leave-and-return core, all pass. Recorded in the review and unchanged.
+
+Next experiment: check whether `invoke_turn_if_idle` refuses because the thread
+has no live session, and if so whether the notice should queue the turn for the
+next time the user opens the thread instead.
+
 **Atom numbers do not come back after a vibrational mode change.**
-`tests/frontend/ui_10_atom_label_toggle.spec.mjs` fails one of its 21 checks:
-with the numbers on, selecting a different mode in the frequency table leaves
-the vibration viewer's canvas identical whether the switch is then turned off
-or on, which means the labels are not on screen to be removed.
-
-Established rather than guessed, on 2026-09-09: it is **not** a regression from
-the UI pass. The same check fails identically on a build of `f398f9a`, the
-commit before that work started, served from its own worktree. It is also not
-caused by the theme wiring added to `ModeAnimationViewer` in that pass, which
-was removed and rebuilt to confirm. Longer settles around the snapshots (1.5 s
-each side, up from 0.4) do not change it, so it is not a timing artifact
-either. The equivalent check on the orbital viewer, whose rebuild path is the
-same shape, passes.
-
-What has not been established is the mechanism. `applyAtomLabels` is
-stateless and always removes then re-adds, the label effect's dependency list
-covers `displacement`, and React runs it after the rebuild effect that calls
-`v.clear()`, so on a code read it should work. Two things are worth suspecting
-before anything else: the animation loop the rebuild starts, and the APNG
-capture the spec performs immediately before this check, which changes the
-background and restores it.
+CLOSED on 2026-09-14. `tests/frontend/ui_10_atom_label_toggle.spec.mjs` is
+21 of 21 at the final gate. The mechanism was R-064: `canvasSnapshot` was
+capturing the first canvas on the page rather than the one belonging to the
+panel under test, so it compared the molecule viewer's canvas with itself while
+the labels were toggling on the vibration viewer's. The helper takes a panel
+now. Left here rather than deleted because the entry's own investigation ruled
+out three plausible mechanisms and it is worth knowing which one it was.
 
 The last entry to close was the app-versus-host latency split, which had
 stood because its denominator could not be measured against a card shared
