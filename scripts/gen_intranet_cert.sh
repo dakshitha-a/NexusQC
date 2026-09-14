@@ -76,6 +76,16 @@ san_add "DNS:localhost"
 san_add "IP:${LAN_IP}"
 san_add "IP:${TS_IP}"
 san_add "IP:127.0.0.1"
+# The public address (QC_AGENT_PUBLIC_URL) is what invite and reset links
+# carry, so whoever follows one types its host; if that is a name other than
+# the FQDN it has to verify too. An IP there is already covered or is one of
+# the binds; only a name is added.
+PUBLIC_HOST="$(printf '%s\n' "${QC_AGENT_PUBLIC_URL:-}" | sed -nE 's#^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?\#]+).*$#\1#p')"
+case "$PUBLIC_HOST" in
+    "") ;;
+    *[!0-9.]*) san_add "DNS:${PUBLIC_HOST}" ;;
+    *) ;;
+esac
 
 # The subject is the common name and nothing else. It used to carry a fixed
 # country, state, locality and organisation, which meant every deployment

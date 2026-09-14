@@ -114,6 +114,20 @@ in-app reports).
   evidence: scripts/release.sh → "tree scan PASS; deploy_01/02/03/08 and install_01/02 pass; CI green on the private repo for both jobs on the first real run (46 s) and the intake workflow parses and is skipped there (a throwaway issue produced a 'skipped' run, then deleted); issues.sh exercised on a public throwaway (new, list, needs-info, fixed; deleted); dev stack rebuilt with all 18 jobs intact; release.sh 1.1.0 --dry-run green with the announcement plan showing 143,362-byte notes to be cut, no issues, no closing keywords"
 - merged: 6457be0
 
+## Phase 2C: Links resolve for every user
+
+Added on 2026-09-14, from the user's own testing of the tailnet deployment:
+the host is a Tailscale node shared with each user rather than everyone
+being on one tailnet, so the address each user reaches it at differs, and an
+invite link built from the admin's browser origin is dead for everyone else.
+The deployment gets a public address (the tailnet MagicDNS name, by the
+user's choice), with three sources: an admin-console override, `.env`, and
+the browser's own origin as the fallback that keeps today's behaviour.
+
+- [todo] P2C.1: The setting: backend config, admin console field, links built on it
+- [todo] P2C.2: Installer defaults to the MagicDNS name; certificate covers the public host
+- [todo] P2C.3: Gate: tests, browser check, dev stack rebuilt, dry run re-shown
+
 ## Phase 3: Release
 
 - [done] P3.1: Dry run shown to the user, re-run after Phase 2B changed release.sh

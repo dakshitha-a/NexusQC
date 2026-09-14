@@ -493,6 +493,30 @@ of two, no `sudo` firewall step to rehearse, one fewer admin control that
 could be clicked in an emergency and quietly do nothing, and no public
 attack surface to reason about.
 
+**Links people can open.** The admin console hands out two kinds of link, an
+invite and a password reset, and each is built on the deployment's **public
+address**: the origin other people use to reach it, `https://<name>:<port>`.
+It is `QC_AGENT_PUBLIC_URL` in `.env`, and the installer writes it whenever
+anything beyond this machine is published, from the same name it puts in
+the certificate. An admin can set a different one in the console's
+Deployment section without a restart (that value wins), and clearing it
+there falls back to `.env`. With neither set, a link is built from the
+admin's own browser address, which is what every deployment did before this
+existed and is right on a LAN.
+
+It is wrong on a host that is **shared over Tailscale with each user**,
+rather than everyone being on one tailnet: each recipient reaches the host
+at their own address, and a link carrying the admin's is dead for all of
+them. The installer's default for the name in that case is the tailnet's
+MagicDNS name, `<host>.<tailnet>.ts.net`, read from `tailscale status`,
+because Tailscale resolves a shared node's MagicDNS name inside every
+recipient's tailnet. Whatever the name, it has to verify: the host in the
+public address must be a DNS name in the certificate, which
+`scripts/gen_intranet_cert.sh` takes care of by adding it to the
+subjectAltName when it differs from `QC_AGENT_CERT_FQDN`. Change the address
+to a name the certificate does not carry and every recipient gets a trust
+error rather than a login page.
+
 **To serve publicly**, restore the listener deliberately -- git history has
 the original block. It needs its port published, a real certificate from a
 certificate authority (certbot / Let's Encrypt; provisioning that is outside
@@ -714,6 +738,7 @@ These are in addition to everything in
 | `QC_AGENT_SERVER_HOST` / `QC_AGENT_SERVER_PORT` | `127.0.0.1` / `8000` | Overridden to `0.0.0.0` inside the container, nginx, not this process, is what actually faces the network. |
 | `QC_AGENT_LAN_BIND` | *set in `.env`* | The host's LAN IP, used only by the compose port mapping for the intranet listener. |
 | `QC_AGENT_TAILSCALE_BIND` | *set in `.env`* | The host's tailnet IP, same mapping. Both this and `QC_AGENT_LAN_BIND` must be set for `docker compose up` to parse `docker-compose.yml` at all, even if `docker-compose.override.yml`'s `ports: !override` replaces the actual published list, `scripts/install.sh` handles this automatically. |
+| `QC_AGENT_PUBLIC_URL` | *unset* | The origin other people use to reach this deployment, the base of every invite and reset link. Written by the installer from the certificate name when anything beyond localhost is published; the admin console can override it. Unset means the admin's own browser address, which is wrong on a Tailscale node shared with each user. See "Links people can open" above. |
 | `QC_AGENT_BACKUP_DIR` / `QC_AGENT_BACKUP_RETAIN_DAYS` | `./backups` / `30` | Where `scripts/backup.sh` writes, and how long it keeps old backups. |
 | `QC_AGENT_LLM_GPU_IDS` | `0` | Which GPU indices vLLM may claim. Never defaults to "all available." |
 | `QC_AGENT_VLLM_GPU_MEM_UTIL` | `0.65` | Fraction of VRAM vLLM pre-allocates for its runtime, deliberately below vLLM's own `0.9` default, for a shared host. **Read only if the `vllm` service is uncommented, which it never has been:** no real turn has been served through vLLM, and Ollama is the supported backend. |

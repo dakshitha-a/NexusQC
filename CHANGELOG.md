@@ -45,6 +45,20 @@ repository existed and was never published on its own.
   has **File on GitHub** to forward one the same way. Nothing is ever posted
   to GitHub automatically; the browser opens the form and the person files
   it.
+- **The deployment has a public address, and the links it hands out are
+  built on it.** Invite and password-reset links were built from the admin's
+  own browser origin. On a host shared over Tailscale with each user, rather
+  than everyone being on one tailnet, each person reaches the host at a
+  different address, so a link with the admin's in it was dead for everyone
+  it was sent to. The address now has three sources: a field in the admin
+  console's Deployment section, `QC_AGENT_PUBLIC_URL` in `.env`, and the
+  browser's own origin as the fallback that keeps the old behaviour. The
+  installer writes it whenever anything beyond this machine is published,
+  and on a tailnet it defaults the name to the tailnet's MagicDNS name,
+  which Tailscale resolves for every recipient of a shared node; the
+  certificate gets that name in its subjectAltName. `--public-url` sets it
+  on a scripted install. The console validates the value as an origin and
+  nothing after it, and shows which source is in effect.
 - **Working an issue is a session command.** `/issue <n>` reads the issue,
   writes the regression test first (`tests/backend/issue_<n>_<slug>.py` or
   `tests/frontend/issue_<n>_<slug>.spec.mjs`, picked up by the runners by

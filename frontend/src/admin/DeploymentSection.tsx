@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, GitCommitHorizontal, Radio, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, GitCommitHorizontal, Link2, Radio, Users } from "lucide-react";
 import * as api from "../lib/api";
+import { ApiError } from "../lib/api";
+import { publicUrlSourceLabel } from "../lib/links";
 import { DeployControls } from "./DeployControls";
 
 // A commit is shown as twelve characters everywhere in this panel. Long enough
@@ -32,6 +35,105 @@ function Row({ label, value, hint, tone }: {
         {value}
       </code>
     </div>
+  );
+}
+
+/** The address other people use to reach this deployment, which every
+ *  invite and reset link is built on. Three sources (this field, .env, the
+ *  browser's own origin) and the label says which is in effect; see
+ *  lib/links.ts for why the browser's origin is the wrong base on a shared
+ *  tailnet node. Validation is the server's (an origin, nothing after it);
+ *  its message is shown here as is. */
+function PublicAddress({
+  onMutationSuccess,
+  onMutationError,
+}: {
+  onMutationSuccess: () => void;
+  onMutationError: (e: unknown) => void;
+}) {
+  const configQuery = useQuery({ queryKey: ["admin", "config"], queryFn: api.getAdminConfig });
+  const cfg = configQuery.data;
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  // The field shows the effective value until the admin starts typing.
+  useEffect(() => {
+    setDraft(cfg?.public_url ?? "");
+  }, [cfg?.public_url]);
+
+  const save = useMutation({
+    mutationFn: (value: string) => api.patchAdminConfig("public_url", value),
+    onSuccess: () => {
+      setError(null);
+      onMutationSuccess();
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof ApiError ? e.message : String(e));
+      onMutationError(e);
+    },
+  });
+
+  return (
+    <section>
+      <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-text">
+        <Link2 size={13} /> Public address
+      </h3>
+      <p className="mb-2 text-2xs text-text-muted">
+        The address other people use to reach this deployment. Every invite and password-reset
+        link is built on it. On a host shared over Tailscale with each user, that is the tailnet
+        name (<code className="font-mono">host.tailnet.ts.net</code>), which resolves for every
+        recipient where an IP address does not. The host name must also be in the certificate
+        (<code className="font-mono">QC_AGENT_CERT_FQDN</code>, or it is added from{" "}
+        <code className="font-mono">QC_AGENT_PUBLIC_URL</code>).
+      </p>
+      {!cfg ? (
+        <div className="text-xs text-text-muted">Loading...</div>
+      ) : (
+        <div className="rounded border border-border px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="https://host.tailnet.ts.net:8443"
+              data-testid="public-url-input"
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-2 py-1 font-mono text-2xs text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+            <button
+              onClick={() => save.mutate(draft)}
+              disabled={save.isPending || draft.trim() === cfg.public_url}
+              data-testid="public-url-save"
+              className="rounded border border-border px-2 py-1 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-40"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => save.mutate("")}
+              disabled={save.isPending || cfg.public_url_source !== "setting"}
+              data-testid="public-url-clear"
+              title="Remove the console's value; .env or the browser address applies again"
+              className="rounded border border-border px-2 py-1 text-2xs text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-40"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="mt-1.5 text-2xs text-text-muted" data-testid="public-url-source">
+            {cfg.public_url ? (
+              <>
+                In effect: <code className="font-mono text-text">{cfg.public_url}</code> (
+                {publicUrlSourceLabel(cfg.public_url_source)})
+              </>
+            ) : (
+              <>In effect: {publicUrlSourceLabel(cfg.public_url_source)}</>
+            )}
+          </div>
+          {error && (
+            <div className="mt-1 text-2xs text-status-failed" data-testid="public-url-error">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -73,6 +175,8 @@ export function DeploymentSection({
 
   return (
     <div className="space-y-5">
+      <PublicAddress onMutationSuccess={onMutationSuccess} onMutationError={onMutationError} />
+
       <section>
         <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-text">
           <GitCommitHorizontal size={13} /> What is running

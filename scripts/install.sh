@@ -69,7 +69,7 @@ set -eu
 # second copy of the text that would drift from this one.
 usage() {
     cat <<'USAGE'
-usage: install.sh [--dir=PATH] [--repo=URL] [--bind=MODE] [--non-interactive]
+usage: install.sh [--dir=PATH] [--repo=URL] [--bind=MODE] [--public-url=URL] [--non-interactive]
 
   --dir     where to clone NexusQC when run from a pipe, default
             ~/apps/NexusQC. Ignored when run from inside a checkout.
@@ -81,6 +81,10 @@ usage: install.sh [--dir=PATH] [--repo=URL] [--bind=MODE] [--non-interactive]
               lan         also this host's LAN address
               tailscale   also this host's tailnet address
               both        LAN and tailnet
+  --public-url  the address other people use to reach this deployment, as an
+            origin (https://host:8443), the base of every invite and reset
+            link. Defaults to the tailnet's MagicDNS name when the tailnet
+            is published, else the host's own name; unset for localhost-only.
 
 Unattended installs:
 
@@ -213,6 +217,7 @@ QC_STEP_TOTAL=10
 # accepted and ignored rather than rejected, so the same command line works
 # whether it arrived through the pipe or was typed inside a checkout.
 BIND_MODE=""
+PUBLIC_URL_FLAG=""
 QC_NONINTERACTIVE=0
 WANT_PULL_MODEL=ask
 WANT_UPDATER=ask
@@ -221,6 +226,7 @@ for argument in "$@"; do
     case "$argument" in
         --dir=*|--repo=*) ;;
         --bind=*)          BIND_MODE="${argument#--bind=}" ;;
+        --public-url=*)    PUBLIC_URL_FLAG="${argument#--public-url=}" ;;
         --non-interactive) QC_NONINTERACTIVE=1 ;;
         --pull-model)      WANT_PULL_MODEL=yes ;;
         --install-updater) WANT_UPDATER=yes ;;
@@ -539,17 +545,59 @@ if [ "$REGEN" -eq 1 ]; then
     # Cert vars need real (or harmless placeholder) values regardless of what
     # gets published -- gen_intranet_cert.sh requires all three, and an unused
     # one just becomes an extra, harmless SAN entry.
+    #
+    # The name defaults to the tailnet's MagicDNS name when the tailnet is
+    # published. A host that is SHARED over Tailscale with each user, rather
+    # than joined to one tailnet, is reached by every recipient at their own
+    # address, so an invite link carrying an address is dead for all of them;
+    # the MagicDNS name resolves inside each recipient's tailnet, and it is
+    # what the public address below is built from. Without a tailnet, or
+    # without MagicDNS, the host's own FQDN as before.
     CERT_FQDN="$(hostname -f 2>/dev/null || hostname)"
+    TAILNET_NAME=""
+    if [ -n "$TS_IP" ]; then
+        TAILNET_NAME="$(qc_tailnet_dns_name)"
+        [ -n "$TAILNET_NAME" ] && CERT_FQDN="$TAILNET_NAME"
+    fi
     if [ "$QC_NONINTERACTIVE" -eq 0 ]; then
         echo
         echo "  The certificate names this host as ${BLD}${CERT_FQDN}${RST}. That has to match"
         echo "  what people actually type in the browser, or it will not verify."
+        if [ -n "$TAILNET_NAME" ]; then
+            echo "  This is the tailnet name: it resolves for everyone the host is shared"
+            echo "  with, which its tailnet address does not."
+        fi
         ask "  Press enter to accept, or type the name to use: " "$CERT_FQDN"
         CERT_FQDN="$REPLY"
     fi
     envset QC_AGENT_CERT_FQDN "$CERT_FQDN"
     envset QC_AGENT_LAN_BIND "${LAN_IP:-127.0.0.1}"
     envset QC_AGENT_TAILSCALE_BIND "${TS_IP:-127.0.0.1}"
+
+    # The public address: the base of every invite and reset link the admin
+    # console hands out (docs/DEPLOYMENT.md, "Links people can open"). Built
+    # from the certificate name whenever anything beyond this machine is
+    # published, so the two agree; left unset for a localhost-only
+    # deployment, where the browser's own address is right. --public-url
+    # overrides both, validated the way the admin console validates it: an
+    # origin and nothing after it.
+    PUBLIC_URL=""
+    if [ -n "$PUBLIC_URL_FLAG" ]; then
+        case "$PUBLIC_URL_FLAG" in
+            http://*|https://*) ;;
+            *) die "--public-url must start with http:// or https:// (got '$PUBLIC_URL_FLAG')" ;;
+        esac
+        case "${PUBLIC_URL_FLAG#*://}" in
+            */*|*\?*|*\#*) die "--public-url is an origin, https://host:port and nothing after it (got '$PUBLIC_URL_FLAG')" ;;
+        esac
+        PUBLIC_URL="$PUBLIC_URL_FLAG"
+    elif [ -n "$LAN_IP" ] || [ -n "$TS_IP" ]; then
+        PUBLIC_URL="https://${CERT_FQDN}:8443"
+    fi
+    if [ -n "$PUBLIC_URL" ]; then
+        envset QC_AGENT_PUBLIC_URL "$PUBLIC_URL"
+        ok "links will be built on ${PUBLIC_URL}"
+    fi
 
     # Guarded, unlike before. gen_intranet_cert.sh exits non-zero on a bad SAN,
     # and an unguarded call under `set -e` simply ended the install in silence.
@@ -1000,6 +1048,11 @@ COMPOSE_CONFIG="$(docker compose config 2>/dev/null || true)"
 echo "  ${GRN}${BLD}NexusQC is up.${RST}  (installed in $(qc_elapsed_human $(( $(date +%s) - QC_START_TS ))))"
 echo
 echo "  ${BLD}Open it at:${RST}"
+# The public address first, when there is one: it is the one to give people,
+# and the one every invite link carries. envget rather than the variable, so
+# a run that kept its existing .env reports what that file says.
+_public="$(envget .env QC_AGENT_PUBLIC_URL)"
+[ -n "$_public" ] && echo "    ${_public}    (the address to give people; invite links use it)"
 for _u in $(health_urls); do
     case "$_u" in
         *127.0.0.1*) echo "    ${_u}    (this machine)" ;;

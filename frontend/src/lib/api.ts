@@ -692,6 +692,12 @@ export interface AdminConfig {
   // exceed, since it's also JobManager's fixed worker-pool size (see
   // server/routes/admin.py's patch_config).
   max_concurrent_jobs_pool_size: number;
+  // The address other people use to reach this deployment, the base of
+  // every invite and reset link; "" means "use the browser's own origin".
+  // Editable (PATCH public_url; blank clears the override). The source says
+  // which of the three places it came from. See lib/links.ts.
+  public_url: string;
+  public_url_source: "setting" | "env" | "browser";
 }
 
 export interface VersionInfo {
@@ -806,8 +812,8 @@ export const getAdminDeployment = () => request<AdminDeployment>("/api/admin/dep
 export const getAdminActivity = () => request<AdminActivity>("/api/admin/activity");
 
 export const getAdminConfig = () => request<AdminConfig>("/api/admin/config");
-export const patchAdminConfig = (key: keyof AdminConfig, value: number | boolean) =>
-  request<{ key: string; value: number | boolean }>("/api/admin/config", {
+export const patchAdminConfig = (key: keyof AdminConfig, value: number | boolean | string) =>
+  request<{ key: string; value: number | boolean | string }>("/api/admin/config", {
     method: "PATCH",
     body: JSON.stringify({ key, value }),
   });

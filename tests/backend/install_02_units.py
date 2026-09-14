@@ -31,6 +31,7 @@ Needs no stack and starts no container.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -274,6 +275,79 @@ def main() -> None:
         "[" not in r.stdout.splitlines()[1],
         r.stdout.strip().splitlines()[-1],
     )
+
+    # --- qc_tailnet_dns_name: the MagicDNS name, from a stubbed tailscale ----
+    # The installer's default for the certificate name and the public
+    # address when the tailnet is published. The stub prints what
+    # `tailscale status --json` really prints: the Self block first, with a
+    # trailing dot on the name, then peers with their own DNSName fields
+    # (which must not be picked instead).
+    status_json = (
+        '{\n  "Version": "1.80.0",\n  "Self": {\n    "HostName": "node",\n'
+        '    "DNSName": "node.tail0000.ts.net.",\n    "TailscaleIPs": ["100.64.0.1"]\n  },\n'
+        '  "Peer": {\n    "x": {\n      "DNSName": "laptop.tail0000.ts.net."\n    }\n  }\n}\n'
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        bindir = Path(tmp) / "bin"
+        bindir.mkdir()
+        stub = bindir / "tailscale"
+        stub.write_text("#!/usr/bin/env bash\ncat <<'J'\n" + status_json + "J\n")
+        stub.chmod(0o755)
+        r = sh(f'PATH={bindir}:$PATH qc_tailnet_dns_name')
+        check("the Self block's DNSName is returned without its trailing dot",
+              r.stdout.strip() == "node.tail0000.ts.net", r.stdout.strip())
+        # Thousands of peers after Self: the name must come back and nothing
+        # may die of a closed pipe on the way (pipefail is on, as in install.sh).
+        peers = "".join(f'    "p{i}": {{\n      "DNSName": "peer{i}.tail0000.ts.net."\n    }},\n' for i in range(5000))
+        big = status_json.replace('  "Peer": {\n', '  "Peer": {\n' + peers)
+        stub.write_text("#!/usr/bin/env bash\ncat <<'J'\n" + big + "J\n")
+        r = sh(f'PATH={bindir}:$PATH qc_tailnet_dns_name; echo rc=$?')
+        check("with 5,000 peers after Self the name still comes back and the pipeline exits 0",
+              r.stdout.split() == ["node.tail0000.ts.net", "rc=0"], r.stdout[:80] + r.stderr[:200])
+        stub.write_text("#!/usr/bin/env bash\ncat <<'J'\n" + status_json.replace('"node.tail0000.ts.net."', '""') + "J\n")
+        r = sh(f'PATH={bindir}:$PATH qc_tailnet_dns_name')
+        check("MagicDNS off (empty DNSName) yields nothing, so the caller falls back to the FQDN",
+              r.stdout.strip() == "", repr(r.stdout))
+        stub.write_text("#!/usr/bin/env bash\nexit 1\n")
+        r = sh(f'PATH={bindir}:$PATH qc_tailnet_dns_name')
+        check("tailscale not running yields nothing and no error", r.returncode == 0 and r.stdout.strip() == "", r.stderr)
+        r = sh('PATH=/nonexistent qc_tailnet_dns_name; echo rc=$?')
+        check("no tailscale binary at all yields nothing and rc 0", r.stdout.strip() == "rc=0", r.stdout)
+
+    r = sh('qc_url_host "https://node.tail0000.ts.net:8443"; qc_url_host "http://192.0.2.5"; qc_url_host "nope"')
+    check("qc_url_host takes the host out of an origin and nothing out of a non-URL",
+          r.stdout.splitlines() == ["node.tail0000.ts.net", "192.0.2.5"], r.stdout)
+
+    # --- the certificate covers the public address's host --------------------
+    # gen_intranet_cert.sh chdirs to its own parent's parent and writes
+    # nginx/certs there, so it runs from a COPY in a scratch tree; run in
+    # place it would replace the deployment's live certificate (it did, once,
+    # while this test was being written).
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "scripts").mkdir()
+        (root / "nginx" / "certs").mkdir(parents=True)
+        script = root / "scripts" / "gen_intranet_cert.sh"
+        script.write_bytes((REPO / "scripts" / "gen_intranet_cert.sh").read_bytes())
+
+        def san(public_url: str, fqdn: str = "host.example") -> str:
+            env = dict(QC_CERT_DRIVEN="1", QC_AGENT_CERT_FQDN=fqdn, QC_AGENT_LAN_BIND="192.0.2.10",
+                       QC_AGENT_TAILSCALE_BIND="127.0.0.1", QC_AGENT_PUBLIC_URL=public_url,
+                       PATH=os.environ["PATH"])
+            subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=True)
+            out = subprocess.run(["openssl", "x509", "-in", str(root / "nginx" / "certs" / "intranet.crt"),
+                                  "-noout", "-ext", "subjectAltName"], capture_output=True, text=True)
+            return out.stdout.strip().splitlines()[-1].strip()
+
+        s = san("https://node.tail0000.ts.net:8443")
+        check("a public address with a different name is added to the SAN",
+              "DNS:host.example" in s and "DNS:node.tail0000.ts.net" in s, s)
+        s = san("https://host.example:8443")
+        check("the same name as the FQDN is not added twice", s.count("DNS:host.example") == 1, s)
+        s = san("https://192.0.2.5:8443")
+        check("an IP address in the public URL is not added as a DNS name", "DNS:192.0.2.5" not in s, s)
+        s = san("")
+        check("no public URL, no extra entry", s.count("DNS:") == 2, s)
 
     summary()
 

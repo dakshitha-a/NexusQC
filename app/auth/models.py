@@ -1019,6 +1019,25 @@ def get_app_config(key: str, default=None):
     return row["value"] if row else default
 
 
+def effective_public_url(env_value: str) -> tuple[str, str]:
+    """The deployment's public address and where it came from.
+
+    Three sources, most specific first: the admin-console override stored
+    under the `public_url` key (source "setting"), the QC_AGENT_PUBLIC_URL
+    the operator put in .env (source "env"), or nothing, in which case the
+    frontend falls back to the browser's own origin (source "browser"). The
+    value returned for "browser" is "" rather than a guess: the server does
+    not know what address a given browser used, and the one place that
+    does is the browser.
+    """
+    override = get_app_config("public_url", "")
+    if isinstance(override, str) and override.strip():
+        return override.strip().rstrip("/"), "setting"
+    if env_value:
+        return env_value, "env"
+    return "", "browser"
+
+
 def set_app_config(key: str, value, updated_by: Optional[str] = None) -> None:
     with get_pool().connection() as conn:
         conn.execute(

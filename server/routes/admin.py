@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -30,7 +31,7 @@ from app.auth.storage_quota import (
     usage_report,
 )
 from app.auth.deploy_signing import sign_deploy_request
-from app.config import BUG_REPORTS_DIR, DEPLOY_DIR, MAX_CONCURRENT_JOBS
+from app.config import BUG_REPORTS_DIR, DEPLOY_DIR, MAX_CONCURRENT_JOBS, PUBLIC_URL
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -54,6 +55,11 @@ def get_config(_admin: dict = Depends(require_admin)):
     # PATCH can never exceed, since it's also JobManager's fixed
     # ThreadPoolExecutor size (not resizable at runtime).
     cfg["max_concurrent_jobs_pool_size"] = MAX_CONCURRENT_JOBS
+    # The base of every link the console hands out (invite, password reset),
+    # and which of its three sources is in effect. See app/config.py's
+    # PUBLIC_URL for why a browser origin is the wrong base on a shared
+    # tailnet node.
+    cfg["public_url"], cfg["public_url_source"] = models.effective_public_url(PUBLIC_URL)
     return cfg
 
 
@@ -64,7 +70,41 @@ _EDITABLE_CONFIG_KEYS = {
     "global_storage_quota_bytes",
     "max_concurrent_jobs_total",
     "max_concurrent_jobs_per_user",
+    "public_url",
 }
+
+_PUBLIC_URL_RULE = (
+    "public_url must be an origin: http:// or https://, a host name, an optional port, "
+    "and nothing after it (no path, query or fragment); or blank to clear it"
+)
+
+
+def normalise_public_url(value: object) -> str:
+    """A public address as the console accepts it: an origin, or "" to clear
+    the override. Raises HTTPException(422) with the rule for anything else.
+
+    An origin and nothing more, because the links are `<base>/?invite=...`
+    and a base with a path would put the token somewhere the login screen
+    does not read. The host is not resolved or reached here: whether it is
+    the name people can actually use is the administrator's call, and the
+    console says next to the field that it must also be a DNS name in the
+    certificate.
+    """
+    if not isinstance(value, str):
+        raise HTTPException(status_code=422, detail=_PUBLIC_URL_RULE)
+    value = value.strip()
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise HTTPException(status_code=422, detail=_PUBLIC_URL_RULE)
+    if parts.path not in ("", "/") or parts.query or parts.fragment or parts.username or parts.password:
+        raise HTTPException(status_code=422, detail=_PUBLIC_URL_RULE)
+    try:
+        parts.port  # raises ValueError on a non-numeric or out-of-range port
+    except ValueError:
+        raise HTTPException(status_code=422, detail=_PUBLIC_URL_RULE)
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 class ConfigPatchIn(BaseModel):
@@ -99,14 +139,17 @@ def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
         "global_storage_quota_bytes", "max_concurrent_jobs_total", "max_concurrent_jobs_per_user",
     } and (not isinstance(body.value, (int, float)) or body.value <= 0):
         raise HTTPException(status_code=400, detail=f"{body.key} must be a positive number")
-    models.set_app_config(body.key, body.value, updated_by=str(admin["id"]))
-    models.audit(str(admin["id"]), "config_update", target=body.key, details={"value": body.value})
+    value = body.value
+    if body.key == "public_url":
+        value = normalise_public_url(body.value)
+    models.set_app_config(body.key, value, updated_by=str(admin["id"]))
+    models.audit(str(admin["id"]), "config_update", target=body.key, details={"value": value})
     # A quota edit changes what usage_report() should show alongside the
     # current usage figures (the quota_bytes fields embedded in its
     # response) -- invalidate the cache below so that shows up on the very
     # next GET /api/admin/storage rather than waiting out its TTL.
     invalidate_usage_report_cache()
-    return {"key": body.key, "value": body.value}
+    return {"key": body.key, "value": value}
 
 
 # --- Storage (live usage readout + manual purges) ---------------------------

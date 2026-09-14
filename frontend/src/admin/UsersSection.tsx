@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
 import type { AdminUserRow } from "../lib/api";
+import { deploymentOrigin, resetLink } from "../lib/links";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmButton } from "./ConfirmButton";
 import { DetailField, ExpandableRow } from "./ExpandableRow";
@@ -15,12 +16,6 @@ const ACCESSORS = {
   created: (r: AdminUserRow) => r.created_at,
   last_login: (r: AdminUserRow) => r.last_login_at,
 };
-
-// Same deep-link contract as InvitesSection.inviteLink(): a bare ?reset=
-// query param flips LoginScreen into reset mode and prefills the token.
-export function resetLink(token: string): string {
-  return `${window.location.origin}/?reset=${token}`;
-}
 
 /**
  * User management.
@@ -45,6 +40,9 @@ export function UsersSection({
   // Reuses the same query key the storage section already polls, so this is a
   // cache read rather than a second request.
   const storageQuery = useQuery({ queryKey: ["admin", "storage"], queryFn: api.getAdminStorage });
+  // The base of the reset link; see lib/links.ts.
+  const configQuery = useQuery({ queryKey: ["admin", "config"], queryFn: api.getAdminConfig });
+  const origin = deploymentOrigin(configQuery.data);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const deleteMutation = useMutation({
@@ -202,7 +200,7 @@ export function UsersSection({
                                 </span>
                                 <input
                                   readOnly
-                                  value={resetLink(freshReset.token)}
+                                  value={resetLink(freshReset.token, origin)}
                                   onFocus={(e) => e.currentTarget.select()}
                                   data-testid="reset-link-value"
                                   className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"

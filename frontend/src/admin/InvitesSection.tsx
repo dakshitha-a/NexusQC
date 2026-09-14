@@ -2,6 +2,7 @@ import { Copy, Check } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as api from "../lib/api";
+import { deploymentOrigin, inviteLink } from "../lib/links";
 import type { AdminInviteRow } from "../lib/api";
 import { ConfirmButton } from "./ConfirmButton";
 import { DetailField, ExpandableRow } from "./ExpandableRow";
@@ -53,17 +54,10 @@ function formatPerson(
   return name ? `${username} (${name})` : username;
 }
 
-function inviteLink(token: string): string {
-  // The shape LoginScreen.tsx actually parses: a bare ?invite= query param
-  // flips the form into register mode and prefills the token. There is no
-  // router in this app, so this is the whole deep-link contract.
-  return `${window.location.origin}/?invite=${token}`;
-}
-
-function CopyLinkButton({ token }: { token: string }) {
+function CopyLinkButton({ token, origin }: { token: string; origin: string }) {
   const [copied, setCopied] = useState(false);
   const [fallback, setFallback] = useState<string | null>(null);
-  const link = inviteLink(token);
+  const link = inviteLink(token, origin);
 
   const copy = async () => {
     try {
@@ -111,6 +105,11 @@ export function InvitesSection({
   onMutationError: (error: unknown) => void;
 }) {
   const invitesQuery = useQuery({ queryKey: ["admin", "invites"], queryFn: api.listAdminInvites });
+  // The base every link below is built on; see lib/links.ts for why it is
+  // not simply this browser's origin. Same query key as the other sections,
+  // so the console fetches the config once.
+  const configQuery = useQuery({ queryKey: ["admin", "config"], queryFn: api.getAdminConfig });
+  const origin = deploymentOrigin(configQuery.data);
 
   const [role, setRole] = useState<"user" | "admin">("user");
   const [emailHint, setEmailHint] = useState("");
@@ -196,11 +195,11 @@ export function InvitesSection({
           <span className="shrink-0 font-medium text-text">New invite link</span>
           <input
             readOnly
-            value={inviteLink(justCreated)}
+            value={inviteLink(justCreated, origin)}
             onFocus={(e) => e.currentTarget.select()}
             className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
           />
-          <CopyLinkButton token={justCreated} />
+          <CopyLinkButton token={justCreated} origin={origin} />
           <button
             onClick={() => setJustCreated(null)}
             className="shrink-0 text-text-muted hover:text-text"
@@ -297,7 +296,7 @@ export function InvitesSection({
                       )}
                       {(status === "pending" || status === "expired") && (
                         <div className="mt-2 flex flex-wrap items-start gap-2 border-t border-border pt-2">
-                          {status === "pending" && <CopyLinkButton token={row.token} />}
+                          {status === "pending" && <CopyLinkButton token={row.token} origin={origin} />}
                           <ConfirmButton
                             label="Revoke"
                             confirmLabel="Revoke"

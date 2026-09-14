@@ -189,6 +189,39 @@ envget() {
     sed -nE "s/^[[:space:]]*${key}=(.*)$/\1/p" "$file" | tail -n1 | sed -E 's/^"(.*)"$/\1/'
 }
 
+# qc_tailnet_dns_name -> this host's MagicDNS name, or nothing.
+#
+# The name a Tailscale node is reached by from every tailnet it is shared
+# into: `<host>.<tailnet>.ts.net`, which Tailscale resolves inside each
+# recipient's tailnet where the node's IP address means nothing to them. Read
+# from `tailscale status --json`, whose `Self` block carries it as
+# `"DNSName": "<name>."` with a trailing dot. Parsed with sed rather than jq,
+# which the installer does not require of a host; the `Self` block is the
+# first `DNSName` in the document, so the first match is the one wanted.
+# Empty when tailscale is absent, not running, or MagicDNS is off (the field
+# is then empty), and the caller falls back to the host's own FQDN.
+#
+# Never fails. install.sh assigns the result under `set -e`, and a failing
+# command substitution in an assignment ends the script there with nothing
+# printed; a tailscale that is installed but not running exits non-zero,
+# which `pipefail` would otherwise turn into exactly that silent exit.
+qc_tailnet_dns_name() {
+    command -v tailscale >/dev/null 2>&1 || return 0
+    # One sed that quits at the first match, rather than `| head -n1`: on a
+    # tailnet with many peers head closes the pipe while sed is still
+    # writing, sed dies of SIGPIPE, and pipefail reports the pipeline failed.
+    { tailscale status --json 2>/dev/null || true; } \
+        | sed -nE '/"DNSName":/{s/^[[:space:]]*"DNSName":[[:space:]]*"([^"]*)".*$/\1/;s/\.$//;p;q}'
+    return 0
+}
+
+# qc_url_host <url> -> the host part of an origin, or nothing if it has none.
+# `https://host.example:8443` -> `host.example`. Used to add a public
+# address's host to the certificate.
+qc_url_host() {
+    printf '%s\n' "$1" | sed -nE 's#^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?\#]+).*$#\1#p'
+}
+
 # --- validation --------------------------------------------------------------
 valid_ipv4() {
     # A real check, not a shape check. This guards the address that goes into

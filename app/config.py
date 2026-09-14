@@ -611,6 +611,20 @@ DATABASE_POOL_MAX_SIZE = int(os.environ.get("QC_AGENT_DATABASE_POOL_MAX_SIZE", "
 # the check exists precisely for requests that are not real browsers, so
 # the empty string must not be a member. Stripping here fixes it for both
 # consumers (CORSMiddleware and AccessControlMiddleware) at once.
+# The address other people use to reach this deployment, as a base URL
+# (`https://<name>:<port>`), and the base of every link the app hands out: an
+# invite, a password reset. Without it those links are built from the admin's
+# own browser origin, which is right on a LAN and wrong on a Tailscale node
+# that is SHARED with each user rather than joined to one tailnet: every
+# recipient reaches the host at their own address, and a link carrying the
+# admin's is dead for everyone else. The installer writes the tailnet's
+# MagicDNS name here (Tailscale resolves it inside each recipient's tailnet);
+# an admin can override it in the console without a restart (the
+# `public_url` app_config key wins over this), and blank means the browser's
+# own origin, which is what every deployment did before this existed.
+# Normalised to no trailing slash so a link is `<base>/?invite=...` exactly.
+PUBLIC_URL = os.environ.get("QC_AGENT_PUBLIC_URL", "").strip().rstrip("/")
+
 SERVER_CORS_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(

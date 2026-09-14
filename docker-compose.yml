@@ -192,6 +192,10 @@ services:
       # and /api/* from one origin, so every legitimate request is
       # same-origin and the dynamic fallback covers it.
       QC_AGENT_SERVER_CORS_ORIGINS: ""
+      # The address other people use to reach this deployment, the base of
+      # every invite and reset link. Optional; blank means the admin's own
+      # browser origin. See .env.example and docs/DEPLOYMENT.md.
+      QC_AGENT_PUBLIC_URL: ${QC_AGENT_PUBLIC_URL:-}
       # Embeddings stay on the host's existing Ollama (native /api/embeddings,
       # not OpenAI-compatible -- a vLLM swap for chat does not cover this).
       QC_AGENT_OLLAMA_HOST: http://host.docker.internal:11434
