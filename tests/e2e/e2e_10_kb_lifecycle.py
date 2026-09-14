@@ -18,7 +18,7 @@ Sub-tests:
   K3  rejected file extension
   K4  per-user scoping: A's upload is invisible to B; shared manuals are
       visible to both
-  K5  the agent's search_knowledge_base reaches the caller's OWN upload
+  K5  the agent's own `search` reaches the caller's OWN upload
       (proves owner scoping is threaded all the way into the tool)
   K6  DELETE removes the chunks -- and what happens to the file on disk
   K7  deleting the owning USER removes their KB files
@@ -127,9 +127,15 @@ def main() -> None:
     sa = AgentSession.new(ua, label="e2e kb search A")
     ta = sa.say("Search the knowledge base: what is the Zorblatt correction "
                 "factor for the Quixotic-7 basis set?", timeout=420)
-    a_text = "\n".join(c for n, c in ta.tools_executed() if n == "search_knowledge_base")
-    check("K5a the agent called search_knowledge_base",
-          "search_knowledge_base" in ta.tool_names(), f"tools={ta.tool_names()}")
+    # The four retrieval tools were unified into one `search(query, source=...)`
+    # some time ago and `search_knowledge_base` is no longer bound: it is the
+    # function `search` dispatches to for source="manuals" and "papers". This
+    # check asked for the old bound name and so could only fail. The 2026-09
+    # review recorded the same drift here and in e2e_06's T04 to T06 and called
+    # it test-side, which it is.
+    a_text = "\n".join(c for n, c in ta.tools_executed() if n == "search")
+    check("K5a the agent searched the knowledge base",
+          "search" in ta.tool_names(), f"tools={ta.tool_names()}")
     check("K5b user A's OWN upload was reachable through the tool "
           "(owner scoping is threaded into the tool, not just the REST list)",
           "0.8814" in a_text or "Zorblatt" in a_text, a_text[:250])
@@ -138,7 +144,7 @@ def main() -> None:
     sb = AgentSession.new(ub, label="e2e kb search B")
     tb = sb.say("Search the knowledge base: what is the Zorblatt correction "
                 "factor for the Quixotic-7 basis set?", timeout=420)
-    b_text = "\n".join(c for n, c in tb.tools_executed() if n == "search_knowledge_base")
+    b_text = "\n".join(c for n, c in tb.tools_executed() if n == "search")
     check("K5c user B's identical search does NOT surface user A's private "
           "upload", "0.8814" not in b_text, b_text[:250])
     sb.close()

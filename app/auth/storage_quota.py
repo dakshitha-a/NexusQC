@@ -25,6 +25,7 @@ enforce_all_quotas' own docstring for exactly how the two interact).
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Optional
@@ -43,6 +44,9 @@ from app.config import (
     PLOTS_DIR,
     UPLOADS_DIR,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_quota_config() -> dict:
@@ -968,8 +972,19 @@ def purge_user_data(user_id: str) -> dict:
             pass
     except Exception:
         # A KB store that is unreachable must not block account deletion;
-        # the account row and every other resource still go.
-        pass
+        # the account row and every other resource still go. But it is LOGGED
+        # now rather than silently passed: this handler wraps the whole
+        # reconciliation sweep, so it was also swallowing any bug inside it,
+        # and a file left behind under a deleted user's directory with no
+        # trace anywhere of why is exactly the shape of problem that costs an
+        # afternoon later. e2e_10's K7 reported such a leftover at the
+        # 2026-09 gate and could not be reproduced in isolation across three
+        # sequences; if it happens again this line is what will say why.
+        logger.warning(
+            "the KB reconciliation sweep failed for user %s during account deletion; "
+            "their upload directory may keep files whose chunks were already gone",
+            user_id, exc_info=True,
+        )
 
     return {
         "job_ids": [c["key"] for c in job_candidates],

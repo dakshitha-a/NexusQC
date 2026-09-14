@@ -1,3 +1,4 @@
+# re-run at the merged gate, on the tree at 700b8cc plus the gate's own fixes
 == the fourteen claims the review falsified from code alone ==
 
 [PASS] update.sh --rollback really moves the checkout back

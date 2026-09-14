@@ -29,9 +29,15 @@ One pass of the load is, against the running deployment on this host:
   request and never cached, which makes this the heaviest per-request
   allocation the app makes on a read path
 
-`VmRSS`, thread count and open descriptor count are read from
-`/proc/1/status` and `/proc/1/fd` inside the container, which is the same
-measurement the review took.
+`VmRSS`, thread count and open descriptor count are read from the app
+process's own `/proc/<pid>/status` and `/proc/<pid>/fd` inside the container,
+which is the same measurement the review took. The readings below were taken
+when the app was PID 1; the api service has since been given `init: true` so
+that tini reaps the engine's orphaned children, which makes tini PID 1 and the
+app PID 2, and the script resolves the app by its command line rather than
+assuming. Reading `/proc/1` after that change would measure tini, which uses
+about 200 KB and never moves, so every number here would come back flat and
+the experiment would "prove" there is no leak.
 
 ## Why the experiment grew from two loads to four
 
@@ -94,8 +100,8 @@ rather than as an amount returned, because the first version of it was labelled
 one that had given memory back.
 
 **The thread count is dominated by a Rust runtime sized from the host's core
-count.** `thread-breakdown.txt` is `/proc/1/task/*/comm` grouped by name on the
-settled process: 510 `tokio-rt-worker`, 146 `python`, 2 `sqlx-sqlite-wor`. The
+count.** `thread-breakdown.txt` is `/proc/<pid>/task/*/comm` grouped by name on the
+settled app process: 510 `tokio-rt-worker`, 146 `python`, 2 `sqlx-sqlite-wor`. The
 tokio and sqlx threads are ChromaDB's Rust core, and 510 is exactly twice the
 255 CPUs the container sees, so it is two tokio runtimes each sized to the
 machine. That is where the review's unexplained 658 threads came from, and why

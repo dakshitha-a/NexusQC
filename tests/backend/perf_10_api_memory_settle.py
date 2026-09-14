@@ -5,7 +5,7 @@
 
 WHAT WAS MEASURED IN THE REVIEW, AND WHY IT DID NOT SETTLE ANYTHING
 --------------------------------------------------------------------
-Two readings of `VmRSS` from the api container's own `/proc/1/status`, taken
+Two readings of `VmRSS` from the api process inside its container, taken
 from one uninterrupted process: 551 MB right after the frozen bring-up, and
 1,231 MB at the end of a day that submitted a few hundred jobs and ran many
 agent turns and SSE streams. Thread count moved 658 to 660 and open file
@@ -58,7 +58,7 @@ which is what makes the rises comparable. It is:
   - CUBES orbital cube renders off one completed PySCF job, which is the
     heaviest per-request allocation the app makes on a read path
 
-The reading is `VmRSS` from `/proc/1/status` inside the container, which is the
+The reading is `VmRSS` from the app process's own `/proc/<pid>/status`, which is the
 same number the review took, plus thread and descriptor counts for the same
 reason it took those.
 
@@ -119,9 +119,35 @@ def _compose(*args: str, timeout: int = 300) -> str:
     return proc.stdout
 
 
+# The app is not necessarily PID 1. docker-compose.yml sets `init: true` on the
+# api service so tini reaps the engine's orphaned children, and tini is then
+# PID 1 while the app is PID 2 or later. Reading /proc/1 would silently measure
+# tini, which uses about 200 KB and never changes, so every number in this
+# script would come back flat and the experiment would "prove" there is no
+# leak. Resolve the app by its command line instead, and fail loudly if it
+# cannot be found rather than falling back to PID 1.
+_FIND_APP_PID = (
+    "for p in /proc/[0-9]*; do "
+    "  if tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q 'server.main'; then "
+    "    basename $p; break; "
+    "  fi; "
+    "done"
+)
+
+
+def api_pid() -> str:
+    pid = _compose("exec", "-T", "api", "sh", "-c", _FIND_APP_PID).strip()
+    if not pid.isdigit():
+        raise RuntimeError(
+            "could not find the api process inside the container by its command line; "
+            f"got {pid!r}. Without it this script would measure whatever is PID 1.")
+    return pid
+
+
 def read_process_stats() -> dict:
+    pid = api_pid()
     out = _compose("exec", "-T", "api", "sh", "-c",
-                   "grep -E '^VmRSS|^Threads' /proc/1/status; ls /proc/1/fd | wc -l")
+                   f"grep -E '^VmRSS|^Threads' /proc/{pid}/status; ls /proc/{pid}/fd | wc -l")
     stats = {"rss_kb": None, "threads": None, "fds": None}
     for line in out.splitlines():
         line = line.strip()

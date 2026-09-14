@@ -83,7 +83,8 @@ import numpy as np
 # reachable only from this loop while it lived here, so the quick
 # recommendation could not use it and uracil's quick answer stayed at
 # CAS(22e,14o) when the states it was asked about use ten orbitals.
-from app.chemistry.cas.narrow import narrow_to_states as _narrow_to_states
+from app.chemistry.cas.narrow import (describes_correlation,
+                                      narrow_to_states as _narrow_to_states)
 
 # Natural-occupation window outside which an orbital is carrying nothing.
 INERT_OCCUPIED = 1.98
@@ -1025,6 +1026,15 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         trial_cas, trial_ne = _narrow_to_states(
             mol, recommendation, base, analysis, n_states, pi_t, lp_t,
             nroots=expected_roots, csf_budget=csf_budget, perception=per)
+        # The same completion guard the tier builder applies. Without it this
+        # branch could narrow past the point of being a space at all, and did:
+        # water asked for two states came back as a "refined" CAS(2,1), one
+        # orbital holding one determinant. See narrow.describes_correlation.
+        if trial_cas and not describes_correlation(base, trial_cas, trial_ne):
+            log(f"[refine] narrowing declined: CAS({trial_ne},{len(trial_cas)}) "
+                f"is not a space that describes correlation, so the "
+                f"recommended tier stands")
+            trial_cas = []
         if trial_cas and len(trial_cas) < len(base.orbital_indices):
             was = (f"the {chosen} tier" if chosen else
                    f"CAS({base.n_electrons},{len(base.orbital_indices)})")
@@ -1044,13 +1054,38 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
                                      n_states, pi_t, lp_t,
                                      nroots=expected_roots,
                                      csf_budget=csf_budget, perception=per)
-        chosen = "narrowed"
-        why = (f"no tier fits the {csf_budget:.0g}-CSF budget over "
-               f"{expected_roots} roots (the smallest is "
-               f"{base.feasibility.n_csf:,} CSFs, "
-               f"{base.feasibility.n_csf * expected_roots:,} root-CSFs), so the "
-               f"recommended tier was narrowed to its pi system plus the "
-               f"lone pairs the requested states are built on")
+        # Same guard as the branch above, and it matters more here: this one
+        # runs when NOTHING fits the budget, so there is more pressure on the
+        # narrowing to produce something small, and "small enough to be
+        # meaningless" is exactly what that pressure produces. A space that
+        # describes no correlation is not a cheaper answer, it is a wrong one,
+        # and refusing leaves the base tier standing, which the user can at
+        # least see is too large.
+        if narrowed and not describes_correlation(base, narrowed[0], narrowed[1]):
+            log(f"[refine] narrowing declined: "
+                f"CAS({narrowed[1]},{len(narrowed[0])}) is not a space that "
+                f"describes correlation, so the recommended tier stands even "
+                f"though it does not fit the budget")
+            narrowed = None
+        if narrowed is None:
+            # The declined case has to name a REAL tier, because the lines
+            # below index tiers[chosen] whenever `narrowed` is None and
+            # "narrowed" is not a key in that dict.
+            chosen = "recommended" if "recommended" in tiers else "minimal"
+            why = (f"CAS({base.n_electrons},{len(base.orbital_indices)}), the "
+                   f"{chosen} tier, kept whole. It does not fit the "
+                   f"{csf_budget:.0g}-CSF budget over {expected_roots} roots, "
+                   f"and narrowing it to the orbitals the requested states use "
+                   f"would have left a space that describes no correlation, "
+                   f"which is not a cheaper answer but a wrong one")
+        else:
+            chosen = "narrowed"
+            why = (f"no tier fits the {csf_budget:.0g}-CSF budget over "
+                   f"{expected_roots} roots (the smallest is "
+                   f"{base.feasibility.n_csf:,} CSFs, "
+                   f"{base.feasibility.n_csf * expected_roots:,} root-CSFs), so the "
+                   f"recommended tier was narrowed to its pi system plus the "
+                   f"lone pairs the requested states are built on")
     elif chosen is None and base is None:
         # `recommend()` always emits a recommended tier, so this is unreachable
         # rather than merely unlikely. It is spelled out because the two lines

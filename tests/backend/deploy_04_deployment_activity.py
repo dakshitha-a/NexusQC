@@ -167,8 +167,21 @@ def main() -> None:
               f"rc={rc} id={probe_id!r} {err[-160:]}")
 
     if probe_id:
+        # Poll rather than read once. The route answers from the shared job
+        # index in app/chemistry/jobs/base.py, which is rebuilt at most once a
+        # second (R-051, so an open admin console does not walk the job
+        # directory on every poll). This probe writes its job from a separate
+        # `docker compose exec` process, so the api's own index does not learn
+        # about it through write_status and only picks it up when its second is
+        # up. Reading immediately therefore tests the cache's age rather than
+        # the join this check is about. Three seconds is three times the TTL.
+        deadline = time.time() + 3.0
         snap = admin.get("/api/admin/activity").json()
         row = next((u for u in snap["users"] if u["id"] == admin_id), None)
+        while time.time() < deadline and not (row and row["running_jobs"] >= 1):
+            time.sleep(0.25)
+            snap = admin.get("/api/admin/activity").json()
+            row = next((u for u in snap["users"] if u["id"] == admin_id), None)
         check(
             "the staged job is counted against its owner's row",
             bool(row) and row["running_jobs"] >= 1,

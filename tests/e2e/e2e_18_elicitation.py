@@ -130,12 +130,31 @@ def main() -> None:
         check("E18-09 answering ahead is accepted, not re-asked",
               not asked_again, f"re-asked: {said(t4)[:250]}")
 
-        # 5. Finish it and let the card appear.
-        t5 = session.say("Go ahead and run it.", timeout=600)
-        pending = t5.pending_approval or session.state().get("pending_approval")
+        # 5. The card, which since R-101 may already be up.
+        #
+        # Answering the last open question completes the draft, and a complete
+        # draft raises its own approval card in that same turn. So by the time
+        # step 4 returns there is usually nothing left to say, and saying "go
+        # ahead and run it" anyway is now REFUSED with a 409: posting a message
+        # while a card is pending would discard the card (R-038), which is the
+        # gap that refusal exists to close. This script crashed on that 409 at
+        # the 2026-09 gate, with both mechanisms working exactly as designed
+        # and neither of them wrong.
+        #
+        # So: ask for the card first, and only prompt if the app has genuinely
+        # not raised one. Elicitation ending at a card without a further
+        # instruction is the behaviour under test, not a shortcut around it.
+        pending = t4.pending_approval or session.state().get("pending_approval")
+        carded_on_the_answer = pending is not None
+        if not carded_on_the_answer:
+            t5 = session.say("Go ahead and run it.", timeout=600)
+            pending = t5.pending_approval or session.state().get("pending_approval")
+            tools_note = f"tools={t5.tool_names()} (needed an explicit go-ahead)"
+        else:
+            tools_note = (f"tools={t4.tool_names()} (the card came up on the answer "
+                          f"itself, which is R-101)")
         check("E18-10 the completed draft reaches an approval card",
-              pending is not None,
-              f"tools={t5.tool_names()}")
+              pending is not None, tools_note)
         if pending:
             spec = pending.get("spec") or {}
             params = spec.get("params") or {}

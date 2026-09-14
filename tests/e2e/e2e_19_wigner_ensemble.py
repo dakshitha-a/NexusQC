@@ -82,7 +82,13 @@ def main() -> None:
         "Hartree-Fock level with the STO-3G basis. Please go ahead and submit it.",
         timeout=300,
     )
-    ok, detail = check_tools(turn1, "W19-freq", must_call=["submit_draft"])
+    # R-101: a complete draft raises its own approval card, so reaching the
+    # card no longer requires the model to call `submit_draft` afterwards.
+    # Requiring that tool name was requiring the mechanism rather than the
+    # outcome, and it fails on the fixed code for the best possible reason.
+    # What matters is that the card appeared, which the next check asserts,
+    # and that a draft was built at all, which is what this one asks now.
+    ok, detail = check_tools(turn1, "W19-freq", must_call=["update_job_draft"])
     check("W19-freq agent reached an approval card for the source frequency job",
           ok, detail + f" | tools={turn1.tool_names()}")
 
@@ -129,7 +135,13 @@ def main() -> None:
         f"and submit it.",
         timeout=600,
     )
-    ok, detail = check_tools(turn2, "W19-ensemble", must_call=["submit_draft"])
+    # R-101: a complete draft raises its own approval card, so reaching the
+    # card no longer requires the model to call `submit_draft` afterwards.
+    # Requiring that tool name was requiring the mechanism rather than the
+    # outcome, and it fails on the fixed code for the best possible reason.
+    # What matters is that the card appeared, which the next check asserts,
+    # and that a draft was built at all, which is what this one asks now.
+    ok, detail = check_tools(turn2, "W19-ensemble", must_call=["update_job_draft"])
     check("W19-ensemble agent reached an approval card for the ensemble job",
           ok, detail + f" | tools={turn2.tool_names()} timed_out={turn2.timed_out}")
 

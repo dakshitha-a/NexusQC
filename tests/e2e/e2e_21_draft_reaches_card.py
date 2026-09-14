@@ -224,7 +224,11 @@ def main() -> None:
     finally:
         cleanup_user(admin, uid)
 
-    sys.exit(0 if summary() else 1)
+    # `summary()` returns None and exits 1 itself when a check failed, so
+    # `sys.exit(0 if summary() else 1)` exited 1 on every run including a
+    # clean one. This script reported 10 of 10 at the 2026-09 gate and the
+    # runner still counted it as a failed script.
+    summary()
 
 
 if __name__ == "__main__":

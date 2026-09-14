@@ -560,7 +560,33 @@ def get_owner(kind: str, resource_id: str) -> Optional[str]:
     return str(row["owner_user_id"]) if row else None
 
 
+def _is_uuid(value: str) -> bool:
+    """Whether a string can be a user id at all.
+
+    `owner_user_id` is a uuid column, so Postgres refuses a comparison against
+    anything that is not one and psycopg raises InvalidTextRepresentation
+    rather than returning no rows. That is the right behaviour for a WRITE,
+    where a malformed id means a bug worth hearing about. For a READ it turns
+    "what does this user own" into a 500 for a caller who is entitled to the
+    answer "nothing".
+
+    It stopped being hypothetical when `purge_own_data` started asking for the
+    caller's projects before anything else (R-087). `dz_01_self_purge` calls it
+    with a deliberately impossible id to prove the danger-zone purge is a
+    no-op for someone with nothing, and the call raised out of psycopg
+    instead. A purge route answering 500 with a database error in it is the
+    same class of leak R-083 closed on the orbital-render path.
+    """
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
 def list_owned(kind: str, owner_user_id: str) -> list[str]:
+    if not _is_uuid(owner_user_id):
+        return []
     with get_pool().connection() as conn:
         rows = conn.execute(
             "SELECT resource_id FROM ownership_index WHERE kind = %s AND owner_user_id = %s",

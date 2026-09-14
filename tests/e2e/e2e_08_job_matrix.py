@@ -199,6 +199,16 @@ def prompt_for(task: str, subtype: str, engine: str, params: dict) -> str:
                         f"(the ground state included)")
         else:
             bits.append(f"for {p['n_states']} excited states")
+    if p.get("n_excited_states"):
+        # `n_excited_states` is a different key from `n_states` and this
+        # builder only ever handled the latter, so every `ee` cell asked for
+        # excited states without saying how many. That is a parameter the
+        # registry genuinely requires, so the app asked for it, correctly, and
+        # the card check scored the question as a missing card. M13 to M17 read
+        # as "flaky 1 to 2 of 3" through the whole 2026-09 review for that
+        # reason: flaky because the model sometimes picked a number and
+        # sometimes asked.
+        bits.append(f"for {p['n_excited_states']} excited states")
     if p.get("orbital_indices"):
         bits.append(f"rendering orbitals {', '.join(str(i) for i in p['orbital_indices'])}")
     if p.get("want_oscillator_strengths"):
@@ -327,6 +337,20 @@ def run_cell(user, cell, admin) -> None:
     # M10, the cell the matrix itself labels the SLOW probe, kept producing
     # exactly that ambiguity.
     card_detail = f"tools={tools} timed_out={turn.timed_out} elapsed={turn.elapsed:.0f}s"
+    if pending is None:
+        # WHY there is no card, not just that there is none. A turn that ends
+        # without a card has two very different causes and this check reported
+        # them identically for the whole 2026-09 review: the app can have
+        # stopped to ask for something the prompt did not supply, which is the
+        # elicitation path working and means the PROMPT is wrong, or it can
+        # have said nothing at all, which is the defect R-101 was about. Six
+        # cells were failing for the first reason and read as the second, and
+        # the difference was invisible because the reply text was never
+        # printed. It is printed now, and the first line of it is usually the
+        # whole diagnosis.
+        reply = (turn.assistant_text() or "").strip().replace("\n", " ")
+        card_detail += (f"\n         the app {'ASKED something' if '?' in reply else 'SAID NOTHING'}"
+                        f" instead of carding: {reply[:400]!r}")
     if pending is None and "submit_draft" in tools:
         replies = [c for n, c in turn.tools_executed() if n == "submit_draft"]
         card_detail += (f"\n         submit_draft replied: "

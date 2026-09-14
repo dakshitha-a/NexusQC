@@ -113,6 +113,20 @@ export async function deleteUserByUsername(adminContext, username) {
   const page = await adminContext.newPage();
   const res = await page.request.get(`${BASE_URL}/api/admin/users`);
   const users = await res.json();
+  // Say what went wrong rather than throwing a TypeError from cleanup. This
+  // used to call .find() straight on the parsed body, so any non-list answer
+  // -- a 401 whose body is {"detail": ...}, a maintenance page, a 500 --
+  // surfaced as "users.find is not a function" from a helper, several frames
+  // away from the spec that called it and with nothing in the message about
+  // authentication. That is how draft_01 reported itself at the 2026-09 gate,
+  // after every one of its own checks had passed.
+  if (!Array.isArray(users)) {
+    await page.close();
+    throw new Error(
+      `GET /api/admin/users answered ${res.status()} with ${JSON.stringify(users).slice(0, 200)}; ` +
+      `expected a list of users. The admin context is probably no longer signed in.`,
+    );
+  }
   const found = users.find((u) => u.username === username);
   if (found) {
     await page.request.delete(`${BASE_URL}/api/admin/users/${found.id}`, { headers: { Origin: BASE_URL } });

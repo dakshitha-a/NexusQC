@@ -350,11 +350,33 @@ def main() -> int:
             t = c.send(prompt)
             card = c.pending()
             asked = card is None and any(w in t.text.lower() for w in wanted)
-            check(f"asks for the missing {label} instead of choosing one",
-                  asked,
-                  "asked" if asked else ("carded straight away" if card else "said nothing useful"),
+            # Two acceptable outcomes, not one. This used to require the app to
+            # ASK, full stop, and that is no longer the contract: a value the
+            # model wrote rather than the user is allowed to reach the card,
+            # PROVIDED the card says so. app/agent/grounding.py explains why
+            # that replaced the older rule. A prompt cannot stop a model
+            # answering its own question, because the failure being guarded
+            # against is the model not following the prompt, so the app stopped
+            # trying to prevent the guess and started labelling it: the card
+            # carries `unstated_params` and JobApprovalCard renders those under
+            # "Check these: nothing you said mentions them". The harm was never
+            # that a guess exists, it is a guess and a choice looking identical
+            # at the moment of approval.
+            #
+            # So what fails here is the third outcome: a value the user never
+            # gave, on the card, indistinguishable from one they did.
+            unstated = set((card or {}).get("unstated_params") or {})
+            params = set((card or {}).get("params") or {})
+            flagged = card is not None and bool(unstated & params)
+            check(f"the missing {label} is either asked for or flagged on the card as "
+                  f"something nobody said",
+                  asked or flagged,
+                  ("asked" if asked else
+                   (f"carded, flagged as unstated: {sorted(unstated)}" if flagged else
+                    (f"carded with nothing flagged" if card else "said nothing useful"))),
                   fail_detail=(f"a value it chose reaches the approval card looking exactly like "
                                f"one you chose. Card params: {(card or {}).get('params')}; "
+                               f"unstated_params: {(card or {}).get('unstated_params')}; "
                                f"agent said: {t.text[:160]!r}"))
             if card is not None:
                 c.approve(False)

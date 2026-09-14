@@ -2,6 +2,26 @@
 
 PROBE SIZING IS A DELIBERATE TWO-TIER CHOICE, not an oversight.
 
+A NOTE ON THE ACTIVE-SPACE CELLS AND THEIR BASIS (2026-09-14)
+------------------------------------------------------------
+Every cell that names an active space asks for 6-31G rather than STO-3G, and
+the difference is not taste. Water in STO-3G has seven basis functions, five on
+the oxygen and one on each hydrogen. A CAS(4,4) leaves six electrons in three
+closed orbitals, and three closed plus four active is all seven, so there is no
+virtual orbital left at all. The orbital rotation and canonicalisation steps
+need at least one, CASPT2 needs somewhere to correlate into, and BAGEL dies
+inside LAPACK rather than saying so. The app checks for this before the
+approval card (`multireference_virtual_space_problem`) and refuses, which is
+correct and is what these cells were running into: M05, M10, M11 and M12
+reported "no approval card" through the whole 2026-09 review and at both
+gates, and the app was right every time. 6-31G gives water thirteen functions
+and leaves six virtuals after the same three closed and four active.
+
+SLOW_ORCA and SLOW_BAGEL keep STO-3G deliberately. They are timing probes that
+submit a job directly rather than passing through draft validation, and
+CAS(4,4)/STO-3G on water does run on ORCA: timed at 7.3 s on 2026-09-13, which
+is what they are for.
+
 The default everywhere is water / HF / STO-3G -- the smallest meaningful
 system and basis, which is what a functional or rendering check actually
 needs. But a trivial PySCF job reaches "completed" faster than any
@@ -89,7 +109,7 @@ MATRIX = [
     ("M03", "opt", "min", "pyscf", 1, {"method": "hf", "basis": "sto-3g"}, ""),
     ("M04", "opt", "min", "orca",  2, {"method": "hf", "basis": "sto-3g"}, ""),
     ("M05", "opt", "min", "bagel", 3,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4},
      "BAGEL geo-opt is casscf/caspt2 only; HF/DFT must raise. XN-08."),
     ("M06", "freq", "", "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
      "no IR intensities on PySCF -> XN-07"),
@@ -98,17 +118,17 @@ MATRIX = [
     ("M08", "freq", "", "bagel", 3, {"method": "hf", "basis": "sto-3g"},
      "HF-reference numerical Hessian only. XN-08."),
     ("M09", "single_point", "gs", "pyscf", 1,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4},
      "XN-03"),
     ("M10", "single_point", "gs", "orca",  1,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4,
       "want_oscillator_strengths": True},
      "MECHANICAL ROUTING: want_oscillator_strengths must send this to ORCA "
      "even if the user never says 'ORCA'. Also the SLOW probe."),
     ("M11", "single_point", "gs", "bagel", 3,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4}, ""),
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4}, ""),
     ("M12", "single_point", "gs", "bagel", 3,
-     {"method": "caspt2", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
+     {"method": "caspt2", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4},
      "BAGEL-only; any other engine must be refused. XN-04."),
     ("M13", "single_point", "ee", "pyscf", 1,
      {"method": "hf", "basis": "sto-3g", "n_excited_states": 5, "use_tda": True},
@@ -176,7 +196,7 @@ MATRIX = [
      "Phase 5. excited-state gradient; PBE0 not B3LYP -- B88-containing functionals are refused "
      "here (see docs/PARSER_GAPS.md), so this cell must NOT be B3LYP/BLYP"),
     ("M29", "single_point", "nac", "pyscf", 1,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4,
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4,
       "n_excited_states": 1, "state_pairs": [[1, 2]]},
      "Phase 5. only NAC path PySCF has (SA-CASSCF)"),
     ("M30", "single_point", "nac", "orca", 2,
@@ -193,7 +213,7 @@ MATRIX = [
       "n_excited_states": 2},
      "Phase 6. ! CI-OPT (not ! Opt), %TDDFT + %CONICAL -- ground-state-inclusive only"),
     ("M34", "opt", "ci", "bagel", 3,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4, "n_excited_states": 1,
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4, "n_excited_states": 1,
       "target_state": 0, "target_state_2": 1},
      "Phase 6 regression. BAGEL gradient-projection MECP, pre-existing mechanism"),
     ("M35", "opt_freq", "", "pyscf", 1, {"method": "hf", "basis": "sto-3g"},
@@ -201,7 +221,7 @@ MATRIX = [
     ("M36", "opt_freq", "", "orca", 2, {"method": "hf", "basis": "sto-3g"},
      "Phase 6. single-input '! Opt Freq' -- one process, not two"),
     ("M37", "opt_freq", "", "bagel", 3,
-     {"method": "casscf", "basis": "sto-3g", "active_electrons": 4, "active_orbitals": 4},
+     {"method": "casscf", "basis": "6-31g", "active_electrons": 4, "active_orbitals": 4},
      "Phase 6. single-input optimize+hessian; BAGEL opt_freq is casscf/caspt2 only, same as opt/min. XN-08."),
 
     # Added 2026-09-06. These three (task, subtype) pairs are in the registry

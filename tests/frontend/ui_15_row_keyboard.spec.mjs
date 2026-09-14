@@ -105,6 +105,26 @@ async function closeDrawer(page) {
   }
 }
 
+/**
+ * Presses Tab until `selector` holds focus, so the browser records the focus
+ * as keyboard-driven and `:focus-visible` applies. Returns whether it got
+ * there within `limit` presses.
+ */
+async function tabTo(page, selector, limit = 80) {
+  await page.evaluate(() => {
+    // Start from the top of the document so the walk is deterministic.
+    document.body.setAttribute("tabindex", "-1");
+    document.body.focus();
+  });
+  for (let i = 0; i < limit; i++) {
+    await page.keyboard.press("Tab");
+    const onTarget = await page.evaluate(
+      (sel) => document.activeElement === document.querySelector(sel), selector);
+    if (onTarget) return true;
+  }
+  return false;
+}
+
 async function main() {
   const browser = await newBrowser();
   const adminCtx = await newContext(browser);
@@ -206,7 +226,16 @@ print(json.dumps({"job_id": jid, "status": status}))
       jm.ariaSelected !== null, `aria-selected=${jm.ariaSelected}`);
 
     const unfocused = await shot(page, mgrRow, "jobrow-unfocused");
-    await page.$eval(mgrRow, (el) => el.focus());
+    // Reach the row with the KEYBOARD, not with el.focus(). The ring is drawn
+    // by `focus-visible`, which is the right selector for this: a mouse click
+    // on a row should select it without painting a focus ring, and only
+    // keyboard navigation should show one. Browsers implement that by
+    // remembering how the last focus happened, so a programmatic .focus()
+    // moves focus and paints nothing, and the screenshot comparison came back
+    // byte-identical against working code.
+    const reached = await tabTo(page, mgrRow);
+    check("the job row is genuinely reachable by pressing Tab, not just marked tabbable",
+      reached, "Tab never landed on the row");
     await page.waitForTimeout(250);
     const focused = await shot(page, mgrRow, "jobrow-focused");
     check("a focused row looks different from an unfocused one",

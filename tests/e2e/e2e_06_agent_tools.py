@@ -8,8 +8,7 @@ a plausible-looking answer is not evidence the right tool ran.
 
 Tools exercised here:
     set_geometry, lookup_capabilities, start_job_draft, update_job_draft,
-    check_job_status, search_knowledge_base, search_academic_literature,
-    web_search
+    check_job_status, search
 (submit_draft has its own script, e2e_07; the consolidated `plot` has
 e2e_09; the elicitation sequence itself has e2e_18.)
 
@@ -20,7 +19,7 @@ prompt told it not to; it is now `validate_draft` returning a question and
 to be a per-job-type allow-list; it is now a capability verdict derived
 from what the installed engines were measured to do.
 
-Network-dependent tools (search_academic_literature, web_search, and
+Network-dependent sources (`search` with source="scholar" or "web", and
 PubChem behind set_geometry) are reported but never hard-failed on a
 network error -- that is ENV, not CODE. What IS asserted is that the tool
 was CALLED and that a failure degrades to an explanatory string rather
@@ -109,24 +108,37 @@ def main() -> None:
         must_call=["start_job_draft"], must_not_call=["submit_draft"],
     )
 
+    # T04 to T06 name `search` and check its `source`, which is the shape the
+    # tool has had since the four retrieval tools were unified.
+    # `search_knowledge_base`, `search_academic_literature` and `web_search`
+    # are still functions in the codebase, but they are no longer BOUND: the
+    # model sees one `search(query, source=...)` and the old names are what it
+    # dispatches to. These three checks asked for the old names and so could
+    # only ever fail; the 2026-09 review saw the same drift in e2e_10's K5 and
+    # recorded it as test-side, which it is. What is worth testing is
+    # unchanged: the model reaches for the right SOURCE for the question, and
+    # asking a question does not submit a job.
     assert_scenario(
-        user, "T04", "search_knowledge_base is used for manual syntax questions",
+        user, "T04", "the manuals source is used for manual syntax questions",
         "What does the ORCA manual say about the %casscf block and its ETol keyword?",
-        must_call=["search_knowledge_base"], must_not_call=["submit_draft"],
+        must_call=["search"], must_not_call=["submit_draft"],
+        args_match={"search": {"source": "manuals"}},
     )
 
     assert_scenario(
-        user, "T05", "search_academic_literature for a literature question",
+        user, "T05", "the scholar source is used for a literature question",
         "Find the most cited papers on choosing an active space for CASSCF "
         "calculations of retinal photoisomerization.",
-        must_call=["search_academic_literature"], must_not_call=["submit_draft"],
+        must_call=["search"], must_not_call=["submit_draft"],
+        args_match={"search": {"source": "scholar"}},
         timeout=420,
     )
 
     assert_scenario(
-        user, "T06", "web_search for a current-events/software question",
+        user, "T06", "the web source is used for a current-events question",
         "Search the web for what the latest released version of ORCA is.",
-        must_call=["web_search"], must_not_call=["submit_draft"],
+        must_call=["search"], must_not_call=["submit_draft"],
+        args_match={"search": {"source": "web"}},
         timeout=420,
     )
 

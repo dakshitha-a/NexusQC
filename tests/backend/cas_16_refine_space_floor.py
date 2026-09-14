@@ -1,7 +1,7 @@
 """A refined active space never comes back with fewer than two orbitals.
 
     QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \\
-      PYTHONPATH=$PWD python3 tests/backend/cas_15_refine_space_floor.py
+      PYTHONPATH=$PWD python3 tests/backend/cas_16_refine_space_floor.py
 
 Found while settling R-099, which is why it is a separate script rather than a
 line in `cas_14_refinement_drawer.spec.mjs`: the drawer renders whatever the

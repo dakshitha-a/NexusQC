@@ -104,6 +104,46 @@ note saying what changed.
 - **A prompt printed a literal `\n` on screen.** `printf '%s'` does not process
   escapes, so the DMRG question showed its own line break as two characters.
 
+#### The four questions the 2026-09 review would not answer from a suite run
+
+The review deliberately left four results unlabelled, because a suite run
+cannot tell contention on a shared machine from a defect in the code. All four
+were re-run in isolation, and the answers are in
+`docs/evaluation/2026-09-app-review/evidence/fix/P4.1` through `P4.4`.
+
+- **One user could take a job slot that belonged to another.** The job
+  dispatcher decides who to admit from a list of waiting users that it reads
+  once per pass, and it read it before a call that blocks for a full second
+  measuring the machine's CPU load. Anyone whose first job arrived during that
+  second was not on the list the pass was reading, so their turn went to
+  somebody else even though the rotation was already pointing at them. Measured
+  on this deployment: a second user's job queued 0.83 s before the pass that
+  skipped them. It is one slot per occurrence rather than an indefinite wait,
+  but the window was a second wide and open on every pass. The list is read
+  after the measurement now.
+- **A refined active space could come back with a single orbital in it.** The
+  active-space refinement prunes orbitals that carry no correlation, and it
+  checked before each prune that what remained would still hold something
+  worth correlating. That check reads the occupations of the space it has, and
+  a single orbital that looks partially occupied inside a larger space is
+  necessarily doubly occupied once it is the only one left. Asking for two
+  states on water produced a "refined" space of two electrons in one orbital,
+  which holds exactly one configuration and recovers no correlation at all.
+  The refinement now refuses to go below two orbitals, whatever the
+  occupations say.
+- **An engine failure reported an exit code instead of the reason.** A
+  transition-state search whose two endpoints turn out to be the same structure
+  has no path to find, and ORCA says exactly that before it stops. What reached
+  the user was "ORCA exited with code 2" followed by three thousand characters
+  of output ending in four identical rows of a convergence table. The reason
+  now leads, with the raw output kept underneath it.
+- **The api's memory growth is a warm cache, not a leak.** Four identical
+  passes of a fixed load over a freshly started process cost 190.7, 17.4, 42.3
+  and 9.9 MB in order, so the fourth pass costs about a twentieth of the first
+  and the process settles rather than climbing. The review's two readings, 551
+  MB and 1,231 MB a day apart, are the first half of that curve. Nothing needed
+  fixing, and the numbers are recorded so nobody has to wonder again.
+
 ### Added
 
 - **Updating from the admin panel.** A new Deployment section reports the

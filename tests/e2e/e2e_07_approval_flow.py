@@ -150,8 +150,18 @@ def main() -> None:
         check("A2c the interrupt is cleared after a rejection",
               s2.state().get("pending_approval") is None)
         texts = " ".join(c for _, c in t.tools_executed()).lower()
+        # What must be true is that the tool told the MODEL the draft did not
+        # run, so it does not go on to describe a calculation that never
+        # started. The wording has moved on: the message says "declined by the
+        # user: the 'single_point' draft was not run and nothing was queued",
+        # which is better than what this check was written against and which
+        # it scored as a failure through the whole 2026-09 review. Matching on
+        # the substance rather than on one of three exact phrasings.
+        said_no = any(w in texts for w in
+                      ("not approve", "did not approve", "reject", "declin"))
+        said_nothing_ran = "was not run" in texts or "nothing was queued" in texts
         check("A2d the tool reported the non-approval back to the model",
-              "not approve" in texts or "did not approve" in texts or "reject" in texts,
+              said_no and said_nothing_ran,
               texts[:200])
         record_turn("A2", "PASS", t)
     s2.close()
@@ -217,13 +227,22 @@ def main() -> None:
               f"{r.status_code} {r.text[:200]}")
         new = [j for j in s3.state().get("active_job_ids", []) if j not in before_ids]
         if new:
+            # Wait for the job to run before reading its input back. `input.inp`
+            # is written by the runner just before the engine is launched, so a
+            # job still sitting behind the admission gate has a directory and no
+            # input file, and this read 404s through no fault of the hand-edit
+            # path. It passed at the Phase 1 gate and failed at the last one
+            # with the host busier, which is the signature of a race rather
+            # than of a regression. Waiting first also makes a genuine failure
+            # unambiguous: a terminal job with no raw input really is a defect.
+            job = s3.await_job(new[0], timeout=900)
             raw = user.get(f"/api/jobs/{new[0]}/raw_input")
             got = raw.text if raw.status_code == 200 else ""
             check("A3d the edited text was used BYTE-IDENTICALLY, not regenerated",
                   "e2e-marker: hand-edited" in got,
                   f"raw_input status={raw.status_code}, marker "
-                  f"{'present' if 'e2e-marker' in got else 'MISSING'}")
-            job = s3.await_job(new[0], timeout=900)
+                  f"{'present' if 'e2e-marker' in got else 'MISSING'}, "
+                  f"job status={job.get('status')}")
             check("A3e the hand-edited job reached a terminal state",
                   job.get("status") in ("completed", "failed"), str(job.get("status")))
             record("A3", "PASS", job_id=new[0], status=job.get("status")) if False else None

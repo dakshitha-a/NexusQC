@@ -225,6 +225,44 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
     return caslst, nelec
 
 
+def describes_correlation(base, cas, nelec: int) -> bool:
+    """Whether CAS(nelec, len(cas)) is a space that describes correlation.
+
+    Four ways a narrowing can shrink a space past the point of being one, and
+    every one of them has produced a real "recommendation" on this deployment:
+
+      * fewer than two orbitals. CAS(2e,1o) holds a single determinant
+        whatever its occupation, so it is a closed-shell reference written the
+        long way. Water asked for two states produced one.
+      * no electrons at all.
+      * completely full. CAS(4e,2o) is two doubly occupied orbitals, one
+        configuration, and describes no correlation either. Water asked for
+        three states produced this one.
+      * everything on one side of the Fermi level, so there is no excitation
+        for the CI to make.
+
+    `base` supplies the reference the occupied/virtual split is read against:
+    its `orbital_indices` in order, with the first `n_electrons // 2` of them
+    taken as the occupied half.
+
+    Shared rather than inlined because `refine()` narrows to states on its own
+    in two places when the recommendation published no narrowed tier, and
+    those two had no guard at all. That is where the CAS(2e,1o) came from: the
+    tier builder here declined it correctly and the refinement then built the
+    same thing for itself.
+    """
+    cas = list(cas)
+    if len(cas) < 2 or nelec <= 0 or nelec >= 2 * len(cas):
+        return False
+    order = list(base.orbital_indices)
+    n_docc = base.n_electrons // 2
+    occupied = set(order[:n_docc])
+    virtual = set(order[n_docc:])
+    has_occ = any(int(c) in occupied for c in cas)
+    has_vir = any(int(c) in virtual for c in cas)
+    return has_occ and has_vir
+
+
 def add_state_narrowed_tier(rec, mol, analysis, n_states, targets, *,
                             perception=None, spin_2s=0, log=None):
     """Offer the state-narrowed space as a fourth tier and point at it.
@@ -293,10 +331,7 @@ def add_state_narrowed_tier(rec, mol, analysis, n_states, targets, *,
     # projector's pool standing under its own name, which is a space the user
     # can run, so the failure mode of this guard is a larger recommendation
     # rather than no recommendation.
-    n_docc = base.n_electrons // 2
-    has_occ = any(int(c) in set(list(base.orbital_indices)[:n_docc]) for c in cas)
-    has_vir = any(int(c) in set(list(base.orbital_indices)[n_docc:]) for c in cas)
-    if nelec <= 0 or nelec >= 2 * len(cas) or not (has_occ and has_vir):
+    if not describes_correlation(base, cas, nelec):
         if log:
             log(f"narrowing declined: CAS({nelec},{len(cas)}) is not a space "
                 f"that describes correlation, so the pool stands as "

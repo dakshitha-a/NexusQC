@@ -1,0 +1,292 @@
+# Host paths in this log were replaced with placeholders by evidence/redact_paths.py.
+# e2e UI suite started 2026-09-14T01:38:43-04:00, host:  01:38:43 up 295 days,  2:33,  8 users,  load average: 36.23, 39.81, 36.03
+
+============================================================
+=== ui_01_shell_and_chat.spec.mjs
+============================================================
+[PASS] login through the real LoginScreen reaches the app shell
+  [step] shell
+[PASS] [F-013] "Collapse sidebar" is not covered by another element
+[PASS] Collapse sidebar collapses and exposes "Expand sidebar"
+[PASS] [F-013] "Collapse panel" is not covered by another element
+[PASS] Collapse panel collapses and exposes "Expand panel"
+  [step] layout-persistence
+[PASS] panel collapse state persists across a reload (qc-agent-layout)
+  [step] resize-handle
+[PASS] ResizeHandle responds to arrow keys (role=separator, tabIndex=0) -- {"state":{"leftRailCollapsed":false,"rightDockCollapsed":false,"moleculeCollapsed":false,"jobsCollapsed":false,"jobManagerCollapsed":false,"plotsCollapsed":false,"kbCollapsed":true,"filesCollapsed":true,"projectsCollapsed":true,"sharesCollapsed":true,"leftRailWidth":288,"rightDockWidth":420},"version":0} -> {"state":{"leftRailCollapsed":false,"rightDockCollapsed":false,"moleculeCollapsed":false,"jobsCollapsed":false,"jobManagerCollapsed":false,"plotsCollapsed":false,"kbCollapsed":true,"filesCollapsed":true,"projectsCollapsed":true,"sharesCollapsed":true,"leftRailWidth":320,"rightDockWidth":420},"version":0}
+  [step] help-flyout
+[PASS] Help flyout opens and shows its documented sections
+  [step] conversations
+[PASS] New conversation control present
+[PASS] creating a conversation lands in a usable composer
+  [step] welcome
+[PASS] WelcomeMessage renders on a new conversation
+[PASS] 'What can it run?' reveals the engine capability table
+[PASS] welcome offers clickable example prompts
+[PASS] clicking an example prefills the composer
+[PASS] clicking an example does NOT auto-send (welcome still shown)
+[PASS] welcome screen opens the tutorial
+  [step] rail-controls-in-both-states
+[PASS] the help button exists in the expanded sidebar
+[PASS] the account cogwheel exists in the expanded sidebar
+[PASS] the help button exists in the collapsed sidebar
+[PASS] the account cogwheel exists in the collapsed sidebar
+  [step] streaming
+[FAIL] assistant reply streamed token-by-token (bubble grew in >1 step, not one buffered blob) -- observed lengths: 
+[FAIL] assistant produced visible text -- final length 0
+[PASS] AgentStepChips clear once the turn completes -- 0 still visible
+
+21/23 checks passed in this script.
+
+============================================================
+=== ui_02_approval_jobs_drawer.spec.mjs
+============================================================
+[PASS] approval card appears in the chat pane (the interrupt gate is visible to the user, not just structural)
+[PASS] [XN-06] PySCF approval card is read-only (no hand-edit textarea) -- 0 large textarea(s) found
+[PASS] approval card surfaces the mechanically-retrieved KB grounding -- 'Manual/reference excerpts consulted' section
+[PASS] Reject dismisses the approval card
+[PASS] Approve & run dismisses the card and submits
+[PASS] job list API returns this account's jobs -- 44 jobs
+    job types available to inspect: hf, , casscf, dft
+[PASS] job manager rows are reachable in the DOM
+[PASS] [hf] job detail drawer opened -- 3 elements matched job id cff81ac7ef25
+[PASS] [hf] drawer correctly OMITS "Vibrational frequencies"
+[PASS] [hf] drawer correctly OMITS "Excited states"
+[FAIL] [hf] drawer correctly OMITS "Molecular orbitals" -- section rendered where it should be gated off
+[PASS] [hf] drawer correctly OMITS "Optimization energy"
+[PASS] [hf] drawer correctly OMITS "Scan path"
+[PASS] [hf] drawer correctly OMITS "NEB-TS path"
+[PASS] [XN-15] PySCF job shows neither raw-input nor raw-output button -- rawIn=0 rawOut=0
+[PASS] [hf] [XN-16] inline and artifact UV/Vis are not both shown
+[PASS] [hf] a WebGL viewer rendered actual content -- canvases=2 790x480 bytes=82010
+[PASS] [hf] exactly one canvas per viewer (no WebGL context leak) -- 2 canvases live
+[PASS] [] job detail drawer opened -- 1 elements matched job id 22b3fdaa7986
+[PASS] [] drawer correctly OMITS "Vibrational frequencies"
+[PASS] [] drawer correctly OMITS "Excited states"
+[PASS] [] drawer correctly OMITS "Molecular orbitals"
+[PASS] [] drawer correctly OMITS "Optimization energy"
+[PASS] [] drawer correctly OMITS "Scan path"
+[PASS] [] drawer correctly OMITS "NEB-TS path"
+[FAIL] [] job exposes "View raw input"
+[PASS] [] [XN-16] inline and artifact UV/Vis are not both shown
+[PASS] [] a WebGL viewer rendered actual content -- canvases=2 790x480 bytes=82010
+[PASS] [] exactly one canvas per viewer (no WebGL context leak) -- 2 canvases live
+[PASS] [casscf] job detail drawer opened -- 1 elements matched job id 1b15be4524a1
+[PASS] [casscf] drawer correctly OMITS "Vibrational frequencies"
+[PASS] [casscf] drawer shows "Excited states"
+[PASS] [casscf] drawer shows "Molecular orbitals"
+[PASS] [casscf] drawer correctly OMITS "Optimization energy"
+[PASS] [casscf] drawer correctly OMITS "Scan path"
+[PASS] [casscf] drawer correctly OMITS "NEB-TS path"
+[PASS] [orca] job exposes "View raw input"
+[PASS] [casscf] [XN-16] inline and artifact UV/Vis are not both shown
+[PASS] [casscf] a WebGL viewer rendered actual content -- canvases=2 790x480 bytes=82010
+[PASS] [casscf] exactly one canvas per viewer (no WebGL context leak) -- 2 canvases live
+[PASS] [dft] job detail drawer opened -- 1 elements matched job id 98874afb2b9c
+[PASS] [dft] drawer correctly OMITS "Vibrational frequencies"
+[PASS] [dft] drawer correctly OMITS "Excited states"
+[PASS] [dft] drawer correctly OMITS "Molecular orbitals"
+[FAIL] [dft] drawer correctly OMITS "Optimization energy" -- section rendered where it should be gated off
+[PASS] [dft] drawer correctly OMITS "Scan path"
+[PASS] [dft] drawer correctly OMITS "NEB-TS path"
+[PASS] [orca] job exposes "View raw input"
+[PASS] [dft] [XN-16] inline and artifact UV/Vis are not both shown
+[PASS] [dft] a WebGL viewer rendered actual content -- canvases=2 790x480 bytes=82010
+[PASS] [dft] exactly one canvas per viewer (no WebGL context leak) -- 2 canvases live
+[PASS] DeleteJobButton is a two-step in-DOM confirm (never window.confirm)
+
+49/52 checks passed in this script.
+
+============================================================
+=== ui_03_molecule_kb.spec.mjs
+============================================================
+[PASS] molecule panel shows its empty state on a fresh conversation
+[PASS] MoleculeViewer created a WebGL canvas -- {"found":true,"count":1,"width":790,"height":480,"bytes":82010,"looksRendered":true}
+[PASS] the molecule viewer actually RENDERED (non-trivial pixel content, verified via canvas.toDataURL -- page.screenshot cannot capture WebGL) -- {"found":true,"count":1,"width":790,"height":480,"bytes":82010,"looksRendered":true}
+[PASS] exactly one canvas per viewer container (no leaked WebGL contexts) -- 1 canvases live
+[PASS] 'Show coordinates' reveals the geometry
+[PASS] the toggle flips to 'Hide coordinates'
+[PASS] the enlarge flyout renders its own working viewer -- {"found":true,"count":1,"width":1214,"height":1040,"bytes":241602,"looksRendered":true}
+[PASS] live canvas count does not grow across repeated viewer mount/unmount cycles (WebGL context-leak regression) -- counts across cycles: 1,1,1,1
+[PASS] the 2D sketcher modal eventually appears -- 814ms
+    [perf] Ketcher lazy chunk (28.7MB) took 814ms to first paint
+[PASS] Ketcher lazy-load latency is under 10s (React.lazy fallback is null, so the user sees NOTHING while it loads) -- 814ms -- a spinner/skeleton would be warranted above ~1s
+[PASS] KB drop zone present (the app's only data-testid)
+[PASS] KB search toggle present
+[PASS] KB source search filters the list client-side
+[PASS] KB 'Add source' control present
+[PASS] the add-source form offers both file upload and web-page fetch
+[PASS] KB storage usage badge is rendered
+
+16/16 checks passed in this script.
+
+============================================================
+=== ui_04_admin_visual.spec.mjs
+============================================================
+[PASS] the admin-console entry is visible to an admin account
+[PASS] admin console opens
+[PASS] admin console has a "overview" nav entry
+[PASS] section "overview" shows "Storage quotas"
+[PASS] admin console has a "invites" nav entry
+[PASS] section "invites" shows "Invites"
+[PASS] admin console has a "users" nav entry
+[PASS] section "users" shows "Users"
+[PASS] admin console has a "reports" nav entry
+[PASS] section "reports" shows "Bug reports"
+[PASS] admin console has a "storage" nav entry
+[PASS] section "storage" shows "Live storage usage"
+[PASS] admin console has a "audit" nav entry
+[PASS] section "audit" shows "Admin action history"
+[PASS] admin console has a "deployment" nav entry
+[PASS] section "deployment" shows "What is running"
+[PASS] section "deployment" shows "Who is working right now"
+[PASS] admin console has a "danger" nav entry
+[PASS] section "danger" shows "Purge all job history"
+[PASS] section "danger" shows "acts on every user"
+[PASS] the Save button enables only once a quota field is dirty
+[PASS] a quota change round-trips to the server, not just the UI -- UI set 3GB, server reports 3GB
+[PASS] the users section lists at least one user -- 15 rows
+[PASS] no per-user action is shown until a row is opened (rows stay scannable) -- 0 visible
+[PASS] opening a user row reveals the delete action
+[PASS] the delete action is actually visible, not just present in the DOM
+[PASS] the delete action is inside the viewport, not scrolled off to the right -- x=412 w=100 viewport=1280
+[PASS] the danger zone exposes a jobs purge
+[PASS] the purge button is DISABLED before the phrase is typed
+[PASS] the danger zone states the blast radius and that there is no undo
+[PASS] a partially-typed phrase still leaves the purge disabled
+[PASS] another purge's phrase does not arm this one
+[PASS] the exact phrase arms the purge
+[PASS] clearing the phrase disarms it again
+[PASS] the admin action history has entries from this run -- 500 rows
+[PASS] the admin console exposes user-management and invite-minting UI, so onboarding and revoking a user needs no raw API call -- invites + users sections present
+[PASS] no horizontal page overflow at 1280x800
+[PASS] no horizontal page overflow at 1600x900
+[PASS] no horizontal page overflow at 1920x1080
+[PASS] keyboard Tab moves focus to a real control -- {"tag":"BUTTON","label":"Theme, text size and density","outline":"solid","ring":false}
+[PASS] the focused control has a visible focus indicator (outline or ring) -- {"tag":"BUTTON","label":"Theme, text size and density","outline":"solid","ring":false}
+[PASS] prefers-reduced-motion is honored globally (animations collapse to near-zero duration in one place, not per component) -- animation-duration=1e-05s
+
+42/42 checks passed in this script.
+
+============================================================
+=== ui_05_viewer_controls.spec.mjs
+============================================================
+[PASS] molecule viewer rendered something -- {"found":true,"empty":false,"widthFrac":0.548,"heightFrac":0.548,"clipped":false}
+[PASS] water fills a reasonable share of the viewer (was 0.06 x 0.25 before the fit fix) -- fill 0.548 x 0.548
+[PASS] the molecule is not clipped at the frame edge -- clipped=false
+[PASS] job detail drawer opened -- cff81ac7ef25
+[PASS] the drawer offers a geometry view
+[PASS] both the expand toggle and the download button are present -- expand=1 download=1
+[PASS] the expand toggle is visible
+[PASS] the download button is visible
+[PASS] the two controls do not overlap -- expand={"x":1239,"y":96.390625,"width":21,"height":21} download={"x":1208,"y":93.390625,"width":27,"height":27}
+[PASS] both controls sit in one control row (same top, side by side) -- dy=3.0 dx=31.0
+[PASS] clicking expand actually expanded the panel
+[PASS] all dialogs closed before the resize check
+[PASS] the viewer canvas resizes when the dock is dragged wider -- canvas width 790 -> 1122
+
+13/13 checks passed in this script.
+
+============================================================
+=== ui_06_bug_reports.spec.mjs
+============================================================
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+page.waitForSelector: Timeout 60000ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-testid="user-menu-open"]') to be visible[22m
+
+    at uiRegister (<repo>/tests/e2e/ui/_ui.mjs:79:14)
+    at async file://<repo>/tests/e2e/ui/ui_06_bug_reports.spec.mjs:32:1 {
+  log: [
+    `  - waiting for locator('[data-testid="user-menu-open"]') to be visible`
+  ],
+  name: 'TimeoutError'
+}
+
+Node.js v24.19.0
+
+============================================================
+=== ui_07_frame_scrubber.spec.mjs
+============================================================
+[PASS] with a single frame the scrubber is not rendered at all (nothing to scrub)
+  2 frames -> thumb 50.0% of track (198px)
+[PASS] with 2 frames the thumb is about 1/2 of the track -- expected ~50.0%, measured 50.0%
+[PASS] with 2 frames the thumb stays inside both bounds -- left=0.5 right=1
+  3 frames -> thumb 33.3% of track (132px)
+[PASS] with 3 frames the thumb is about 1/3 of the track -- expected ~33.3%, measured 33.3%
+[PASS] with 3 frames the thumb stays inside both bounds -- left=0.667 right=1
+  4 frames -> thumb 25.0% of track (99px)
+[PASS] with 4 frames the thumb is about 1/4 of the track -- expected ~25.0%, measured 25.0%
+[PASS] with 4 frames the thumb stays inside both bounds -- left=0.75 right=1
+[PASS] the thumb shrank monotonically as frames were added -- 2:50.0% 3:33.3% 4:25.0%
+[PASS] clicking the right-hand end jumps to the last frame -- Frame 4 / 4
+[PASS] clicking the left-hand end jumps to the first frame -- Frame 1 / 4
+[PASS] the frame controls contain no native range input -- 0 found
+
+11/11 checks passed in this script.
+
+============================================================
+=== ui_08_frame_stability.spec.mjs
+============================================================
+[PASS] two frames produced a scrubber
+  start  Frame 2 / 2              header={"x":873,"y":80,"w":395,"h":32} canvasTop=163
+  prev   Frame 1 / 2              header={"x":873,"y":80,"w":395,"h":32} canvasTop=163
+  next   Frame 2 / 2              header={"x":873,"y":80,"w":395,"h":32} canvasTop=163
+  prev   Frame 1 / 2              header={"x":873,"y":80,"w":395,"h":32} canvasTop=163
+  next   Frame 2 / 2              header={"x":873,"y":80,"w":395,"h":32} canvasTop=163
+[PASS] the identity block keeps exactly the same height on every frame -- 32 -> 32 -> 32 -> 32 -> 32
+[PASS] the identity block keeps exactly the same width on every frame -- 395 -> 395 -> 395 -> 395 -> 395
+[PASS] the viewer does not move down or up as frames change -- 163 -> 163 -> 163 -> 163 -> 163
+[PASS] the viewer keeps the same width as frames change -- 395 -> 395 -> 395 -> 395 -> 395
+[PASS] the scrubber itself does not move as frames change -- 142 -> 142 -> 142 -> 142 -> 142
+[PASS] the second line is a details toggle
+[PASS] details start collapsed
+[PASS] clicking it reveals the details
+  details: Charge 0 Multiplicity 1 Atoms 12 SMILES O=c1cc[nH]c(=O)[nH]1
+[PASS] details list charge, multiplicity, atoms and SMILES, in that order -- Charge 0 Multiplicity 1 Atoms 12 SMILES O=c1cc[nH]c(=O)[nH]1
+[PASS] the long SMILES is in the details, not the header -- Charge 0 Multiplicity 1 Atoms 12 SMILES O=c1cc[nH]c(=O)[nH]1
+[PASS] with details open, stepping frames still does not move the viewer -- 260 -> 260 -> 260
+[PASS] clicking the scrubber focuses it -- activeElement=frame-scrubber
+[PASS] ArrowRight advances a frame after clicking the scrubber -- Frame 1 / 2 -> Frame 2 / 2
+[PASS] ArrowLeft goes back a frame -- Frame 1 / 2
+[PASS] End jumps to the last frame
+[PASS] Home jumps to the first frame
+
+17/17 checks passed in this script.
+
+============================================================
+=== ui_09_orbital_and_mode_panels.spec.mjs
+============================================================
+[PASS] a job with a renderable orbital table exists to test against -- {"id":"cff81ac7ef25","rows":7}
+[PASS] a job with normal modes exists to test against -- {"id":"a3cd2546c826","modes":9}
+[PASS] the orbital job's drawer opens
+[PASS] the orbital table renders inside the collapsed panel -- 7 rows
+[PASS] a row click asks the server for exactly one cube -- [3]
+[PASS] the loading spinner clears once the cube arrives
+[PASS] the isosurface actually renders -- 95006 b
+[PASS] expanded: the orbital table is still on screen -- {"tableW":382,"tableH":29,"tableRight":420,"canvasLeft":434,"canvasH":638}
+[PASS] expanded: the table sits beside the viewer, not behind it
+[PASS] expanded: the viewer grew -- 638px
+[PASS] expanded: the scrubber is offered as well as the rows
+[PASS] expanded: a row click asks for exactly one cube -- [1]
+[PASS] expanded: a row click clears the spinner
+[PASS] expanded: a row click changes what is rendered
+[FAIL] a whole scrubber drag costs at most one cube render -- 3 during the drag, 4 in total [2,3,4,5]
+[PASS] the viewer is not left loading after the drag
+[PASS] the viewer ends up showing the orbital the drag landed on
+[PASS] the table highlights the orbital the scrubber landed on -- {"row":"orbital-row-5","inView":true}
+[PASS] and scrolls that row into view, so the two controls agree
+[PASS] the frequency job's drawer opens
+[PASS] the frequency table renders inside the collapsed panel -- 9 rows
+[PASS] clicking a row starts the animation
+[PASS] expanded: the frequency table sits beside the animation -- {"tableW":222,"tableH":29,"tableRight":260,"canvasLeft":274,"canvasH":640}
+[PASS] expanded: clicking a row switches modes without collapsing first
+
+23/24 checks passed in this script.
+
+============================================================
+SUMMARY: 5 spec(s) passed, 4 failed
+  failed: ui_01_shell_and_chat.spec.mjs, ui_02_approval_jobs_drawer.spec.mjs, ui_06_bug_reports.spec.mjs, ui_09_orbital_and_mode_panels.spec.mjs

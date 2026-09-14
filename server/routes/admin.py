@@ -789,6 +789,18 @@ def get_activity(admin: dict = Depends(require_admin)):
     # everything else. The neighbouring GET /api/admin/storage was given a
     # 20 s cache for exactly this reason; this answers a question that moves
     # faster, so it gets the short index rather than a long cache.
+    #
+    # What that costs, stated plainly because a caller could reasonably assume
+    # otherwise: this answer can be up to a second old. A job that started
+    # half a second ago in another process may not be in it yet. That is
+    # acceptable for the two things this route is for. The admin console polls
+    # it every few seconds and a second of lag is invisible there; and
+    # update.sh's "is anything running" question is a snapshot whatever it
+    # reads, since a job can start in the moment between the answer and the
+    # decision, so a second of staleness does not change the shape of that
+    # race, only its width. A caller that genuinely needs a current answer
+    # should invalidate the index first rather than have this route pay for a
+    # walk on every poll for everyone else's benefit.
     running: dict[str, int] = {}
     pending: dict[str, int] = {}
     unowned_running = unowned_pending = 0

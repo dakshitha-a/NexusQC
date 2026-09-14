@@ -63,6 +63,15 @@ async function main() {
     await page.waitForSelector('[data-testid="user-menu-open"]', { timeout: 15000 });
     check("registered and logged in", true);
 
+    // The baseline the rejection is measured against. See the delta check at
+    // the end of this spec for why an absolute count will not do.
+    const jobsBefore = await (async () => {
+      const r = await page.request.get(`${BASE_URL}/api/jobs`, { headers: { Origin: BASE_URL } });
+      const p0 = await r.json();
+      return (Array.isArray(p0) ? p0 : (p0.jobs || [])).length;
+    })();
+    console.log(`   job list holds ${jobsBefore} row(s) before anything is drafted`);
+
     console.log("\n== drive a draft to an approval card ==");
     // Everything stated at once. With run_when_ready the card should come
     // up without a separate submit turn, which is the other half of this
@@ -101,11 +110,20 @@ async function main() {
           !/single_point|subtype|params=/.test(line), line);
 
     console.log("\n== nothing was submitted, and the turn ended ==");
+    // A DELTA, not an absolute count. A job with no recorded owner is
+    // deliberately visible to every user (app/auth/ownership.py's
+    // unowned-means-shared rule, which is a settled decision rather than a
+    // gap), so a brand-new account's job list is only empty on a deployment
+    // that happens to hold no unowned jobs. This asserted emptiness and
+    // passed for exactly as long as that was true by luck: at the 2026-09
+    // gate the stack held five and the check reported a rejection that had
+    // created five jobs, which it had not.
     const jobs = await page.request.get(`${BASE_URL}/api/jobs`, { headers: { Origin: BASE_URL } });
     const payload = await jobs.json();
     const rows = Array.isArray(payload) ? payload : (payload.jobs || []);
-    check("the job list is still empty for this user", rows.length === 0,
-          `${rows.length} job(s): ${JSON.stringify(rows).slice(0, 200)}`);
+    const added = rows.length - jobsBefore;
+    check("rejecting created no job", added === 0,
+          `${jobsBefore} before, ${rows.length} after: ${JSON.stringify(rows).slice(0, 200)}`);
 
     await page.waitForFunction(
       () => {

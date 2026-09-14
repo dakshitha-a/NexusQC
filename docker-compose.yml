@@ -111,6 +111,29 @@ services:
         # reads as "cannot tell, assume stale" rather than as up to date.
         GIT_COMMIT: ${QC_AGENT_BUILD_COMMIT:-unknown}
     restart: unless-stopped
+    # Run tini as PID 1 so orphaned engine processes are reaped.
+    #
+    # entrypoint.sh execs `python -m server.main`, which makes the app itself
+    # PID 1, and PID 1 inherits every orphan in the namespace. Python does not
+    # reap what it did not spawn. `subprocess.run` collects the engine binary
+    # it started, but ORCA starts its own children (a shell, mpirun, and the
+    # per-module binaries), and when ORCA exits those are re-parented to PID 1
+    # and stay there as zombies for the life of the process.
+    #
+    # Measured on 2026-09-14: one pass of the end-to-end job matrix left 20
+    # zombie processes parented to the api, all of them `orca`, `sh` or
+    # `mpirun`. Each costs a PID and a kernel task struct, neither of which
+    # comes back without a restart, so a deployment that runs engine jobs for
+    # months walks towards the PID ceiling for no reason. Nothing else in the
+    # stack has this problem: PySCF runs in-process and BAGEL's launcher is a
+    # single binary.
+    #
+    # `init: true` puts docker's own tini in front, which reaps orphans and
+    # forwards signals, and costs nothing else. NOTE for anyone measuring the
+    # api process: it is no longer PID 1 inside the container, so
+    # /proc/1/status is tini's. tests/backend/perf_10_api_memory_settle.py
+    # resolves the app's pid by matching its command line instead.
+    init: true
     logging: *default-logging
     # Readiness gate for nginx's own `depends_on` below. Deliberately NOT a
     # curl/wget check: this image is python:3.11-slim-bookworm plus only
