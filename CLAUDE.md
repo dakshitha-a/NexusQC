@@ -162,9 +162,12 @@ Two specific traps:
   deadlocks. See `docs/ARCHITECTURE.md`.
 - **Atom numbering is 1-based everywhere** a user or the model sees it. RDKit is
   0-based, so conversions happen at that boundary and never leak outward.
-- **`app/chemistry/jobs/registry.py` is the single source of truth** for which
-  engine handles which method and which params are required. Don't hardcode that
-  logic elsewhere.
+- **`app/chemistry/registry2/` is the single source of truth** for which
+  engine handles which method and which params are required: `capabilities.py`,
+  `tasks.py`, `params.py`, `routing.py`, with `lookup.py` as the façade the
+  agent and the API ask. Don't hardcode that logic elsewhere. (It replaced
+  `app/chemistry/jobs/registry.py`, which no longer exists; older comments
+  still name it.)
 - **Engine output parsers are derived from real runs, not documentation.** If you
   change one, verify against actual output. Exact formatting is not guaranteed
   across versions.
