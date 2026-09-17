@@ -91,6 +91,11 @@ CLAUDE.local.md
 # to run: it requires a clean tree so a rollback has something to return to,
 # and an untracked directory full of worktrees reads as local modifications.
 .claude/worktrees/
+# Plan files and the per-session markers that say a plan is being executed;
+# see scripts/hooks/claude_plan_amendment.py. Both describe one session's
+# work in progress, never the project.
+.claude/plans/
+.claude/plan-in-progress/
 
 # The docs/e2e-* review documents used to be listed here as "internal notes".
 # They are deliberately TRACKED and public now: docs/ROADMAP.md is built from

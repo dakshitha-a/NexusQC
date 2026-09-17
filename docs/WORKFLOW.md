@@ -74,6 +74,16 @@ A step is `done` only when its evidence exists and its observed result is
 written down. "It should work" is not evidence, and neither is a test that was
 never run.
 
+A task the user gives while the plan is running is an amendment to it, not a
+side task: it becomes a step in the tracker, named as raised mid-run, and an
+item in the plan file that goes back through plan-mode approval before work
+continues. `scripts/hooks/claude_plan_amendment.py`, registered in
+`.claude/settings.json`, reminds a session of this on every message from the
+moment a plan is approved until the session runs its `done` action, which is
+part of closing the tracker out. A new session is told at start about any
+plan an earlier one left running, so an interrupted plan is picked up from
+the tracker rather than rediscovered. `CLAUDE.md` carries the full rule.
+
 ### Work on `main`
 
 Every session works directly on `main`. The branch-per-session rule was
@@ -331,6 +341,16 @@ it prevents has already happened in this repository, not hypothetically.
    a multi-hour CASSCF or CASPT2 run up as a performance problem, and
    don't steer a user away from one. The only genuine defects here are
    ones that break the leave-and-return workflow.
+9. **A task given mid-plan is an amendment to the plan.** Finish the tool
+   call in flight, re-enter plan mode, add it to the plan file and to
+   `docs/TRACKER.md`, re-validate, get approval, resume. A question is
+   answered inline. The hook that reminds you is in
+   `scripts/hooks/claude_plan_amendment.py`.
+10. **Subagents that only read run on Sonnet.** `Explore` is defined so in
+    `.claude/agents/Explore.md`; a read-only general-purpose agent is
+    launched with `model: sonnet`, `claude-code-guide` with `model: haiku`.
+    Anything that edits, a `Plan` agent, a fork and the advisor stay where
+    they are. Never set `CLAUDE_CODE_SUBAGENT_MODEL`.
 
 ## Quick reference
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Claude Code PreToolUse guard: block `git push` when the repo isn't clean.
 
-Wired up in `.claude/settings.json` as a PreToolUse hook on the Bash tool.
+Wired up as a PreToolUse hook on the Bash tool by copying
+`.claude/settings.local.json.example` to `.claude/settings.local.json`;
+it is opt-in, not part of the tracked `.claude/settings.json`.
 It reads the tool-call JSON on stdin, and if the command being run looks like
 a `git push`, it runs `scripts/check_public_safe.sh` first and blocks the call
 when that scan fails.

@@ -30,6 +30,11 @@ the tooling rather than trusted to memory, and the short version is:
   `Refs: dakshitha-a/NexusQC#<n>`, never with a closing keyword. Nothing closes
   a public issue but a release; `scripts/release_announce.sh` does it from
   `release.sh`. `scripts/issues.sh list` shows the queue.
+- **A task given while a plan is running is an amendment to the plan**, not
+  a side task, and a hook reminds you of that on every message until the
+  tracker is closed out. See the section of that name below.
+- **Subagents that only read run on Sonnet**; anything that edits, plans or
+  forks stays on the session model. See "Subagents" below.
 
 **Then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).** It explains how
 the system is put together and, more importantly, why each significant decision
@@ -243,13 +248,64 @@ itself. That is not a typo.
 
 Optionally, `cp .claude/settings.local.json.example .claude/settings.local.json`
 makes Claude Code run the same scan before any `git push` it issues. That is
-deliberately opt-in and untracked rather than shipped as `settings.json`: it
-adds a subprocess to every Bash call, and auto-executing a repository's own
-script in someone else's environment is not a reasonable default to hand
-someone who just cloned this.
+deliberately opt-in rather than part of the tracked `.claude/settings.json`:
+it adds a subprocess to every Bash call, which is a cost to hand someone who
+just cloned this. The tracked file carries only event-scoped hooks (the
+plan-amendment reminders described below), which fire a few times a session
+and touch nothing outside a gitignored directory. Claude Code merges the two
+files, so the local one adds to the tracked one rather than replacing it.
 
 Check whether `README.md` needs updating as part of any change that affects
 installation, configuration or user-visible behaviour.
+
+## Subagents
+
+The session runs on Opus with the advisor on Fable, and a subagent inherits
+the session model unless something lowers it. The lowering is explicit and
+deliberate, so a forgotten rule overspends and never underplans. Never set
+`CLAUDE_CODE_SUBAGENT_MODEL`; it flips that default the other way.
+
+- `Explore` is defined in `.claude/agents/Explore.md` and runs on Sonnet.
+  The definition replaces the built-in, so its body is the agent's whole
+  prompt; edit it there. It carries a map of where things are in this
+  repository, so keep that paragraph current when a top-level directory
+  moves.
+- A general-purpose agent that only reads, researches or verifies is
+  launched with `model: sonnet`.
+- An agent that edits the repository, a `Plan` agent and a fork stay on the
+  session model.
+- `claude-code-guide` is launched with `model: haiku`.
+- The advisor stays on Fable; it must be at least as capable as the session
+  model.
+
+## A task given while a plan is running is an amendment to the plan
+
+Work here usually starts in plan mode, and the user usually gives new tasks
+while the plan is being executed. Those are the tasks that get dropped, so
+they are not side tasks. When a message asking for work arrives mid-plan:
+finish the tool call in flight, call `EnterPlanMode`, add the request to the
+plan file as its own item with an acceptance criterion and a note that the
+user raised it mid-run, add it to `docs/TRACKER.md` as its own step named as
+raised mid-run, re-validate the plan's order and dependencies against what
+is already done, `ExitPlanMode` for approval, then resume the item you were
+on. A message that only asks a question is answered inline and the plan
+continues; if the answer exposes a defect, the defect is an amendment.
+
+`docs/TRACKER.md` is the ledger, as `docs/WORKFLOW.md` says: the plan file is
+where an amendment goes for approval, the tracker is where it is checked
+against the git log, and a plan is reported finished only once the tracker
+is closed out with nothing left unmarked.
+`scripts/hooks/claude_plan_amendment.py` enforces the timing: `ExitPlanMode`
+writes a per-session marker under `.claude/plan-in-progress/`, every later
+message the user sends arrives with a reminder of the rule while the marker
+exists, a new session is told about any plan an earlier one left running,
+and `python3 scripts/hooks/claude_plan_amendment.py done <session id>`
+removes the marker when the tracker is closed out. The hooks are registered
+in the tracked `.claude/settings.json`, which also puts plan files under
+`.claude/plans/` in this checkout rather than the home directory, so the
+plan sits beside the code it describes. Both directories are gitignored.
+The rule is written here as well so it holds where the hooks are not
+installed.
 
 ## A standing framing note
 

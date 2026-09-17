@@ -5,10 +5,10 @@
   "//4": "Pushes to a private remote (origin) are skipped, matching the git hook.",
   "//5": "This duplicates the git pre-push hook installed by",
   "//6": "scripts/hooks/install.sh, which is the guard that actually cannot be",
-  "//7": "bypassed by tooling. This one is deliberately NOT committed as",
-  "//8": "settings.json: it makes every Bash tool call shell out to python3, and",
-  "//9": "auto-executing a repository's own script in someone else's environment",
-  "//10": "is not a reasonable default to hand a stranger who clones this repo.",
+  "//7": "bypassed by tooling. Claude Code merges this file with the tracked",
+  "//8": ".claude/settings.json, which carries the plan-amendment hooks; this",
+  "//9": "one stays opt-in because it makes every Bash tool call shell out to",
+  "//10": "python3, a cost the event-scoped hooks in the tracked file do not have.",
   "hooks": {
     "PreToolUse": [
       {
