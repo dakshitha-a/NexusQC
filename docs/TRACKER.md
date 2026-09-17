@@ -71,7 +71,8 @@ opt-in.
   evidence: .claude/agents/Explore.md → "a scratch `claude -p --model opus` session in this checkout launched one Explore agent (subagent_type Explore in the parent transcript); the subagent transcript under ~/.claude/projects shows claude-sonnet-5 on all 13 of its assistant messages and the parent claude-opus-5; the agent found that app/chemistry/jobs/registry.py no longer exists, which corrected the map and a stale CLAUDE.md bullet"
 - [done] P1.5: `CLAUDE.md` and `docs/WORKFLOW.md`: the amendment rule and the subagent rule; example file and push-guard docstring corrected
   evidence: docs/WORKFLOW.md → "rules 9 and 10 added and a paragraph under 'One active tracker at a time'; CLAUDE.md gains Subagents and the amendment section plus two summary bullets, and its 'deliberately opt-in' paragraph is scoped to the per-Bash-call scan; the example file and claude_push_guard.py's docstring no longer claim settings.json is untracked; README needs nothing (its only Claude Code mention is the credits line)"
-- [todo] P1.6: Stale watchdog entry removed from `docs/HANDOFF.md`
+- [done] P1.6: Stale watchdog entry removed from `docs/HANDOFF.md`
+  evidence: docs/HANDOFF.md → "Open section reads Nothing; the entry's WORK_INCOMPLETE sentinel is absent from the watchdog's state directory, crontab -l has no resume.sh line, and the run it served ended before v1.1.0 was released on 2026-09-14"
 - [done] P1.7: Verify: synthetic hook input, scratch session with an Explore agent, scans
   evidence: scripts/check_public_safe.sh → "PASS on 1024 files with no host path in the hook script, agent definition or settings; compileall over scripts/hooks clean; no em dash in any touched file; check_tracker PASS"
 - [todo] P1.8: Pushed; tracker closed out and archived
