@@ -1,7 +1,10 @@
 <!-- artifact: https://claude.ai/artifact/QPYdYFx8zo2GaJvMxVkLN7 -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: mid-plan amendments and subagent models
+# Closed Tracker: mid-plan amendments and subagent models
 
-**Active since 2026-09-16.** One phase. The tracker this replaces is
+**Closed 2026-09-16. Eight steps in one phase, all done.**
+No tracker is active until the next plan begins.
+
+**Opened 2026-09-16.** One phase. The tracker this replaces is
 [`2026-09-first-public-release.md`](trackers/2026-09-first-public-release.md),
 which closed with v1.1.0 published. **Exactly one tracker is active at a
 time.**
@@ -75,4 +78,6 @@ opt-in.
   evidence: docs/HANDOFF.md → "Open section reads Nothing; the entry's WORK_INCOMPLETE sentinel is absent from the watchdog's state directory, crontab -l has no resume.sh line, and the run it served ended before v1.1.0 was released on 2026-09-14"
 - [done] P1.7: Verify: synthetic hook input, scratch session with an Explore agent, scans
   evidence: scripts/check_public_safe.sh → "PASS on 1024 files with no host path in the hook script, agent definition or settings; compileall over scripts/hooks clean; no em dash in any touched file; check_tracker PASS"
-- [todo] P1.8: Pushed; tracker closed out and archived
+- [done] P1.8: Pushed; tracker closed out and archived
+  evidence: scripts/check_tracker.py → "PASS on 8 steps; commits 800ed47, bf708f6 and 55e9ce3 pushed to origin/main; this file moved to docs/trackers/2026-09-plan-amendments-and-subagents.md in the closing commit"
+- merged: 55e9ce3
