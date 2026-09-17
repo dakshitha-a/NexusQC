@@ -10,6 +10,18 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Changed
+
+- **Claude Code sessions in this checkout treat a task given mid-plan as an
+  amendment to the plan, and run read-only subagents on a smaller model.**
+  `.claude/settings.json` is now tracked. It registers
+  `scripts/hooks/claude_plan_amendment.py` on three events, so a session
+  executing an approved plan is reminded on every message that a new request
+  goes into the plan and into `docs/TRACKER.md` rather than being done on the
+  side, and a new session is told about any plan an earlier one left running.
+  `.claude/agents/Explore.md` puts the search agent on Sonnet. Neither
+  affects the application; the push-scan hook stays opt-in as before.
+
 ## [1.1.0] - 2026-09-14
 
 **The first public release.** Everything from `[1.0.0]` onward is published
