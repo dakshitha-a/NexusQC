@@ -62,6 +62,8 @@ source, an attached or named job is the reference; otherwise the draft asks.
 - [done] P0.1: Open this tracker, publish it as an artifact
   evidence: docs/TRACKER.md → "published from scripts/render_tracker_html.py output; URL recorded in the header comment; check_tracker PASS on 21 steps"
 
+- merged: 03f4c27
+
 ## Phase 1: PySCF applies indices against the source and records the window
 
 - [done] P1.1: `app/chemistry/jobs/active_space.py`: window, overlap mapping, annotate, warning text
@@ -79,10 +81,14 @@ source, an attached or named job is the reference; otherwise the draft asks.
 - [done] P1.7: `run_cas_recommendation` writes its table from the projected set
   evidence: tests/backend/cas_12_orbital_identity.py → "10/10: the listed 1-based rows of the written molden are the recommended orbitals one by one (overlap above 0.999), the recommended block holds exact 2/0 occupations, the table matches the file row for row, and the file carries the full set; the summary also records active_orbital_window and per-row active flags"
 
+- merged: f0bce36
+
 ## Phase 2: Reproduction script
 
 - [done] P2.1: `tests/backend/active_02_recorded_active_space.py`: window, mapping, mechanisms 2 and 3, opt and SA paths, warning path, source acceptance
   evidence: tests/backend/active_02_recorded_active_space.py → "39/39 on water/6-31G CASSCF(4,4): constructed-matrix mapping and warning; job A fresh named [4,5,7,8]; mechanisms 2 and 3 by overlap of starting blocks against the source molden; job B end to end, where dropping A's correlating orbital makes the optimiser rotate row 4 out (weight 0.0) and the warning names it, while re-requesting A's own window keeps every orbital above 0.95 and reproduces A's energy to 1e-6; SA-CASSCF transitions name table rows; L-PDFT and a geometry optimisation carry the record; six fixture jobs removed. Source acceptance (HF and cas_reco sources) is asserted in Phase 3's elicitation script"
+
+- merged: f0bce36
 
 ## Phase 3: Elicitation, parameters, agent teaching
 
@@ -97,12 +103,16 @@ source, an attached or named job is the reference; otherwise the draft asks.
 - [done] P3.5: Existing tests updated; new elicitation script
   evidence: tests/backend/p8_01_orbital_reuse.py → "40/40 with the helper renamed, an HF source now accepted, and its five fixture jobs removed at exit; active_01 44/44; cas_12 10/10; mrpdft_01 153/153; active_03_reference_table.py is the new script"
 
+- merged: a13417e
+
 ## Phase 4: BAGEL and ORCA
 
 - [done] P4.1: BAGEL records its window and, with a source, the mapping
   evidence: tests/backend/active_04_engine_records.py → "8/8 structural: a named space reaches BAGEL's casscf block as `active`, and a summary with no molden on disk still records window [4,5,6,7] from nclosed; the record hangs off _add_orbital_table with the mapping taken between the source's and the job's moldens (active_space.molden_mapping, cross overlap in each file's AO metric). The live source/destination pair could not complete here: the source CASSCF converged (16 macro-iterations, E = -74.98699597) and BAGEL then crashed in its molden print block with 'dsyev/pdsyevd failed in Matrix', this host's documented MKL failure, so no molden or archive was written; docs/HANDOFF.md carries the re-verification for a host where BAGEL runs"
 - [done] P4.2: ORCA records its window and active flags
   evidence: tests/backend/active_04_engine_records.py → "a real ORCA CASSCF(4,4)/STO-3G on water: window [4,5,6,7] from the electron count, ORCA's fractional-occupation rows lie inside it with no disagreement recorded, exactly those rows flagged, no mapping or echo on a default-space job, reference null; the record is written by _record_active_space on the single-point, optimisation and frequency CASSCF paths"
+
+- merged: d5dddd8
 
 ## Phase 5: Frontend
 
@@ -111,10 +121,14 @@ source, an attached or named job is the reference; otherwise the draft asks.
 - [done] P5.2: Browser verification with a stubbed payload and a screenshot looked at
   evidence: tests/frontend/orbital_09_active_space_marks.spec.mjs → "7/7 in headless Chromium against the worktree's dev server proxied to the stack: exactly the window rows are marked, hairlined and titled, the From column shows '#5 · 0.67' style cells on active rows and '--' elsewhere, the header names the window and the reference table, the warning is above the table; the screenshot in docs/e2e-artifacts/ was looked at twice: an 'active' text tag made the sixth column clip in the 400px drawer and was replaced by the hairline alone, after which every column fits"
 
+- merged: a13417e
+
 ## Phase 6: Docs and changelog
 
 - [done] P6.1: ARCHITECTURE.md, README.md, QM_CAPABILITIES.md, CHANGELOG.md
   evidence: docs/ARCHITECTURE.md → "new section 'An orbital index is a position in one job's table' under the orbital-availability section: the three mechanisms, sort-then-project, the record and its threshold, the two figures, the recommendation table, no adapter for old jobs; README.md's 'Or name the orbitals outright' says which job's table the numbers are rows of, the swap phrasing and the rotation warning; QM_CAPABILITIES.md does not list the parameter and needed nothing; CHANGELOG.md Unreleased carries Added and Fixed entries; scripts/check_public_safe.sh PASS"
+
+- merged: cae8db6
 
 ## Phase 7: Acceptance on the dev stack
 
@@ -122,6 +136,8 @@ source, an attached or named job is the reference; otherwise the draft asks.
   evidence: app/agent/tools.py → "in-process on the worktree code with the host's Ollama (qwen3.8:27b), isolated in the worktree's data directory: job 1 (111 s) reproduced the user's run, S1 5.22 eV and S2 6.03 eV, window rows 24 to 32 with sigma C7-C1 at 26 and sigma* at 32; the turn 'repeat this calculation but swap out orbital 26 for 21 and 32 for 37' with job 1 attached made the model call check_job_status(fields=['active_orbital_window']), start_job_draft, then update_job_draft with active_space_orbital_indices [21, 24, 25, 27, 28, 29, 30, 31, 37] and initial_orbitals_job_id = job 1, and the draft reached the approval interrupt in 30 s with no question asked"
 - [done] P7.2: The rerun's mapping, weights and window reported; test jobs and thread deleted
   evidence: app/chemistry/jobs/active_space.py → "job 2 from the draft's parameters converged in 21 s from job 1's orbitals; reference_orbital_weights 21: 0.9998, 24: 0.9999, 25: 1.0, 27: 0.9999, 28: 0.9962, 29: 0.9999, 30: 0.9994, 31: 0.9943, 37: 0.9055, no warning; its window rows 24 to 32 are pi, pi, pi, pi, n(O8), pi, pi*, pi*, pi*(C4-O5, reference 37) with no sigma; ground state 0.8 mEh lower, S1 4.75 eV (29->30) and S2 5.06 eV (28->30) against 5.22 and 6.03 before. On the default job the fresh-HF window's own weights (26: 0.01, 32: 0.004) showed that a warning must need a request, so annotate now warns only for a named list or a reused job's space; active_02 40/40 with that asserted. Both jobs and the thread were deleted"
+
+- merged: 4730f24
 
 ## Phase 8: Deploy and release (raised by the user mid-run)
 
