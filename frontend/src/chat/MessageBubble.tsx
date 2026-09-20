@@ -68,7 +68,7 @@ function parsePlotArtifacts(content: string): { plots: PlotArtifact[]; text: str
 export function HumanBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="hairline hairline-trailing max-w-[70ch] min-w-0 rounded-lg rounded-br-sm border border-border bg-surface-raised px-3.5 py-2 text-sm text-text whitespace-pre-wrap break-words">
+      <div className="hairline hairline-trailing hairline-clip max-w-[70ch] min-w-0 rounded-lg rounded-br-sm border border-border bg-surface-raised px-3.5 py-2 text-sm text-text whitespace-pre-wrap break-words">
         {content}
       </div>
     </div>

@@ -238,7 +238,7 @@ export function ProjectsSection() {
                       if (e.key === "Escape") setRenamingId(null);
                     }}
                     data-testid={`project-rename-input-${project.project_id}`}
-                    className="min-w-0 flex-1 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text outline-none"
+                    className="min-w-0 flex-1 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text outline-none focus:border-accent"
                   />
                 ) : (
                   <button

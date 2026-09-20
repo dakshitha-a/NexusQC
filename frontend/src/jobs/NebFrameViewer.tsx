@@ -152,7 +152,7 @@ export function NebFrameViewer({
               min={1}
               value={effectiveOrbitalIndex}
               onChange={(e) => setOrbitalIndex(Number(e.target.value))}
-              className="w-16 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text"
+              className="w-16 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text focus:border-accent"
             />
           </label>
           <MoCubeViewer

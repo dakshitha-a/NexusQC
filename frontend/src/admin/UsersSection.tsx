@@ -203,7 +203,7 @@ export function UsersSection({
                                   value={resetLink(freshReset.token, origin)}
                                   onFocus={(e) => e.currentTarget.select()}
                                   data-testid="reset-link-value"
-                                  className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
+                                  className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text focus:border-accent"
                                 />
                                 <button
                                   onClick={() => setFreshReset(null)}

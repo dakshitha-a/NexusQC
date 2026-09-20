@@ -324,6 +324,20 @@
   --animate-breathe: breathe 2.4s ease-in-out infinite;
 }
 
+/* `ease-standard` works as a utility because Tailwind generates ease-* from
+   the --ease-* namespace above, but there is no --duration-* namespace, so
+   `duration-fast` and `duration-base` were never compiled: the elements
+   that asked for them got Tailwind's 150ms default instead. These make the
+   two names real, shaped like the built-in duration-<n> utilities. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+
 /* Density scales Tailwind's own --spacing, which every p-*, gap-*, size-* and
    the fixed widths derived from it (w-12, max-h-56, w-52) are generated as a
    calc() against. It has to be set OUTSIDE the @theme block: a value inside
@@ -378,6 +392,23 @@ pre,
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* That holds for buttons and links, but a field that takes typed input
+   matches :focus-visible on every focus, mouse included: the heuristic
+   treats anything you can type into as keyboard-driven. So the rule above
+   was drawing the accent ring around every text field for as long as it was
+   being typed in, on top of the field's own focus border, and around the
+   chat composer for the whole session, since that is where focus rests. It
+   also won over the fields' `outline-none`: that utility lives in Tailwind's
+   utilities layer and an unlayered rule beats a layered one whatever the
+   specificity. Typed-input fields carry their focus in their border instead
+   (focus:border-accent on the forms, a neutral lift on the composer and the
+   framed search boxes); the ring stays for checkboxes, radios, ranges and
+   selects, which have nothing else and only match on keyboard focus. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* The scrollbar thumb was drawn in --border, which is a hairline colour: on
@@ -439,11 +470,21 @@ pre,
   right: 0;
   border-radius: 2px 0 0 2px;
 }
+/* On a box with a visible corner radius (the composer and the user bubble,
+   both rounded-lg) a bar that runs the full height pokes straight past the
+   curve at the corners. Clipping the box to its own border shape trims the
+   bar's ends to the curve instead. Opt-in rather than part of .hairline,
+   which also sits on table cells whose text overflow should not change. */
+.hairline-clip {
+  overflow: clip;
+}
 
 /* The only thing in the interface that moves without being asked to, and only
-   ever on a job that is genuinely running. Long runtimes are this app's
-   premise rather than a defect, so "still going" is worth saying quietly and
-   continuously; everything else here animates in answer to a click. */
+   ever on something genuinely in progress: a job that is running, or the
+   composer while the assistant is still working on a turn. Long runtimes are
+   this app's premise rather than a defect, so "still going" is worth saying
+   quietly and continuously; everything else here animates in answer to a
+   click. */
 .hairline-live::before {
   animation: var(--animate-breathe);
 }

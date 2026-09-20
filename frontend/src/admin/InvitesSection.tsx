@@ -80,7 +80,7 @@ function CopyLinkButton({ token, origin }: { token: string; origin: string }) {
         value={fallback}
         onFocus={(e) => e.currentTarget.select()}
         autoFocus
-        className="w-56 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
+        className="w-56 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text focus:border-accent"
       />
     );
   }
@@ -171,14 +171,14 @@ export function InvitesSection({
           value={emailHint}
           onChange={(e) => setEmailHint(e.target.value)}
           placeholder="Email hint (optional)"
-          className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text placeholder:text-text-muted"
+          className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text placeholder:text-text-muted focus:border-accent"
         />
         <input
           type="number"
           min={1}
           value={ttlHours}
           onChange={(e) => setTtlHours(Number(e.target.value))}
-          className="w-16 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text"
+          className="w-16 rounded border border-border bg-surface-raised px-2 py-1 text-2xs text-text focus:border-accent"
         />
         <span className="text-2xs text-text-muted">hours</span>
         <button
@@ -197,7 +197,7 @@ export function InvitesSection({
             readOnly
             value={inviteLink(justCreated, origin)}
             onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text"
+            className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-3xs text-text focus:border-accent"
           />
           <CopyLinkButton token={justCreated} origin={origin} />
           <button

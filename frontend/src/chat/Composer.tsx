@@ -255,16 +255,27 @@ export function Composer({ disabled, disabledReason, onSend, turnInProgress, onS
           Finishing the current step. Stop can't interrupt a tool call already in progress.
         </div>
       )}
-      <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 focus-within:border-accent">
-        {/* Decorative overlay, not the actual border -- pulses opacity on
-            its own so the disabled textarea's placeholder text underneath
-            stays fully legible instead of fading in and out with it. */}
-        {turnInProgress && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 animate-pulse rounded-lg border border-accent/60"
-          />
-        )}
+      {/* Focus lifts the border to a neutral grey rather than the accent.
+          The composer is where focus rests for the whole session, so a
+          saturated ring around it was permanently on and said nothing; the
+          textarea has outline-none, though, so this border is the only
+          focus indicator a keyboard user gets and it has to change visibly.
+          60% of --text-muted over the surface is about 2:1 against the
+          resting border on the dark themes, enough to read, not enough to
+          pull the eye off the conversation.
+
+          The accent is reserved for the one state that means something: a
+          turn in progress gets the spectral hairline on the leading edge,
+          breathing like a running job's, the same device the job tables and
+          the conversation list use for "live". It replaced a pulsing accent
+          border around the whole box, which was the loudest thing on the
+          screen for the entire length of every reply. The hairline is a
+          pseudo-element, so the disabled placeholder underneath keeps its
+          own opacity. */}
+      <div
+        className={`relative flex items-end gap-2 rounded-lg border border-border bg-surface px-3 py-2 transition-colors duration-fast focus-within:border-text-muted/60 ${turnInProgress ? "hairline hairline-live hairline-clip" : ""}`}
+        data-testid="composer-frame"
+      >
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadState === "pending"}

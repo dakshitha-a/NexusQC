@@ -167,7 +167,7 @@ export const SearchableText = forwardRef<SearchableTextHandle, { text: string }>
 
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1.5">
+      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1.5 transition-colors duration-fast focus-within:border-text-muted/60">
         <Search size={13} className="shrink-0 text-text-muted" />
         <input
           ref={inputRef}

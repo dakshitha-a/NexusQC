@@ -65,7 +65,7 @@ export function ChatHeader() {
             if (e.key === "Escape") setRenaming(false);
           }}
           data-testid="chat-header-rename-input"
-          className="min-w-0 flex-1 rounded border border-border bg-surface px-1.5 py-0.5 text-sm text-text outline-none"
+          className="min-w-0 flex-1 rounded border border-border bg-surface px-1.5 py-0.5 text-sm text-text outline-none focus:border-accent"
         />
       ) : (
         <button

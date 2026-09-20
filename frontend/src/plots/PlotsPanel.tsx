@@ -169,7 +169,7 @@ export function PlotsPanel() {
                       if (e.key === "Enter") e.currentTarget.blur();
                       if (e.key === "Escape") setRenamingId(null);
                     }}
-                    className="w-full rounded border border-border bg-bg px-1 py-0.5 text-xs text-text"
+                    className="w-full rounded border border-border bg-bg px-1 py-0.5 text-xs text-text focus:border-accent"
                   />
                 ) : (
                   <div

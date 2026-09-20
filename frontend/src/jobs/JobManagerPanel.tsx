@@ -387,7 +387,7 @@ export function JobManagerPanel() {
                         if (e.key === "Enter") e.currentTarget.blur();
                         if (e.key === "Escape") setRenamingId(null);
                       }}
-                      className="w-full min-w-0 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text outline-none"
+                      className="w-full min-w-0 rounded border border-border bg-surface px-1 py-0.5 text-xs text-text outline-none focus:border-accent"
                     />
                   ) : (
                     <div

@@ -109,7 +109,7 @@ function AddSourceForm({ onDone }: { onDone: () => void }) {
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      <div className="flex items-center gap-1.5 rounded border border-border px-2 py-1">
+      <div className="flex items-center gap-1.5 rounded border border-border px-2 py-1 transition-colors duration-fast focus-within:border-text-muted/60">
         <Link2 size={12} className="shrink-0 text-text-muted" />
         <input
           value={url}

@@ -12,6 +12,16 @@ note saying what changed.
 
 ### Changed
 
+- **The chat box no longer lights up in the accent colour.** Focus used to
+  turn its border solid accent, and every reply used to pulse an accent
+  border around the whole box for as long as the assistant was working,
+  which made the one element that always has focus the loudest thing on the
+  screen. Focus now lifts the border to a quiet neutral grey, and a turn in
+  progress is shown by the same 2px breathing hairline on the box's leading
+  edge that marks a running job and the active conversation. The cue that
+  the assistant is still working through a stall in the model's output, the
+  reason the pulse was added, is kept; only its volume changed.
+
 - **Claude Code sessions in this checkout treat a task given mid-plan as an
   amendment to the plan, and run read-only subagents on a smaller model.**
   `.claude/settings.json` is now tracked. It registers
@@ -21,6 +31,35 @@ note saying what changed.
   side, and a new session is told about any plan an earlier one left running.
   `.claude/agents/Explore.md` puts the search agent on Sonnet. Neither
   affects the application; the push-scan hook stays opt-in as before.
+
+### Fixed
+
+- **Text fields drew a second accent ring on top of their own focus
+  border.** The keyboard-focus outline was written to apply on
+  `:focus-visible` so that a mouse click would not leave a ring behind, but
+  a field that takes typed input matches `:focus-visible` on every focus,
+  mouse included, so every input and textarea got a 2px accent outline at a
+  2px offset for as long as it was being typed in, and the chat box had one
+  for the whole session. The rule also overrode the fields' own
+  `outline-none`, which sits in Tailwind's utilities layer and therefore
+  loses to any unlayered rule. Typed-input fields are now excluded from the
+  ring and signal focus through their border; the ring stays for buttons,
+  links, checkboxes, radios, ranges and selects, which have nothing else.
+  The two search boxes that had no focus border of their own got the same
+  neutral lift as the chat box, and the eleven bordered fields that had
+  been relying on the ring alone (the inline rename boxes, the admin invite
+  and user fields, the NEB frame number, the plot rename) now use the
+  accent border the forms already use.
+- **`duration-fast` and `duration-base` never compiled.** Tailwind v4 has
+  no `--duration-*` theme namespace, so the four elements that asked for
+  the 120ms and 200ms transition tokens by those names were silently
+  getting Tailwind's 150ms default. Both are now real utilities.
+- **A live hairline poked past the corners of a rounded box.** The bar runs
+  the full height of the element it marks, which is right for a table cell
+  and wrong for a box with a 12px corner radius, where its ends stuck out
+  straight past the curve. The user message bubble had this on its
+  trailing edge; the chat box would have had it too. Both now clip the bar
+  to their own outline so it tapers into the corner.
 
 ## [1.1.0] - 2026-09-14
 

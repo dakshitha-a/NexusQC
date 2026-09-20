@@ -185,7 +185,7 @@ export function ConversationList() {
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") setRenamingId(null);
                   }}
-                  className="min-w-0 flex-1 rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text outline-none"
+                  className="min-w-0 flex-1 rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text outline-none focus:border-accent"
                 />
               ) : (
                 <div
