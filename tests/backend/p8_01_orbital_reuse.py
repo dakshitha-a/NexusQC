@@ -69,6 +69,17 @@ def new_dir() -> str:
     return tempfile.mkdtemp()
 
 
+FIXTURES: list[JobSpec] = []
+
+
+def _track(spec: JobSpec) -> JobSpec:
+    """Every fixture job this script creates, so the job store is left as it
+    was found: a test that leaves jobs behind leaves clutter in everyone's
+    job list (unowned jobs are visible to every user)."""
+    FIXTURES.append(spec)
+    return spec
+
+
 def _write_fixture(spec: JobSpec, result: dict) -> None:
     """Persists a real completed job's spec/status/result to the job store
     (its job_dir was already populated with real engine output by the
@@ -86,6 +97,7 @@ def main() -> int:
     # =====================================================================
     source_spec = JobSpec(method="casscf", engine="pyscf", molecule=WATER,
                           task="single_point", subtype="gs", job_id=uuid.uuid4().hex[:12])
+    _track(source_spec)
     source_params = {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1,
                       "_job_dir": str(source_spec.job_dir())}
     source_result = pyscf_runner.run_casscf(WATER, source_params)
@@ -96,7 +108,7 @@ def main() -> int:
 
     def _macro_iters(mol, initial_orbitals_job_id: str | None) -> tuple[int, float]:
         """Mirrors run_casscf's own CASSCF setup (same _build_casscf/
-        _apply_initial_orbitals production functions), with verbose logging
+        _apply_orbital_choices production functions), with verbose logging
         captured to count real macro iterations -- pyscf's logger writes to
         whatever mc.stdout was bound to BEFORE kernel() runs, not whatever
         sys.stdout is at call time, so mc.stdout must be set directly."""
@@ -105,7 +117,7 @@ def main() -> int:
         mf.kernel()
         mc = pyscf_runner._build_casscf(mf, 4, 4, 1, None, pyscf_runner.CASSCF_CONV_TOL_ENERGY)
         if initial_orbitals_job_id:
-            pyscf_runner._apply_initial_orbitals(mc, {"initial_orbitals_job_id": initial_orbitals_job_id})
+            pyscf_runner._apply_orbital_choices(mc, {"initial_orbitals_job_id": initial_orbitals_job_id})
         buf = io.StringIO()
         mc.stdout = buf
         mc.verbose = 4
@@ -124,10 +136,11 @@ def main() -> int:
 
     # Full public-API run_casscf, not just the internals above -- proves the
     # wrapped runner (params['initial_orbitals_job_id'] plumbing, provenance
-    # in the summary) works end to end, not only _apply_initial_orbitals in
+    # in the summary) works end to end, not only _apply_orbital_choices in
     # isolation.
     dest_spec = JobSpec(method="casscf", engine="pyscf", molecule=WATER_STRETCHED,
                         task="single_point", subtype="gs", job_id=uuid.uuid4().hex[:12])
+    _track(dest_spec)
     dest_params = {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1,
                     "initial_orbitals_job_id": source_spec.job_id,
                     "_job_dir": str(dest_spec.job_dir())}
@@ -151,6 +164,7 @@ def main() -> int:
 
     hf_spec = JobSpec(method="hf", engine="pyscf", molecule=WATER, task="single_point",
                       subtype="gs", job_id=uuid.uuid4().hex[:12])
+    _track(hf_spec)
     hf_result = pyscf_runner.run_single_point(WATER, {"method": "hf", "basis": "sto-3g",
                                                         "_job_dir": str(hf_spec.job_dir())})
     _write_fixture(hf_spec, hf_result)
@@ -159,6 +173,7 @@ def main() -> int:
 
     not_done_spec = JobSpec(method="casscf", engine="pyscf", molecule=WATER, task="single_point",
                             subtype="gs", job_id=uuid.uuid4().hex[:12])
+    _track(not_done_spec)
     (not_done_spec.job_dir() / "spec.json").write_text(__import__("json").dumps(not_done_spec.to_dict(), indent=2))
     write_status(not_done_spec.job_id, "running", "still going")
     check("a not-yet-completed source job is a problem",
@@ -195,6 +210,7 @@ def main() -> int:
     # =====================================================================
     orca_source_spec = JobSpec(method="casscf", engine="orca", molecule=WATER,
                                task="single_point", subtype="gs", job_id=uuid.uuid4().hex[:12])
+    _track(orca_source_spec)
     orca_source_params = {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1,
                            "_job_dir": str(orca_source_spec.job_dir())}
     orca_source_result = orca_runner.run_casscf(WATER, orca_source_params)
@@ -345,6 +361,7 @@ def main() -> int:
     try:
         bagel_source_spec = JobSpec(method="casscf", engine="bagel", molecule=WATER,
                                     task="single_point", subtype="gs", job_id=uuid.uuid4().hex[:12])
+        _track(bagel_source_spec)
         bagel_source_params = {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1,
                                 "_job_dir": str(bagel_source_spec.job_dir())}
         bagel_source_result = bagel_runner.run_casscf(WATER, bagel_source_params)
@@ -373,5 +390,16 @@ def main() -> int:
     return 1 if FAIL else 0
 
 
+def _cleanup() -> None:
+    import shutil
+    for spec in FIXTURES:
+        shutil.rmtree(spec.job_dir(), ignore_errors=True)
+    print(f"  cleaned up {len(FIXTURES)} fixture job(s)")
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        _cleanup()
+    sys.exit(code)

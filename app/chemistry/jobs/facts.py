@@ -131,7 +131,10 @@ _ORBITAL_TABLE_NOTES = {
         "Waals radii of every atom; above 0.5 an orbital is flagged diffuse and "
         "reported without an atom localization, since a population analysis of a "
         "function centred nowhere describes nothing. That is a measure of spatial "
-        "extent, not a Rydberg assignment."
+        "extent, not a Rydberg assignment. The rows flagged active are the active "
+        "window; a BAGEL export writes energy_eV = 0.0 for each of them, because a "
+        "multi-configurational active orbital has no single-particle Fock eigenvalue, "
+        "and that 0.0 is a placeholder rather than an energy."
     ),
     "canonical": (
         "Canonical molecular orbitals with integer occupancies. Character and dominant "
@@ -148,11 +151,14 @@ The table kind is stored instead and the prose is looked up only when the
 orbital table is genuinely under discussion.
 """
 
-BAGEL_ACTIVE_ORBITAL_ENERGY_NOTE = (
-    "BAGEL's molden export writes energy_eV = 0.0 for every active-space orbital: a "
-    "multi-configurational active orbital has no single-particle Fock eigenvalue, "
-    "unlike ORCA's and PySCF's CASSCF exports, which report a generalized-Fock-based "
-    "value there. This is confirmed in the raw .molden file and is not a parsing gap."
+NATURAL_TABLE_FRONTIER_NOTE = (
+    "This job's orbital table holds natural orbitals of a multiconfigurational "
+    "wavefunction, so HOMO and LUMO are not defined for it: the frontier of a "
+    "single determinant has no counterpart when several orbitals carry fractional "
+    "occupation, and a gap taken between two natural-orbital eigenvalues is not an "
+    "excitation energy or any other observable. The active orbitals are the rows in "
+    "active_orbital_window (the `active` field shortcut reads them); the state "
+    "energies and excitation_energies_eV carry the physics."
 )
 
 
@@ -393,20 +399,29 @@ def canonicalize(summary, spec=None):
         if field in out and not per_pair:
             out[field] = _align_to_excited_states(out[field], n_total, n_excited)
 
-    # A runner that computed the gap from a mean-field object it had in hand
-    # knows better than a table reading, so an existing value wins.
-    frontier = frontier_orbitals(out.get("orbital_table"))
-    for key, val in frontier.items():
-        if out.get(key) is None:
-            out[key] = val
-
     # The 1.7 KB of shared caveat prose becomes a kind, looked up on demand.
     out.pop("orbital_table_note", None)
+    kind = None
     if "orbital_table" in out:
         kind = _orbital_table_kind(out["orbital_table"])
         out["orbital_table_kind"] = kind
-        if kind == "natural" and (spec or {}).get("engine") == "bagel":
-            out.setdefault("frontier_energy_unavailable", BAGEL_ACTIVE_ORBITAL_ENERGY_NOTE)
+
+    # A runner that computed the gap from a mean-field object it had in hand
+    # knows better than a table reading, so an existing value wins. A
+    # natural-orbital table gets no frontier at all: thresholding its
+    # occupancies labels a fractionally occupied active orbital as the
+    # HOMO or LUMO and hands the model a "gap" between two natural-orbital
+    # eigenvalues. A CAS job on uracil reported a 17.25 eV gap that way,
+    # and it was taken for a result. The reason travels with the absence.
+    if kind == "natural":
+        for key in ("homo_index", "lumo_index", "homo_energy_eV", "lumo_energy_eV", "homo_lumo_gap_eV"):
+            out.pop(key, None)
+        out["frontier_orbitals_unavailable"] = NATURAL_TABLE_FRONTIER_NOTE
+    else:
+        frontier = frontier_orbitals(out.get("orbital_table"))
+        for key, val in frontier.items():
+            if out.get(key) is None:
+                out[key] = val
 
     return out
 

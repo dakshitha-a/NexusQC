@@ -64,17 +64,25 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 ## Phase 1: PySCF applies indices against the source and records the window
 
-- [todo] P1.1: `app/chemistry/jobs/active_space.py`: window, overlap mapping, annotate, warning text
-- [todo] P1.2: `_apply_orbital_choices` returns the initial active block; sort source columns before projecting; `fresh`; SCF converged first
-- [todo] P1.3: `_casscf_molden_and_table` writes natural orbitals from one `canonicalize` call and annotates the table
-- [todo] P1.4: `dominant_transitions` in the natural-orbital basis; `facts.py` drops HOMO/LUMO on natural tables; `active` shortcut
-- [todo] P1.5: Every CASSCF-family call site threads the initial block; `_record_named_active_space` deleted
-- [todo] P1.6: Preview scripts show the source load, sort and projection
-- [todo] P1.7: `run_cas_recommendation` writes its table from the projected set
+- [done] P1.1: `app/chemistry/jobs/active_space.py`: window, overlap mapping, annotate, warning text
+  evidence: app/chemistry/jobs/active_space.py → "tests/backend/active_02_recorded_active_space.py's constructed-matrix section: a 50/50 rotated pair scores 1 each by row sum, a replaced orbital scores 0, the window is ncore+1..ncore+ncas, rows in it are flagged, the warning names the lost orbital, the reference table and the replacing row, and nothing is said when everything is retained"
+- [done] P1.2: `_apply_orbital_choices` returns the initial active block; sort source columns before projecting; `fresh`; SCF converged first
+  evidence: app/chemistry/jobs/pyscf_runner.py → "active_02 mechanisms 2 and 3: with the source named, each starting active orbital overlaps the source's table column at above 0.999 while the same numbers against the fresh SCF pick different orbitals; a source core row (3) and virtual rows (9, 10) arrive intact; an index beyond the source table is refused; `fresh` normalises to no source"
+- [done] P1.3: `_casscf_molden_and_table` writes natural orbitals from one `canonicalize` call and annotates the table
+  evidence: app/chemistry/jobs/pyscf_runner.py → "active_02: the written molden's occupations equal the table's row for row and its columns are orthonormal in the AO metric; job A records window [4,5,6,7], the echo [4,5,7,8], weights for exactly the named rows with the two occupied ones above 0.95"
+- [done] P1.4: `dominant_transitions` in the natural-orbital basis; `facts.py` drops HOMO/LUMO on natural tables; `active` shortcut
+  evidence: app/chemistry/jobs/facts.py → "active_02: the SA-CASSCF excited state's dominant transition is between rows of the active window and runs from the more-occupied natural orbital to the less-occupied one; facts.canonicalize withholds homo_index and homo_lumo_gap_eV for a natural table and records frontier_orbitals_unavailable; app/agent/tools.py's `active` shortcut slices the window and `homo` on a natural table returns that reason"
+- [done] P1.5: Every CASSCF-family call site threads the initial block; `_record_named_active_space` deleted
+  evidence: app/chemistry/jobs/pyscf_runner.py → "grep finds no _record_named_active_space, _apply_initial_orbitals or _apply_named_active_space; active_02 covers run_casscf, SA-CASSCF, run_lpdft and run_geometry_optimization (window [4,5,6,7] from mc_final, weights present, no echo on a default-space job); scripts/casbench/legacy_cas_reco.py adapted and imports; tests/backend/p8_01_orbital_reuse.py renamed to _apply_orbital_choices and now removes its fixture jobs"
+- [done] P1.6: Preview scripts show the source load, sort and projection
+  evidence: app/chemistry/jobs/pyscf_runner.py → "_orbital_choice_preview_lines is shared by the CASSCF and PDFT previews: with a source it shows molden.load, sort_mo on the source and project_init_guess(use_hf_core=False); without one the sort_mo line says the numbers index this run's own SCF orbitals; tests/backend/active_01_named_orbitals.py 44/44"
+- [done] P1.7: `run_cas_recommendation` writes its table from the projected set
+  evidence: tests/backend/cas_12_orbital_identity.py → "10/10: the listed 1-based rows of the written molden are the recommended orbitals one by one (overlap above 0.999), the recommended block holds exact 2/0 occupations, the table matches the file row for row, and the file carries the full set; the summary also records active_orbital_window and per-row active flags"
 
 ## Phase 2: Reproduction script
 
-- [todo] P2.1: `tests/backend/active_02_recorded_active_space.py`: window, mapping, mechanisms 2 and 3, opt and SA paths, warning path, source acceptance
+- [done] P2.1: `tests/backend/active_02_recorded_active_space.py`: window, mapping, mechanisms 2 and 3, opt and SA paths, warning path, source acceptance
+  evidence: tests/backend/active_02_recorded_active_space.py → "39/39 on water/6-31G CASSCF(4,4): constructed-matrix mapping and warning; job A fresh named [4,5,7,8]; mechanisms 2 and 3 by overlap of starting blocks against the source molden; job B end to end, where dropping A's correlating orbital makes the optimiser rotate row 4 out (weight 0.0) and the warning names it, while re-requesting A's own window keeps every orbital above 0.95 and reproduces A's energy to 1e-6; SA-CASSCF transitions name table rows; L-PDFT and a geometry optimisation carry the record; six fixture jobs removed. Source acceptance (HF and cas_reco sources) is asserted in Phase 3's elicitation script"
 
 ## Phase 3: Elicitation, parameters, agent teaching
 

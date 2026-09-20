@@ -148,6 +148,38 @@ def main():
           min(per_orbital) < 0.99,
           f"per-orbital overlaps {[round(x, 3) for x in per_orbital]}")
 
+    print("\nThe table and molden a recommendation job writes are the projected set")
+    # A recommendation job used to write its molden and table from `mf`
+    # while its listed indices pointed into rec.mo_coeff, so the orbitals it
+    # named were not the rows it showed and a follow-up seeded from it read
+    # the SCF's HOMO window. The writer now takes the projected set; this
+    # reads the file back the way a later job does and asks whether the
+    # listed rows are the recommended orbitals.
+    import shutil
+    import tempfile
+    from pyscf.tools import molden as pyscf_molden
+    from app.chemistry.jobs.pyscf_runner import _write_projected_molden_and_table
+    tmp = tempfile.mkdtemp()
+    try:
+        path, table = _write_projected_molden_and_table(tmp, mf, rec.mo_coeff)
+        _m, _e, mo_disk, occ_disk, _i, _s = pyscf_molden.load(path)
+        s_ao = mol.intor("int1e_ovlp")
+        disk_block = np.asarray(mo_disk)[:, idx]
+        one_by_one = [abs(float(disk_block[:, k] @ s_ao @ recommended_block[:, k]))
+                      for k in range(len(idx))]
+        check("the listed 1-based rows of the written molden ARE the recommended orbitals, one by one",
+              min(one_by_one) > 0.999, f"per-orbital overlaps {[round(x, 4) for x in one_by_one]}")
+        occ_rows = [table[i]["occupancy"] for i in idx]
+        check("the recommended block holds both occupied and empty orbitals, with exact occupations",
+              all(o in (0.0, 2.0) for o in occ_rows) and 2.0 in occ_rows and 0.0 in occ_rows,
+              str(occ_rows))
+        check("the table's occupations match the file's, row for row",
+              all(abs(float(occ_disk[r["index"] - 1]) - r["occupancy"]) < 1e-9 for r in table))
+        check("the file's orbital count is the full set, so a follow-up can name any row of it",
+              np.asarray(mo_disk).shape[1] == rec.mo_coeff.shape[1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 

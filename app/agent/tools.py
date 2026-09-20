@@ -2043,18 +2043,21 @@ def plot_mo_diagram(job_id: str, state: Annotated[AgentState, InjectedState] = N
         return (f"Job {job_id} has no orbital table. That comes from a job that exported "
                 f"molecular orbitals; not every job type does.")
     # A CASSCF job exports NATURAL orbitals, which carry occupancies and no
-    # eigenvalues: every active orbital is recorded at exactly 0.0 eV. The
-    # summary already says so, so its own wording is relayed rather than
-    # paraphrased. Refused here as well as in the renderer, because the
-    # message a user should read is this one, not a ValueError.
+    # frontier: HOMO and LUMO are single-determinant notions, and a level
+    # diagram of natural-orbital eigenvalues would annotate a gap nobody
+    # computed. The summary already says so (facts.py writes
+    # frontier_orbitals_unavailable on every natural table), so its own
+    # wording is relayed rather than paraphrased. Refused here as well as
+    # in the renderer, because the message a user should read is this
+    # one, not a ValueError.
     if (summary.get("orbital_table_kind") or "") == "natural" or summary.get(
-            "frontier_energy_unavailable"):
-        detail = summary.get("frontier_energy_unavailable") or (
-            "The orbital export carries no eigenvalues for the active orbitals.")
-        return (f"Job {job_id} exported natural orbitals, so it has occupancies but not orbital "
-                f"energies, and an energy-level diagram would be drawn from placeholder zeros. "
-                f"{detail} Say this rather than showing a diagram; a HOMO-LUMO gap for this job "
-                f"would be a number nobody computed.")
+            "frontier_orbitals_unavailable") or summary.get("frontier_energy_unavailable"):
+        detail = (summary.get("frontier_orbitals_unavailable")
+                  or summary.get("frontier_energy_unavailable")
+                  or "The orbital export carries no eigenvalues for the active orbitals.")
+        return (f"Job {job_id} exported natural orbitals, so an energy-level diagram with a "
+                f"HOMO-LUMO gap is not defined for it. {detail} Say this rather than showing "
+                f"a diagram.")
     window = (plot_spec or {}).get("window") or 8
     try:
         window = max(1, int(window))
@@ -2755,8 +2758,10 @@ def check_job_status(
     five methods is ONE call. Field paths are "total_energy_hartree",
     "state_energies_hartree[0]", "excitation_energies_eV" (a whole small
     array), "orbital_table[28:32]" (a window of a large one), or the
-    shortcuts "homo"/"lumo" for the frontier orbital's row. A path a job does
-    not have is refused for that job, naming what it does have.
+    shortcuts "active" for a CASSCF-family job's active rows and "homo"/"lumo"
+    for a frontier orbital's row (a natural-orbital table has no frontier and
+    answers with why). A path a job does not have is refused for that job,
+    naming what it does have.
 
     Answer from what this returns, never from memory of an earlier turn: a
     long conversation can drop older results out of the window, and a
@@ -2832,7 +2837,7 @@ def _compact_value(value) -> str:
 
 
 def _expand_field_shortcut(path: str, summary: dict) -> str:
-    """Rewrite "homo"/"lumo" into the orbital-table row they name.
+    """Rewrite "homo"/"lumo"/"active" into the orbital-table rows they name.
 
     Deliberately out here rather than inside `_resolve_field_path`. That
     function's contract, recorded in docs/ARCHITECTURE.md, is that no schema
@@ -2843,10 +2848,20 @@ def _expand_field_shortcut(path: str, summary: dict) -> str:
     "not in this job's summary" refusal for the name as written.
     """
     key = path.strip().lower()
+    if key == "active":
+        # The active window of a CASSCF-family job: its rows, in one slice.
+        window = summary.get("active_orbital_window")
+        if isinstance(window, list) and window and all(isinstance(i, int) for i in window):
+            return f"orbital_table[{min(window) - 1}:{max(window)}]"
+        return path
     if key not in ("homo", "lumo"):
         return path
     index = summary.get(f"{key}_index")
     if not isinstance(index, int):
+        # A natural-orbital table has no frontier; the summary says why, and
+        # that reason is the answer to "homo" rather than a refusal.
+        if summary.get("frontier_orbitals_unavailable"):
+            return "frontier_orbitals_unavailable"
         return path
     # Frontier indices are 1-based, as everything user-facing in this app is.
     return f"orbital_table[{index - 1}]"

@@ -113,8 +113,8 @@ def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
             "\n\nStored but not shown, because each is an unbounded array: "
             + ", ".join(bulk)
             + ". Fetch a window of one by calling check_job_status with fields=["
-              "\"orbital_table[28:32]\"], or the shortcuts \"homo\" and \"lumo\", "
-              "rather than guessing at what it holds."
+              "\"orbital_table[28:32]\"], or the shortcuts \"active\" (the active window of a "
+              "CASSCF-family job), \"homo\" and \"lumo\", rather than guessing at what it holds."
         )
     return table
 

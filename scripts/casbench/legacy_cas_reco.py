@@ -41,7 +41,6 @@ from pyscf.mcscf import avas
 from pyscf.tools import molden
 
 from app.chemistry.jobs.pyscf_runner import (
-    _apply_named_active_space,
     _apply_spin_constraint,
     _build_casscf,
     _casscf_molden_and_table,
@@ -848,7 +847,11 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
 
     active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
 
-    molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+    # Adapted when the runner's table writer began returning an object that
+    # also carries the active-space record (September 2026); the old tuple
+    # form no longer exists. The two lines are the only edits to this file.
+    _orbitals = _casscf_molden_and_table(mc, params["_job_dir"], params)
+    molden_path, orbital_table = _orbitals.molden_path, _orbitals.table
 
     energies = np.atleast_1d(mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
     summary = {
@@ -909,7 +912,7 @@ def run_recommend_active_space(molecule: dict, params: dict) -> dict:
             )
         ),
     }
-    _record_named_active_space(summary, params)
+    _orbitals.record(summary)
     return {"summary": summary, "artifacts": {"molden": molden_path, "entropy_plateau": plateau_png}}
 
 
@@ -997,7 +1000,11 @@ def run_avas_active_space(molecule: dict, params: dict) -> dict:
     mc = _kernel_casscf_with_fallback(mc, mo, "[avas_active_space]")
 
     active_space_orbital_indices = list(range(mc.ncore + 1, mc.ncore + mc.ncas + 1))
-    molden_path, orbital_table = _casscf_molden_and_table(mc, params["_job_dir"])
+    # Adapted when the runner's table writer began returning an object that
+    # also carries the active-space record (September 2026); the old tuple
+    # form no longer exists. The two lines are the only edits to this file.
+    _orbitals = _casscf_molden_and_table(mc, params["_job_dir"], params)
+    molden_path, orbital_table = _orbitals.molden_path, _orbitals.table
     energies = np.atleast_1d(
         mc.e_states if hasattr(mc, "e_states") and n_states > 1 else mc.e_tot).tolist()
 
@@ -1033,5 +1040,5 @@ def run_avas_active_space(molecule: dict, params: dict) -> dict:
                "subset of what AVAS actually selected." if truncated else "")
         ),
     }
-    _record_named_active_space(summary, params)
+    _orbitals.record(summary)
     return {"summary": summary, "artifacts": {"molden": molden_path}}
