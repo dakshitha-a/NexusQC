@@ -316,6 +316,10 @@ def main() -> int:
               str(se.get("active_orbital_window")))
         check("a default-space job records no echo key but does record the window",
               "active_space_orbital_indices" not in se and "reference_orbital_weights" in se)
+        # Nothing was asked for, so nothing can have been lost: the weights
+        # against the fresh HF window are recorded, the warning is not raised.
+        check("and raises no warning however far the optimiser moved from the HF window",
+              "active_space_warning" not in se, str(se.get("reference_orbital_weights")))
 
         # =================================================================
         print("== the molden a later job reads is the table this job shows ==")

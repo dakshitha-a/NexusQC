@@ -117,8 +117,10 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 ## Phase 7: Acceptance on the dev stack
 
-- [todo] P7.1: Uracil L-PDFT(12,9)/cc-pVDZ default, then the literal swap request through `invoke_turn` with the job attached
-- [todo] P7.2: The rerun's mapping, weights and window reported; test jobs and thread deleted
+- [done] P7.1: Uracil L-PDFT(12,9)/cc-pVDZ default, then the literal swap request through `invoke_turn` with the job attached
+  evidence: app/agent/tools.py → "in-process on the worktree code with the host's Ollama (qwen3.8:27b), isolated in the worktree's data directory: job 1 (111 s) reproduced the user's run, S1 5.22 eV and S2 6.03 eV, window rows 24 to 32 with sigma C7-C1 at 26 and sigma* at 32; the turn 'repeat this calculation but swap out orbital 26 for 21 and 32 for 37' with job 1 attached made the model call check_job_status(fields=['active_orbital_window']), start_job_draft, then update_job_draft with active_space_orbital_indices [21, 24, 25, 27, 28, 29, 30, 31, 37] and initial_orbitals_job_id = job 1, and the draft reached the approval interrupt in 30 s with no question asked"
+- [done] P7.2: The rerun's mapping, weights and window reported; test jobs and thread deleted
+  evidence: app/chemistry/jobs/active_space.py → "job 2 from the draft's parameters converged in 21 s from job 1's orbitals; reference_orbital_weights 21: 0.9998, 24: 0.9999, 25: 1.0, 27: 0.9999, 28: 0.9962, 29: 0.9999, 30: 0.9994, 31: 0.9943, 37: 0.9055, no warning; its window rows 24 to 32 are pi, pi, pi, pi, n(O8), pi, pi*, pi*, pi*(C4-O5, reference 37) with no sigma; ground state 0.8 mEh lower, S1 4.75 eV (29->30) and S2 5.06 eV (28->30) against 5.22 and 6.03 before. On the default job the fresh-HF window's own weights (26: 0.01, 32: 0.004) showed that a warning must need a request, so annotate now warns only for a named list or a reused job's space; active_02 40/40 with that asserted. Both jobs and the thread were deleted"
 
 ## Phase 8: Deploy and release (raised by the user mid-run)
 

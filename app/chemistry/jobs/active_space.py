@@ -210,7 +210,13 @@ def annotate(
     summary["reference_orbital_weights"] = {str(k): round(v, 4) for k, v in mapping.per_initial.items()}
 
     lost = [(label, w) for label, w in mapping.per_initial.items() if w < RETAINED_WEIGHT_THRESHOLD]
-    if not lost:
+    # A warning needs something to have been asked for: a named list, or a
+    # reused job's space (the starting labels are then that job's window).
+    # A job that started from its own fresh SCF's HOMO window asked for
+    # nothing, and the CASSCF rotating away from the canonical orbitals it
+    # was seeded with is the ordinary course of an optimisation; the
+    # weights are still recorded, since they say how far it moved.
+    if not lost or (not requested and not reference_job_id):
         summary.pop("active_space_warning", None)
         return
     where = reference_name(reference_job_id)
