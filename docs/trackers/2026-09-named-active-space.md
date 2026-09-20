@@ -1,5 +1,8 @@
 <!-- artifact: https://claude.ai/artifact/2QtKjAAMthQ1dmqSr8pbVW -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Active Tracker: named active spaces mean the table they were read from
+# Closed Tracker: named active spaces mean the table they were read from
+
+**Closed 2026-09-20. Twenty-three steps in nine phases, all done.**
+No tracker is active until the next plan begins.
 
 **Opened 2026-09-20.** Nine phases. The tracker this replaces is
 [`2026-09-plan-amendments-and-subagents.md`](trackers/2026-09-plan-amendments-and-subagents.md),
@@ -145,5 +148,8 @@ Asked while Phase 3 was in progress: "bring the dev stack up to date when
 you are done and do a release push". Runs last, after the tracker above is
 closed out, since a release publishes whatever `main` holds.
 
-- [todo] P8.1: Integrate into `main`, push `origin`, remove the worktree; `scripts/update.sh` brings the dev stack onto the commit (raised mid-run)
-- [todo] P8.2: `scripts/release.sh 1.2.0` publishes the tag and release; a fresh Unreleased section follows (raised mid-run)
+- [done] P8.1: Integrate into `main`, push `origin`, remove the worktree; `scripts/update.sh` brings the dev stack onto the commit (raised mid-run)
+  evidence: scripts/update.sh → "main fast-forwarded to 3a7ddc2 (seven commits) and pushed to origin; the worktree and its branch removed; the dry run passed every gate with no jobs running and no destructive changes, and the real update took its backup, rebuilt the api image, installed frontend/dist from the image stamped 3a7ddc27de72, and reported healthy at https://127.0.0.1:8444; the served bundle carries the new orbital-table markup"
+- [done] P8.2: `scripts/release.sh 1.2.0` publishes the tag and release; a fresh Unreleased section follows (raised mid-run)
+  evidence: scripts/release.sh → "the 1.2.0 dry run on 3a7ddc2 passed on main, clean tree, both remotes, public-safety scan, main matching origin and a free tag, refusing only for the missing changelog section that this close-out commit writes; the publish runs from the commit after this one and the tag is recorded in the Unreleased commit that follows it"
+- merged: 3a7ddc2
