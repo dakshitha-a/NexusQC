@@ -299,6 +299,25 @@ export function JobDetailDrawer({
   const normalModes = job?.summary?.["normal_modes"] as number[][][] | undefined;
   const [selectedMode, setSelectedMode] = useState<number | null>(null);
   const orbitalTable = job?.summary?.["orbital_table"] as OrbitalRow[] | undefined;
+  // The active-space record a CASSCF-family result carries (see
+  // app/chemistry/jobs/active_space.py), composed into the one line the
+  // orbital table shows beside its count, so the reader knows which rows
+  // are the active space and which job's table the request was read from.
+  const activeWindow = job?.summary?.["active_orbital_window"] as number[] | undefined;
+  const referenceJob = job?.summary?.["initial_orbitals_source_job_id"] as string | null | undefined;
+  const requestedOrbitals = job?.summary?.["active_space_orbital_indices"] as number[] | undefined;
+  const activeSpaceNote =
+    Array.isArray(activeWindow) && activeWindow.length > 0
+      ? `active space: rows ${activeWindow[0]} to ${activeWindow[activeWindow.length - 1]}` +
+        (requestedOrbitals
+          ? referenceJob
+            ? `, named as ${requestedOrbitals.join(", ")} in job ${referenceJob.slice(0, 12)}'s table`
+            : `, named as ${requestedOrbitals.join(", ")} in this run's own SCF orbitals`
+          : referenceJob
+            ? `, started from job ${referenceJob.slice(0, 12)}'s orbitals`
+            : "")
+      : null;
+  const activeSpaceWarning = (job?.summary?.["active_space_warning"] as string | undefined) ?? null;
   const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
@@ -1519,6 +1538,8 @@ export function JobDetailDrawer({
                                   selected={selectedOrbital}
                                   onSelect={setSelectedOrbital}
                                   fill={expanded}
+                                  activeSpaceNote={activeSpaceNote}
+                                  warning={activeSpaceWarning}
                                 />
                               )}
                             </div>

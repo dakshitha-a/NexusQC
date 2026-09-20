@@ -27,6 +27,14 @@ export interface OrbitalRow {
   // stays visible instead of being rounded away into "not diffuse".
   diffuse_fraction?: number | null;
   diffuse?: boolean;
+  // The active-space record (app/chemistry/jobs/active_space.py). `active`
+  // is on every row of a CASSCF-family table: the rows of the active window.
+  // The two reference fields are on active rows when the run could be
+  // compared with the orbitals it started from: the reference-table row
+  // this orbital most resembles and the squared overlap with it.
+  active?: boolean;
+  reference_index?: number;
+  reference_weight?: number;
 }
 
 export interface OrbitalSelection {
@@ -49,6 +57,14 @@ interface Props {
    * the enclosing panel is expanded and the table is a full-height column
    * beside the viewer. */
   fill?: boolean;
+  /** One line about the active window, composed by the drawer from the
+   * summary ("Active space: rows 24 to 32, named against job faee12's
+   * table"). Shown in the header line beside the orbital count. */
+  activeSpaceNote?: string | null;
+  /** The summary's active_space_warning: the optimizer did not keep the
+   * space it started from. Shown in the accent colour above the table, since
+   * it changes what every number below it means. */
+  warning?: string | null;
 }
 
 /** Unoccupied orbitals shown per spin channel before the rest are pruned.
@@ -86,11 +102,13 @@ export function pruneOrbitalRows(rows: OrbitalRow[]): { shown: OrbitalRow[]; hid
   return { shown, hiddenCount };
 }
 
-export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
+export function OrbitalTable({ rows, selected, onSelect, fill, activeSpaceNote, warning }: Props) {
   const { shown, hiddenCount } = pruneOrbitalRows(rows);
   const hasSpin = shown.some((r) => r.spin);
   const hasCharacter = shown.some((r) => r.character || r.localized_atom);
   const hasDiffuse = shown.some((r) => typeof r.diffuse_fraction === "number");
+  const hasActive = shown.some((r) => r.active);
+  const hasReference = shown.some((r) => typeof r.reference_index === "number");
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
 
   // The scrubber beside this table can move the selection to a row that is
@@ -108,7 +126,17 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
         {rows.length} orbital{rows.length === 1 ? "" : "s"} total
         {hiddenCount > 0 &&
           ` · ${hiddenCount} higher unoccupied orbital${hiddenCount === 1 ? "" : "s"} not shown`}
+        {activeSpaceNote && <span data-testid="orbital-active-note">{` · ${activeSpaceNote}`}</span>}
       </div>
+      {warning && (
+        // The one thing on this panel that must be read before the numbers:
+        // the energies belong to a different active space than the one that
+        // was asked for. Accent rather than a status colour, because it is
+        // not a failure; the job ran, and this is what it found.
+        <div className="text-3xs text-accent" data-testid="orbital-active-warning">
+          {warning}
+        </div>
+      )}
       <div
         className={`overflow-y-auto rounded border border-border ${
           fill ? "min-h-0 flex-1" : "max-h-56"
@@ -128,6 +156,11 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
                 </th>
               )}
               {hasCharacter && <th className="py-1 pr-2 font-normal">Localized on</th>}
+              {hasReference && (
+                <th className="py-1 pr-2 font-normal whitespace-nowrap" title="The orbital this run started from, and how much of it survives in this one">
+                  From
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -140,11 +173,26 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
                   data-testid={`orbital-row-${r.index}${r.spin ? `-${r.spin}` : ""}`}
                   onClick={() => onSelect(r)}
                   {...rowProps(() => onSelect(r), { selected: isSelected })}
+                  data-active={r.active ? "true" : undefined}
                   className={`cursor-pointer border-t border-border hover:bg-surface-raised ${ROW_FOCUS_CLASS} ${
                     isSelected ? "bg-surface-raised" : ""
                   }`}
                 >
-                  <td className="py-1 pl-2 pr-3 font-mono text-text-muted">{r.index}</td>
+                  {/* The active window carries the app's hairline, on the
+                      cell rather than the row for the same reason the job
+                      tables put it there (a table row is not positioned). It
+                      marks state, not selection: these are the orbitals the
+                      wavefunction correlates, whatever row is highlighted.
+                      The header line above names the rows in words, so the
+                      mark is never the only carrier; a text tag beside each
+                      index was tried and cost the width the From column
+                      needs in the drawer. */}
+                  <td
+                    className={`py-1 pl-2 pr-3 font-mono ${r.active ? "hairline text-text" : "text-text-muted"}`}
+                    title={r.active && hasActive ? "In the active space" : undefined}
+                  >
+                    {r.index}
+                  </td>
                   {hasSpin && <td className="py-1 pr-3 font-mono text-text-muted">{r.spin}</td>}
                   <td className={`py-1 pr-3 font-mono ${r.occupancy > 0 ? "text-text" : "text-text-muted"}`}>
                     {r.energy_eV?.toFixed(3) ?? "--"}
@@ -157,6 +205,17 @@ export function OrbitalTable({ rows, selected, onSelect, fill }: Props) {
                     </td>
                   )}
                   {hasCharacter && <td className="py-1 pr-2 font-mono text-text-muted">{r.localized_atom ?? "--"}</td>}
+                  {hasReference && (
+                    <td
+                      className={`py-1 pr-2 font-mono whitespace-nowrap ${
+                        typeof r.reference_weight === "number" && r.reference_weight < 0.5 ? "text-accent" : "text-text-muted"
+                      }`}
+                    >
+                      {typeof r.reference_index === "number"
+                        ? `#${r.reference_index} · ${(r.reference_weight ?? 0).toFixed(2)}`
+                        : "--"}
+                    </td>
+                  )}
                 </tr>
               );
             })}

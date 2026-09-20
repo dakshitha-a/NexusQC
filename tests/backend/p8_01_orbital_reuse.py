@@ -168,8 +168,13 @@ def main() -> int:
     hf_result = pyscf_runner.run_single_point(WATER, {"method": "hf", "basis": "sto-3g",
                                                         "_job_dir": str(hf_spec.job_dir())})
     _write_fixture(hf_spec, hf_result)
-    check("a non-CASSCF/CASPT2 source job is a problem",
-          _initial_orbitals_problem(hf_spec.job_id, "pyscf") is not None)
+    # Any completed same-engine job with an orbital table and its orbital
+    # file can seed a run now (the HF run a user reads orbital numbers off
+    # is the commonest source of a named active space); see
+    # tests/backend/active_03_reference_table.py for the full rule.
+    check("a mean-field source job with an orbital table is accepted",
+          _initial_orbitals_problem(hf_spec.job_id, "pyscf") is None,
+          str(_initial_orbitals_problem(hf_spec.job_id, "pyscf")))
 
     not_done_spec = JobSpec(method="casscf", engine="pyscf", molecule=WATER, task="single_point",
                             subtype="gs", job_id=uuid.uuid4().hex[:12])

@@ -1,7 +1,7 @@
 <!-- artifact: https://claude.ai/artifact/2QtKjAAMthQ1dmqSr8pbVW -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
 # Active Tracker: named active spaces mean the table they were read from
 
-**Opened 2026-09-20.** Eight phases. The tracker this replaces is
+**Opened 2026-09-20.** Nine phases. The tracker this replaces is
 [`2026-09-plan-amendments-and-subagents.md`](trackers/2026-09-plan-amendments-and-subagents.md),
 which closed on 2026-09-16. **Exactly one tracker is active at a time.**
 
@@ -86,21 +86,29 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 ## Phase 3: Elicitation, parameters, agent teaching
 
-- [todo] P3.1: Draft tool passes conversation and attached job ids to validation
-- [todo] P3.2: Elicitation: attached job as reference, candidate question, `fresh`, occupancy sanity, source problems are questions
-- [todo] P3.3: Parameter help for `active_space_orbital_indices` and `initial_orbitals_job_id`
-- [todo] P3.4: `update_job_draft` and `check_job_status` docstrings, job watcher notice, prompt sentence
-- [todo] P3.5: Existing tests updated; new elicitation script
+- [done] P3.1: Draft tool passes conversation and attached job ids to validation
+  evidence: app/agent/state.py → "attached_job_id and attached_jobs_this_turn live beside the marker (graph.py imports the former; tools.py both); tests/backend/active_03_reference_table.py: the current turn's attachments are the run before the last user text, oldest first, an earlier turn's is excluded; _state_for_validation in tools.py hands validate_draft conversation_job_ids (active ids plus every attached id) and attached_job_ids"
+- [done] P3.2: Elicitation: attached job as reference, candidate question, `fresh`, occupancy sanity, source problems are questions
+  evidence: tests/backend/active_03_reference_table.py → "26/26: an attached job becomes the reference without a question and the card says so; with candidates and no pointer the draft asks, listing usable jobs by label and id with options plus `fresh`; with nothing to read from it goes through against fresh orbitals and says so; an unusable source is a question when indices are named and a dropped note otherwise; an index beyond the source table is refused; four empty rows warn about the electron count and an omitted partly occupied row warns it becomes core; both resolved drafts stay READY under re-validation without external checks; HF and recommendation jobs are valid sources, running and other-engine jobs are not; `fresh` never reaches a runner (dropped in _build_spec_or_error)"
+- [done] P3.3: Parameter help for `active_space_orbital_indices` and `initial_orbitals_job_id`
+  evidence: app/chemistry/registry2/params.py → "the index help keeps the literal 'ONLY set this' (tests/backend/agent_09_unstated_parameters.py 0 failures) and says each number is a row of one job's table named in initial_orbitals_job_id, or `fresh`; the source help admits any same-engine job with a table and says the numbers index that table; tests/backend/agent_01_token_budget.py 13/13, elic_01 205/205, agent_06 18/18 and 0 failures"
+- [done] P3.4: `update_job_draft` and `check_job_status` docstrings, job watcher notice, prompt sentence
+  evidence: app/agent/tools.py → "update_job_draft's docstring carries the swap pattern beside the geometry one (read active_orbital_window, replace keeping the length, write the full list, name the job); check_job_status documents the `active` shortcut and why homo/lumo are absent on natural tables; job_watcher._agent_notice tells the model to report an active_space_warning before any energy. The prompt sentence was written and reverted: SYSTEM_PROMPT sat 14 bytes under its 6,144-byte budget (agent_01) and the rule lives where the model reads it at the moment of use"
+- [done] P3.5: Existing tests updated; new elicitation script
+  evidence: tests/backend/p8_01_orbital_reuse.py → "40/40 with the helper renamed, an HF source now accepted, and its five fixture jobs removed at exit; active_01 44/44; cas_12 10/10; mrpdft_01 153/153; active_03_reference_table.py is the new script"
 
 ## Phase 4: BAGEL and ORCA
 
 - [todo] P4.1: BAGEL records its window and, with a source, the mapping
-- [todo] P4.2: ORCA records its window and active flags
+- [done] P4.2: ORCA records its window and active flags
+  evidence: tests/backend/active_04_engine_records.py → "a real ORCA CASSCF(4,4)/STO-3G on water: window [4,5,6,7] from the electron count, ORCA's fractional-occupation rows lie inside it with no disagreement recorded, exactly those rows flagged, no mapping or echo on a default-space job, reference null; the record is written by _record_active_space on the single-point, optimisation and frequency CASSCF paths"
 
 ## Phase 5: Frontend
 
-- [todo] P5.1: OrbitalTable marks active rows, shows the reference column, note and warning; drawer wiring
-- [todo] P5.2: Browser verification with a stubbed payload and a screenshot looked at
+- [done] P5.1: OrbitalTable marks active rows, shows the reference column, note and warning; drawer wiring
+  evidence: frontend/src/jobs/OrbitalTable.tsx → "active rows carry the hairline on the index cell with the index in full text colour and a hover title, a From column appears when rows carry reference_index (sub-threshold weights in accent), the header line takes the drawer's activeSpaceNote and the warning renders above the table in accent; JobDetailDrawer composes the note from active_orbital_window, active_space_orbital_indices and initial_orbitals_source_job_id; tsc -b clean"
+- [done] P5.2: Browser verification with a stubbed payload and a screenshot looked at
+  evidence: tests/frontend/orbital_09_active_space_marks.spec.mjs → "7/7 in headless Chromium against the worktree's dev server proxied to the stack: exactly the window rows are marked, hairlined and titled, the From column shows '#5 · 0.67' style cells on active rows and '--' elsewhere, the header names the window and the reference table, the warning is above the table; the screenshot in docs/e2e-artifacts/ was looked at twice: an 'active' text tag made the sixth column clip in the 400px drawer and was replaced by the hairline alone, after which every column fits"
 
 ## Phase 6: Docs and changelog
 
@@ -110,3 +118,12 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 - [todo] P7.1: Uracil L-PDFT(12,9)/cc-pVDZ default, then the literal swap request through `invoke_turn` with the job attached
 - [todo] P7.2: The rerun's mapping, weights and window reported; test jobs and thread deleted
+
+## Phase 8: Deploy and release (raised by the user mid-run)
+
+Asked while Phase 3 was in progress: "bring the dev stack up to date when
+you are done and do a release push". Runs last, after the tracker above is
+closed out, since a release publishes whatever `main` holds.
+
+- [todo] P8.1: Integrate into `main`, push `origin`, remove the worktree; `scripts/update.sh` brings the dev stack onto the commit (raised mid-run)
+- [todo] P8.2: `scripts/release.sh 1.2.0` publishes the tag and release; a fresh Unreleased section follows (raised mid-run)

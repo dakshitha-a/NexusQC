@@ -394,20 +394,45 @@ def _source_frequency_problem(job_id: str) -> Optional[str]:
     return None
 
 
+ORBITAL_FILES = {"pyscf": "orbitals.molden", "orca": "input.gbw", "bagel": "orbitals.archive"}
+"""The file each engine's runner reads a source job's orbitals from. A
+job that wrote an orbital table but not this file (a fixture, a job whose
+directory was pruned) cannot seed anything, whatever its result says."""
+
+FRESH_REFERENCE = "fresh"
+"""The value of `initial_orbitals_job_id` that means "this job's own fresh
+SCF orbitals", written into the draft so the approval card shows the
+choice and a later re-validation does not ask again. The runners read it
+as no source."""
+
+
 def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
-    """Why a named source job cannot seed this CASSCF/CASPT2 job's initial
-    orbital guess, if it cannot -- same "read through the job store rather
-    than trust the draft" reasoning as _source_frequency_problem above.
+    """Why a named source job cannot seed this job's initial orbitals, if
+    it cannot -- same "read through the job store rather than trust the
+    draft" reasoning as _source_frequency_problem above.
+
+    Any completed job on the same engine that wrote an orbital table and
+    the engine's orbital file will do: a CASSCF-family job, a mean-field
+    single point, an active-space recommendation. It used to be CASSCF and
+    CASPT2 only, which ruled out the two sources a user most often reads
+    orbital numbers from before naming an active space, the HF run they
+    looked at and the recommendation that proposed the space. What the
+    destination does with a mean-field source is take its first ncore+ncas
+    columns as core and active, the HOMO window, unless named indices say
+    otherwise; that is exactly what the user who read those indices off
+    the table means.
 
     Orbital files are engine-specific formats this app never converts
-    between (PySCF chkfile/molden, ORCA .gbw, BAGEL save_ref archive), so
-    the source job's own engine must match the engine THIS job is about to
+    between (PySCF molden, ORCA .gbw, BAGEL save_ref archive), so the
+    source job's own engine must match the engine THIS job is about to
     run on -- checked against `engine` (the already-routed destination),
     not the source's own requested engine, so a source job that itself ran
     on a routing fallback is still compared against where this job is
     really headed.
     """
-    from app.chemistry.jobs.base import read_spec, read_status
+    import os
+    from app.chemistry.jobs.base import read_result, read_spec, read_status
+    from app.config import JOBS_DIR
 
     try:
         spec = read_spec(job_id)
@@ -416,17 +441,95 @@ def _initial_orbitals_problem(job_id: str, engine: str) -> Optional[str]:
         return f"No job with id {job_id} was found, so its orbitals cannot be reused."
     if not spec:
         return f"No job with id {job_id} was found, so its orbitals cannot be reused."
-    if spec.get("method") not in MULTIREF_METHODS:
-        return (f"Job {job_id} is not built on a CASSCF wavefunction, so it has no "
-                f"active-space orbitals to reuse.")
     status = (status_doc or {}).get("status")
     if status != "completed":
         return f"Job {job_id} is {status or 'not finished'}. Its orbitals aren't available yet."
     source_engine = spec.get("engine")
     if source_engine != engine:
         return (f"Job {job_id} ran on {(source_engine or '?').upper()}, but this job runs on "
-                f"{engine.upper()} -- orbitals can only be reused on the same engine.")
+                f"{engine.upper()} -- orbitals can only be reused on the same engine, and orbital "
+                f"numbers read off its table mean nothing to another engine's orbitals.")
+    summary = ((read_result(job_id) or {}).get("summary") or {})
+    if not summary.get("orbital_table"):
+        return (f"Job {job_id} did not export an orbital table, so it has no orbitals to "
+                f"reuse and no numbering to read orbital indices against.")
+    wanted = ORBITAL_FILES.get(engine)
+    if wanted and not os.path.exists(os.path.join(str(JOBS_DIR), job_id, wanted)):
+        return f"Job {job_id} has no {wanted} on disk any more, so its orbitals cannot be reused."
     return None
+
+
+def _reference_candidates(job_ids, engine: str) -> list[tuple[str, str]]:
+    """The jobs in a conversation whose orbital table could be the one a
+    named active space was read from: (job id, label), in the order the
+    ids were given, most recent last."""
+    from app.chemistry.jobs.base import read_meta, read_spec
+    from app.chemistry.jobs.naming import resolve_job_label
+
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for jid in job_ids or []:
+        jid = str(jid)
+        if jid in seen:
+            continue
+        seen.add(jid)
+        if _initial_orbitals_problem(jid, engine) is None:
+            try:
+                label = resolve_job_label(read_spec(jid) or {}, read_meta(jid))
+            except Exception:
+                label = jid
+            out.append((jid, label))
+    return out
+
+
+def _named_space_against_source(job_id: str, indices: list[int],
+                                active_electrons) -> tuple[Optional[str], list[str]]:
+    """What the source job's own table says about a named active space:
+    a refusal when an index is beyond the table, and warnings when the
+    named rows cannot hold the electron count claimed or a row that would
+    become core is not doubly occupied.
+
+    PySCF's sort_mo (and BAGEL's `active`) make the named rows active and
+    the first ncore of the remaining rows core, doubly occupied, whatever
+    their occupation was in the source. A natural-orbital row with
+    occupation 1.6 that is left out of the list therefore becomes a
+    closed-shell orbital, which is a different wavefunction from the one
+    the table describes. Said on the card rather than refused: it can be
+    what the user means."""
+    from app.chemistry.jobs.base import read_result
+
+    table = (((read_result(job_id) or {}).get("summary") or {}).get("orbital_table") or [])
+    rows = {int(r["index"]): r for r in table if isinstance(r, dict) and r.get("index") is not None}
+    if not rows:
+        return None, []
+    n_rows = max(rows)
+    beyond = [i for i in indices if i > n_rows]
+    if beyond:
+        return (f"orbital {beyond[0]} is beyond job {job_id}'s orbital table, which has "
+                f"{n_rows} orbitals"), []
+    warnings: list[str] = []
+    occ = {i: float(r.get("occupancy") or 0.0) for i, r in rows.items()}
+    named_occ = sum(occ.get(i, 0.0) for i in indices)
+    if active_electrons is not None and abs(named_occ - float(active_electrons)) > 1.0:
+        warnings.append(
+            f"In job {job_id}'s table the named orbitals hold {named_occ:.2f} electrons between "
+            f"them, but the active space is declared to hold {active_electrons}. The engine will "
+            f"put {active_electrons} electrons in them regardless; check the count is what you mean."
+        )
+    n_electrons = int(round(sum(occ.values())))
+    if active_electrons is not None:
+        ncore = max(0, (n_electrons - int(active_electrons)) // 2)
+        remaining = [i for i in sorted(rows) if i not in set(indices)]
+        weak_core = [i for i in remaining[:ncore] if occ.get(i, 0.0) < 1.5]
+        if weak_core:
+            plural = len(weak_core) > 1
+            warnings.append(
+                f"Row{'s' if plural else ''} {weak_core} of job {job_id}'s table "
+                f"{'are' if plural else 'is'} not doubly occupied there but would be treated as "
+                f"doubly occupied core here, since only the named orbitals are active. If that "
+                f"orbital matters, name it."
+            )
+    return None, warnings
 
 
 def _source_geometry_problem(job_id: str, image=None) -> Optional[str]:
@@ -926,8 +1029,28 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
         d["params"]["initial_orbitals_job_id"] = d["params"]["source_frequency_job_id"]
 
     orbitals_job = d["params"].get("initial_orbitals_job_id")
-    if orbitals_job and check_external:
+    named_orbitals = d["params"].get("active_space_orbital_indices")
+    if (orbitals_job and check_external
+            and str(orbitals_job).strip().lower() != FRESH_REFERENCE):
         problem = _initial_orbitals_problem(str(orbitals_job), engine)
+        if problem and named_orbitals:
+            # With a named active space the source is not a convenience, it
+            # is what the numbers mean. Dropping it would silently turn a
+            # list read off one table into positions in a fresh SCF's
+            # canonical ordering, which is how a user once got an active
+            # space with the wrong orbitals in it and no sign that anything
+            # had changed. A question, never a drop (source_geometry_job_id's
+            # rule, for the same reason).
+            d["params"].pop("initial_orbitals_job_id")
+            return _ask(
+                d,
+                f"The orbital numbers {list(named_orbitals)} were to be read against job "
+                f"{orbitals_job}'s orbital table, but that cannot be done: {problem} Which "
+                f"job's orbital table are these numbers from? (Answer `fresh` to read them "
+                f"against this run's own new SCF orbitals instead, whose numbering is not any "
+                f"earlier table's.)",
+                "initial_orbitals_job_id", notes=tuple(notes),
+            )
         if problem:
             derived = orbitals_job == d["params"].get("source_frequency_job_id")
             d["params"].pop("initial_orbitals_job_id")
@@ -946,7 +1069,6 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # it is a question rather than a note, and it is asked here, before
     # the ordinary parameter round, because the answer can change the
     # engine and therefore what else is worth asking.
-    named_orbitals = d["params"].get("active_space_orbital_indices")
     if named_orbitals and engine not in ("bagel", "pyscf"):
         return _ask(
             d,
@@ -1008,6 +1130,66 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                 "active_space_orbital_indices", notes=tuple(notes),
             )
         d["params"]["active_space_orbital_indices"] = indices
+
+        # -- 5ab. The table those numbers index --------------------------
+        #
+        # An orbital index is a position in one particular job's orbital
+        # table, and a fresh SCF's canonical ordering is not any table the
+        # user has seen. So a named list needs a reference: the job whose
+        # table it was read from, carried in initial_orbitals_job_id, which
+        # is also what makes the runner start from those orbitals. The user
+        # settled how it is filled in (2026-09-20): a job attached to the
+        # message, or one they named, is the reference; otherwise, when the
+        # conversation holds jobs with orbital tables, the draft asks which
+        # one rather than guessing; and only when there is nothing to read
+        # numbers off does a fresh reference go through, said on the card.
+        # `fresh` is written into the parameter so the choice is visible and
+        # a re-validation without external checks does not ask again.
+        reference = d["params"].get("initial_orbitals_job_id")
+        if not reference and check_external:
+            attached = [str(j) for j in (state.get("attached_job_ids") or [])]
+            usable_attached = [j for j in attached if _initial_orbitals_problem(j, engine) is None]
+            candidates = _reference_candidates(
+                list(state.get("conversation_job_ids") or []) + attached, engine)
+            if usable_attached:
+                reference = usable_attached[-1]
+                d["params"]["initial_orbitals_job_id"] = reference
+            elif candidates:
+                listing = "; ".join(f"{label} ({jid})" for jid, label in candidates)
+                return _ask(
+                    d,
+                    f"Which job's orbital table are the orbital numbers {indices} from? "
+                    f"The jobs here with an orbital table on {engine.upper()} are: {listing}. "
+                    f"Answer with the job, or `fresh` to read the numbers against this run's "
+                    f"own new SCF orbitals, whose numbering is not any of those tables'.",
+                    "initial_orbitals_job_id",
+                    options=tuple(jid for jid, _ in candidates) + (FRESH_REFERENCE,),
+                    notes=tuple(notes),
+                )
+            else:
+                d["params"]["initial_orbitals_job_id"] = FRESH_REFERENCE
+                reference = FRESH_REFERENCE
+        if reference and str(reference).strip().lower() == FRESH_REFERENCE:
+            notes.append(
+                f"The orbital numbers {indices} are read against this run's own fresh SCF "
+                f"orbitals in canonical energy order, not against any earlier job's table."
+            )
+        elif reference and check_external:
+            refusal, warnings = _named_space_against_source(
+                str(reference), indices, d["params"].get("active_electrons"))
+            if refusal:
+                return _ask(
+                    d,
+                    f"The active orbitals given as {indices} cannot be used: {refusal}. "
+                    f"Which orbitals should the active space contain?",
+                    "active_space_orbital_indices", notes=tuple(notes),
+                )
+            notes.extend(warnings)
+        if reference and str(reference).strip().lower() != FRESH_REFERENCE:
+            notes.append(
+                f"The orbital numbers {indices} are positions in job {reference}'s orbital "
+                f"table, and this run starts from that job's orbitals with those rows active."
+            )
         # Phrased as something to check rather than something to note. This
         # parameter's own ParamSpec explains at length that the risk is the
         # MODEL setting it after reading an orbital table, and that a

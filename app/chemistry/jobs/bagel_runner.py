@@ -1086,19 +1086,79 @@ def _parse_bagel_oscillator_strengths(output: str, n_states: int, method: str) -
     return [found.get(i) for i in range(1, n_states)]
 
 
-def _record_named_active_space(summary: dict, params: dict) -> None:
-    """Records the orbitals a user named, so the finished job says which
-    space actually ran rather than looking identical to one on the
-    engine's own default. Added only when there was one -- every CASSCF
-    job carrying the key with a null value would put an empty row in the
-    drawer's summary table for the ordinary case, which is the common
-    one."""
-    named = params.get("active_space_orbital_indices")
-    if named:
-        summary["active_space_orbital_indices"] = [int(i) for i in named]
+def _record_active_space(summary: dict, table: list[dict], job_dir: str, params: dict) -> None:
+    """The active-space record every CASSCF-family result carries (see
+    app/chemistry/jobs/active_space.py), from what BAGEL leaves behind.
+
+    The window is `nclosed+1 .. nclosed+nact`, the numbers the input was
+    built with (`n_closed_orbitals` in the summary). BAGEL's own molden
+    export marks the same rows by writing energy_eV = 0.0 for each active
+    orbital, so the two are compared: when the file's zero rows exist and
+    disagree with the arithmetic, the file wins and the disagreement is
+    recorded, since the file is the engine's own account of what it did.
+
+    With a source job (initial_orbitals_job_id, BAGEL's load_ref), the
+    mapping is taken between the source's molden and this one, over the
+    named rows or the source's own recorded window. Whether the archive
+    load_ref reads and the molden the print block writes order their
+    orbitals the same way is not something this app can read off either
+    file; the weights say it. A run that reproduces its source's space at
+    weight near 1 has shown they agree, and one that does not is reported
+    as a rotation, which is what it looks like from the outside either
+    way."""
+    from app.chemistry.jobs import active_space
+
+    n_closed = summary.get("n_closed_orbitals")
+    n_act = params.get("active_orbitals")
+    n_el = params.get("active_electrons")
+    if n_closed is None and n_act is not None and n_el is not None:
+        # The gradient, coupling and frequency summaries are built by the
+        # shared derivatives/vibrations helpers and carry no nclosed; the
+        # table's own occupations sum to the electron count, and the input
+        # was built with (n_electrons - active_electrons) // 2 closed.
+        total = sum(float(r.get("occupancy") or 0.0) for r in table if isinstance(r, dict))
+        n_closed = max(0, (int(round(total)) - int(n_el)) // 2)
+    if n_closed is None or n_act is None:
+        return
+    window = active_space.window(int(n_closed), int(n_act))
+    zero_rows = sorted(int(r["index"]) for r in table
+                       if isinstance(r, dict) and r.get("index") is not None
+                       and float(r.get("energy_eV") or 0.0) == 0.0 and r.get("occupancy") is not None)
+    if zero_rows and zero_rows != window:
+        summary["active_orbital_window_note"] = (
+            f"The input placed the active space at rows {window[0]} to {window[-1]}, but BAGEL's "
+            f"molden export marks rows {zero_rows} as active (it writes a zero energy for each); "
+            f"the export is taken as the record."
+        )
+        window = zero_rows
+    ncore, ncas = window[0] - 1, len(window)
+    requested = [int(i) for i in (params.get("active_space_orbital_indices") or [])] or None
+    reference = active_space.reference_job_id(params)
+    mapping = None
+    if reference:
+        try:
+            from app.chemistry.jobs.base import read_result
+            from app.config import JOBS_DIR
+            source_molden = os.path.join(str(JOBS_DIR), reference, "orbitals.molden")
+            source_summary = ((read_result(reference) or {}).get("summary") or {})
+            labels = requested or source_summary.get("active_orbital_window") or window
+            mapping = active_space.molden_mapping(
+                source_molden, os.path.join(job_dir, "orbitals.molden"), [int(i) for i in labels], window)
+        except Exception:
+            mapping = None
+    active_space.annotate(summary, table, ncore=ncore, ncas=ncas, requested=requested,
+                          reference_job_id=reference, mapping=mapping)
+    if summary.get("dominant_transitions"):
+        summary["dominant_transitions_note"] = (
+            "Orbital numbers in these transitions are n_closed plus the position in BAGEL's "
+            "printed CI vectors, which BAGEL writes in the order of its final (natural) active "
+            "orbitals, the same order its molden export and therefore this table use. They are "
+            "read as rows of this table on that basis."
+        )
 
 
-def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = True) -> str | None:
+def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = True,
+                       params: dict | None = None) -> str | None:
     """Reads the orbitals.molden the "print" block appended to every
     casscf/caspt2 input (see _build_input) writes, and adds the {index,
     spin, energy_eV, occupancy} table OrbitalTable.tsx renders to
@@ -1143,6 +1203,8 @@ def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = Tr
     except Exception:
         pass
     summary["orbital_table"] = table
+    if multireference and params is not None:
+        _record_active_space(summary, table, job_dir, params)
     if multireference:
         summary["orbital_table_note"] = (
             "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "
@@ -1246,8 +1308,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
                     "Oscillator strengths need more than one state; this job computed one, so there "
                     "is no transition to report an intensity for."
                 )
-        _record_named_active_space(summary, params)
-        return summary, _add_orbital_table(summary, job_dir)
+        return summary, _add_orbital_table(summary, job_dir, params=params)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "casscf")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
@@ -1299,8 +1360,7 @@ def run_caspt2(molecule: dict, params: dict) -> dict:
                     "want_oscillator_strengths was requested but the 'CASPT2 dipole moments' section "
                     "never appeared in BAGEL's output -- oscillator strengths are unavailable for this run."
                 )
-        _record_named_active_space(summary, params)
-        return summary, _add_orbital_table(summary, job_dir)
+        return summary, _add_orbital_table(summary, job_dir, params=params)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "caspt2")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
@@ -1355,7 +1415,8 @@ def run_gradient(molecule: dict, params: dict) -> dict:
             df_basis_used=meta["df_basis"] if meta else None,
             df_basis_exact_match=meta["df_basis_exact_match"] if meta else None,
         )
-        molden_path = _add_orbital_table(summary, job_dir) if params.get("method") != "hf" else None
+        molden_path = (_add_orbital_table(summary, job_dir, params=params)
+                       if params.get("method") != "hf" else None)
         return summary, molden_path
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "gradient")
@@ -1483,7 +1544,7 @@ def run_nac(molecule: dict, params: dict) -> dict:
             df_basis_used=meta["df_basis"] if meta else None,
             df_basis_exact_match=meta["df_basis_exact_match"] if meta else None,
         )
-        molden_path = _add_orbital_table(summary, job_dir)
+        molden_path = _add_orbital_table(summary, job_dir, params=params)
         return summary, molden_path
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "nac")
@@ -1569,8 +1630,7 @@ def run_geometry_optimization(molecule: dict, params: dict) -> dict:
 
     def build_summary():
         summary = _geometry_optimization_summary(output, job_dir, molecule, params, meta)
-        _record_named_active_space(summary, params)
-        return summary, _add_orbital_table(summary, job_dir)
+        return summary, _add_orbital_table(summary, job_dir, params=params)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "geometry_optimization")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
@@ -1704,10 +1764,8 @@ def run_frequency(molecule: dict, params: dict) -> dict:
         # the helper returned None and the mislabelling never surfaced; it
         # would have the moment BAGEL wrote one.
         multireference = params.get("method", "hf") in ("casscf", "caspt2")
-        if multireference:
-            _record_named_active_space(summary, params)
         return summary, _add_orbital_table(summary, job_dir,
-                                           multireference=multireference)
+                                           multireference=multireference, params=params)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "frequency")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}
@@ -1771,8 +1829,7 @@ def run_opt_freq(molecule: dict, params: dict) -> dict:
         summary["optimized_geometry"] = optimized_geometry
         summary["optimization_final_energy_hartree"] = opt_summary.get("final_energy_hartree")
         summary["dominant_transitions"] = opt_summary.get("dominant_transitions")
-        _record_named_active_space(summary, params)
-        return summary, _add_orbital_table(summary, job_dir)
+        return summary, _add_orbital_table(summary, job_dir, params=params)
 
     summary, molden_path = _safe_parse(build_summary, output, job_dir, "opt_freq")
     artifacts = {"raw_output": os.path.join(job_dir, "bagel.out")}

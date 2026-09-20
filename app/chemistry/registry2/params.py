@@ -452,13 +452,24 @@ PARAMS: tuple[ParamSpec, ...] = (
         # isosurfaces" -- both are 1-based orbital lists, both apply at
         # once on a CASSCF single point, and confusing them would render
         # cube files instead of changing the calculation.
+        # The second half of the help is the lesson of a real session: a
+        # user read numbers off a finished job's natural-orbital table, the
+        # rerun applied them to a fresh SCF's canonical orbitals, and the
+        # job came back with the wrong space and no sign of it. An index is
+        # a position in one particular table, and the parameter that names
+        # that table is initial_orbitals_job_id.
         help="Name exactly which orbitals form the CAS active space, as a list of "
              "1-based orbital indices (for example [21, 22, 24, 25, 27, 28, 29, 30, 37]), "
              "instead of letting the engine pick that many orbitals around the HOMO. "
              "The list must have as many entries as active_orbitals. ONLY set this when "
              "the user has named the orbitals themselves -- never infer a list from "
-             "orbital numbers mentioned elsewhere in the conversation. Available on "
-             "BAGEL and PySCF; ORCA has no equivalent.",
+             "orbital numbers mentioned elsewhere in the conversation. Each number is a "
+             "row of ONE job's orbital table: set initial_orbitals_job_id to the job whose "
+             "table (or orbital viewer) the numbers were read from, and the run starts from "
+             "that job's orbitals with those rows active. Without it the numbers index this "
+             "run's own fresh SCF orbitals, a different ordering from any earlier table, "
+             "which the user chooses by saying `fresh`. Available on BAGEL and PySCF; ORCA "
+             "has no equivalent.",
         applies_when={"all": [
             {"in": ["method", list(_MULTIREF)]},
             {"in": ["engine", ["bagel", "pyscf"]]},
@@ -1110,13 +1121,20 @@ PARAMS: tuple[ParamSpec, ...] = (
         # guess, this app's -- and BAGEL's/ORCA's/PySCF's own -- existing
         # default), so it carries no required_when at all. When present,
         # elicitation.py validates it against the job store (existence,
-        # completed, CASSCF/CASPT2, same engine as this job resolves to --
-        # orbital files are engine-specific formats, never converted
-        # between engines here) and drops it with a note rather than
-        # blocking the draft if it doesn't hold up.
-        help="Seed this CASSCF/CASPT2 calculation's initial orbital guess from a "
-             "completed CASSCF/CASPT2 job on the SAME engine, instead of starting "
-             "from a fresh HF guess. Tag a prior job to use this. On a nuclear-"
+        # completed, an orbital table and the engine's orbital file, same
+        # engine as this job resolves to -- orbital files are engine-
+        # specific formats, never converted between engines here) and
+        # drops it with a note rather than blocking the draft if it doesn't
+        # hold up. With a named active space it is not optional in that
+        # way: the numbers mean rows of this job's table, so a problem
+        # with it is a question (section 5ab there).
+        help="Start this multireference calculation from the orbitals of a completed "
+             "job on the SAME engine that has an orbital table (a CASSCF-family job, "
+             "an HF/DFT single point, an active-space recommendation), instead of a "
+             "fresh HF guess. When active_space_orbital_indices is also set, those "
+             "numbers are rows of THIS job's orbital table, so set it to the job the "
+             "user read them from (the job attached to their message, or the one they "
+             "named); `fresh` means this run's own new SCF orbitals. On a nuclear-"
              "ensemble spectrum it is filled in automatically from the frequency "
              "job being sampled, so every sample starts from the same orbitals.",
         applies_when={"in": ["method", list(_MULTIREF)]},

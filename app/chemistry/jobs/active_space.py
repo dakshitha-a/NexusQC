@@ -123,6 +123,42 @@ def overlap_mapping(
     return Mapping(per_final=per_final, per_initial=per_initial)
 
 
+FRESH = "fresh"
+"""The draft's explicit "no source": the numbers index this job's own SCF
+orbitals. Written by registry2/elicitation.py so the approval card shows
+the choice; to every runner it means the parameter is absent."""
+
+
+def reference_job_id(params: dict) -> Optional[str]:
+    """The job whose orbital table a named active space indexes, or None
+    for this job's own fresh SCF. Read the same way by every engine."""
+    source = params.get("initial_orbitals_job_id")
+    if not source or str(source).strip().lower() == FRESH:
+        return None
+    return str(source)
+
+
+def molden_mapping(source_molden: str, final_molden: str, init_labels: list[int],
+                   final_window: list[int]) -> Mapping:
+    """The mapping for an engine that only leaves orbitals as molden files
+    (BAGEL): the source's named columns against this job's active window,
+    with the cross overlap taken between the two files' own AO bases, so a
+    source in another basis or at another geometry still scores. Each set
+    is normalised in its own metric. BAGEL's export round-trips through
+    pyscf's AO convention (the same fact the cube renderer relies on), so
+    `molden.load` reads both."""
+    from pyscf import gto
+    from pyscf.tools import molden
+
+    mol_s, _e, mo_s, _o, _i, _sp = molden.load(source_molden)
+    mol_f, _e2, mo_f, _o2, _i2, _sp2 = molden.load(final_molden)
+    c_init = np.asarray(mo_s)[:, [i - 1 for i in init_labels]]
+    c_final = np.asarray(mo_f)[:, [i - 1 for i in final_window]]
+    s_cross = gto.intor_cross("int1e_ovlp", mol_s, mol_f)
+    return overlap_mapping(c_init, c_final, init_labels, s_cross=s_cross,
+                           s_init=mol_s.intor("int1e_ovlp"), s_final=mol_f.intor("int1e_ovlp"))
+
+
 def reference_name(reference_job_id: Optional[str]) -> str:
     """How the warning names the table the starting labels index."""
     if reference_job_id:

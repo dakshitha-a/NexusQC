@@ -1183,6 +1183,7 @@ def _geometry_optimization_summary(output: str, molecule: dict, params: dict) ->
             "Natural orbitals of the OPTIMIZED geometry's CASSCF wavefunction, with active-space "
             "occupation numbers (not integer HF-style occupancies)."
         )
+        _record_active_space(summary, molecule, params)
     if is_ci_opt:
         summary["optimization_type"] = "conical_intersection"
         summary["target_state"] = params.get("target_state") or 0
@@ -1356,6 +1357,7 @@ def _frequency_summary(output: str, molecule: dict, params: dict) -> dict:
             summary["orbital_table_note"] = (
                 "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies)."
             )
+            _record_active_space(summary, molecule, params)
         summary["hessian_method_note"] = (
             "Numerical Hessian (ORCA's NumFreq) -- ORCA has no analytic CASSCF Hessian either."
         )
@@ -1673,7 +1675,7 @@ def run_casscf(molecule: dict, params: dict) -> dict:
         n_closed = (_n_electrons(molecule) - params["active_electrons"]) // 2
         dominant = _dominant_transitions_casscf_orca(block.group(1), n_states, n_closed)
 
-        return {
+        summary = {
             "casscf_energy_hartree": energies_hartree[0] if n_states == 1 else None,
             "state_energies_hartree": energies_hartree,
             "excitation_energies_eV": excitation_ev,
@@ -1689,6 +1691,8 @@ def run_casscf(molecule: dict, params: dict) -> dict:
                 "core orbitals show occ=2, active orbitals show their natural-orbital occupation, virtuals show occ=0."
             ),
         }
+        _record_active_space(summary, molecule, params)
+        return summary
 
     summary = _safe_parse(build_summary, output, job_dir, "casscf")
     return {"summary": summary, "artifacts": {"raw_output": os.path.join(job_dir, "output.out")}}
@@ -1721,6 +1725,43 @@ def _resolve_orbital_indices(spec, homo_idx: int, n_mo: int) -> dict[str, int]:
         if idx < 0 or idx >= n_mo:
             raise ValueError(f"orbital '{label}' (index {idx + 1}) is out of range for {n_mo} molecular orbitals")
     return out
+
+
+def _record_active_space(summary: dict, molecule: dict, params: dict) -> None:
+    """The active-space record every CASSCF-family result carries (see
+    app/chemistry/jobs/active_space.py), for ORCA: the window
+    `n_closed+1 .. n_closed+nact` from the electron count the input was
+    built with, and an `active` flag on those rows. No mapping: ORCA has
+    no way to name which orbitals are active (registry2/params.py), so
+    there is never a requested set to compare against, and its molden does
+    not round-trip through pyscf (see render_orbital_cube), so an overlap
+    against a source .gbw is not something this app can compute. What ORCA
+    does with a reused .gbw is take its own window of it.
+
+    Cross-checked against the table: ORCA's natural-orbital block gives
+    the active rows fractional occupations, so when the rows with a
+    non-integer occupation exist and are not the arithmetic window, the
+    table wins and the disagreement is recorded."""
+    from app.chemistry.jobs import active_space
+
+    table = summary.get("orbital_table") or []
+    n_act = params.get("active_orbitals")
+    if not table or n_act is None or params.get("active_electrons") is None:
+        return
+    n_closed = (_n_electrons(molecule) - int(params["active_electrons"])) // 2
+    window = active_space.window(n_closed, int(n_act))
+    fractional = sorted(int(r["index"]) for r in table
+                        if isinstance(r, dict) and r.get("occupancy") is not None
+                        and min(abs(float(r["occupancy"]) - n) for n in (0.0, 1.0, 2.0)) > 1e-3)
+    if fractional and not set(fractional) <= set(window):
+        summary["active_orbital_window_note"] = (
+            f"The input placed the active space at rows {window[0]} to {window[-1]}, but the "
+            f"rows with fractional natural occupation in ORCA's output are {fractional}; the "
+            f"output is taken as the record."
+        )
+        window = list(range(min(fractional), max(fractional) + 1))
+    active_space.annotate(summary, table, ncore=window[0] - 1, ncas=len(window),
+                          reference_job_id=active_space.reference_job_id(params))
 
 
 def _orbital_table(output: str, last: bool = False) -> list[dict]:

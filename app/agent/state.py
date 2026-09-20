@@ -25,6 +25,44 @@ JOB_ATTACH_PREFIX = JOB_ATTACH_MARKER + "{jid}, not typed by the user)"
 """The full prefix, formatted with the job id."""
 
 
+def attached_job_id(message) -> Optional[str]:
+    """The job id inside a synthetic attached-job message, or None.
+
+    Matches how the message is built in server/routes/chat.py, through the
+    marker above. Lives here because the graph's context trim and the draft
+    tool both need it, and the tools must not import the graph."""
+    content = str(getattr(message, "content", "") or "")
+    if getattr(message, "type", None) != "human" or not content.startswith(JOB_ATTACH_MARKER):
+        return None
+    return content.split("for job ", 1)[1].split(",", 1)[0].strip() or None
+
+
+def attached_jobs_this_turn(messages) -> list[str]:
+    """The jobs the user attached to the message the agent is answering.
+
+    The route appends one synthetic human message per attached job directly
+    before the user's own text, so the current turn's attachments are the
+    run of attachment messages ending at the last human message that is
+    not one (walking back over the assistant and tool messages since).
+    Oldest first, so the last entry is the one attached most recently."""
+    ids: list[str] = []
+    seen_user_text = False
+    for m in reversed(list(messages or [])):
+        if getattr(m, "type", None) != "human":
+            if seen_user_text:
+                break
+            continue
+        jid = attached_job_id(m)
+        if jid is None:
+            if seen_user_text:
+                break
+            seen_user_text = True
+            continue
+        ids.append(jid)
+        seen_user_text = True
+    return list(reversed(ids))
+
+
 CLEAR_MOLECULE = {"__cleared__": True}
 """Sentinel passed as the `molecule` update to explicitly clear the active
 molecule (see clear_molecule() in graph.py, used by the UI's reset

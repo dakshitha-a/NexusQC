@@ -37,7 +37,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
 from app.agent.scholar_search import search_academic_literature
-from app.agent.state import AgentState, CLEAR_DRAFT_STATUS
+from app.agent.state import AgentState, CLEAR_DRAFT_STATUS, attached_job_id, attached_jobs_this_turn
 from app.agent.web_search import web_search
 from app.chemistry.registry2.capabilities import get_caps
 from app.chemistry.registry2.elicitation import (
@@ -1178,6 +1178,13 @@ def _build_spec_or_error(
     # left to show up as a stray key in spec.params/the approval card's
     # flat params line for every other task.
     calculation_description = params.pop("calculation_description", None)
+    # `fresh` is the draft's explicit "no source, this run's own SCF" for a
+    # named active space (registry2/elicitation.py section 5ab). It exists
+    # so the choice shows on the card and survives re-validation; to every
+    # runner it means the parameter is absent, so it is dropped here rather
+    # than taught to three engines and two orchestrators.
+    if str(params.get("initial_orbitals_job_id") or "").strip().lower() == "fresh":
+        params.pop("initial_orbitals_job_id")
 
     # Mechanical typo/formatting correction -- see param_normalize.py's
     # module docstring. Runs before the spec/preview are built so a
@@ -3413,6 +3420,27 @@ def _draft_input_preview(verdict, state: Optional[dict]) -> str:
         return ""
 
 
+def _state_for_validation(state: Optional[dict]) -> dict:
+    """The agent state plus the two things elicitation needs to know about
+    the conversation that the state does not carry as fields: every job
+    this conversation has seen (its own submissions and every job that was
+    ever attached to a message) and the jobs attached to the message being
+    answered now. A named active space is read against one job's orbital
+    table, and these are the jobs that table can belong to; see
+    registry2/elicitation.py section 5ab. Computed here rather than there
+    so registry2 keeps reading plain dicts and never the message list."""
+    state = dict(state or {})
+    messages = list(state.get("messages") or [])
+    seen: list[str] = []
+    for jid in list(state.get("active_job_ids") or []) + [
+            j for j in (attached_job_id(m) for m in messages) if j]:
+        if jid not in seen:
+            seen.append(str(jid))
+    state["conversation_job_ids"] = seen
+    state["attached_job_ids"] = attached_jobs_this_turn(messages)
+    return state
+
+
 def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
                    run_when_ready: bool = False, follow_up_work: bool = False,
                    preview_only: bool = False) -> Command:
@@ -3428,7 +3456,7 @@ def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
     draft_hold_reason in app/agent/graph.py). `_finish_submission` clears
     it, on both the approval and the rejection branch.
     """
-    verdict = validate_draft(draft, state or {})
+    verdict = validate_draft(draft, _state_for_validation(state))
     # Sticky, because a draft usually becomes ready several updates after
     # the request that implied running it. The model states the intent once,
     # on whichever call it learned it, and it survives the elicitation back
@@ -3963,6 +3991,16 @@ def update_job_draft(
     conversation. A job that cannot supply its geometry (still running, or a
     scan/batch with more than one) is refused with the reason rather than
     silently substituted.
+
+    If the user wants an earlier CASSCF-family job's active space with an
+    orbital swapped -- "swap orbital 26 for 21", "replace 32 with 37", "rotate
+    21 in" -- read that job's `active_orbital_window` with check_job_status
+    (every such result records it), apply their replacement keeping the
+    length, write the full list into active_space_orbital_indices, and set
+    initial_orbitals_job_id to that job: the numbers are rows of ITS table.
+    Applying the user's own replacement to a recorded list is writing what
+    they said; composing a list from orbital numbers nobody asked to use is
+    not, and is still forbidden.
     """
     draft = dict((state or {}).get("job_draft") or {})
     if not draft:

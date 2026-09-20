@@ -244,6 +244,25 @@ def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_i
             f"Job(s) {', '.join(completed_ids)} finished. Check their status and give the "
             f"user a concise summary of the results."
         )
+        # A CASSCF-family job whose optimiser rotated a requested orbital
+        # out of the active space has a result that is not the calculation
+        # the user asked for, whatever the energies look like. That goes
+        # before the summary, not after it: a user who read the numbers
+        # first once took a wrong space's energies for the answer.
+        for jid in completed_ids:
+            try:
+                from app.chemistry.jobs.base import read_result
+                summary = ((read_result(jid) or {}).get("summary") or {})
+            except Exception:
+                summary = {}
+            if summary.get("active_space_warning"):
+                notice_parts.append(
+                    f"Job {jid} did not keep the active space it started from (its result's "
+                    f"active_space_warning says which orbital was rotated out and what replaced "
+                    f"it). Tell the user that FIRST, before any energy, and that the energies "
+                    f"belong to the converged space rather than the requested one. Its "
+                    f"active_orbital_window is the list any later swap is made against."
+                )
     if ensemble_completed_ids:
         notice_parts.append(
             f"Wigner-ensemble job(s) {', '.join(ensemble_completed_ids)} finished. Call "

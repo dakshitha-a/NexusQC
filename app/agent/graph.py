@@ -32,7 +32,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from app.agent.prompts import SYSTEM_PROMPT
-from app.agent.state import CLEAR_MOLECULE, JOB_ATTACH_MARKER, AgentState
+from app.agent.state import CLEAR_MOLECULE, AgentState, attached_job_id as _attached_job_id
 from app.agent.tools import get_all_tools, get_executable_tools
 from app.config import (
     DATA_DIR,
@@ -314,20 +314,6 @@ def _omitted_attachment_notice(job_id: str) -> str:
         f"plausible value -- call check_job_status(job_id='{job_id}', fields=[...]) for "
         f"exactly the values you need, which returns a fraction of the size.]"
     )
-
-
-def _attached_job_id(message) -> Optional[str]:
-    """The job id inside a synthetic attached-job message, or None.
-
-    Matches how the message is built in server/routes/chat.py, through the
-    marker both sides import from app/agent/state.py.
-    """
-    if not isinstance(message, HumanMessage):
-        return None
-    content = str(getattr(message, "content", "") or "")
-    if not content.startswith(JOB_ATTACH_MARKER):
-        return None
-    return content.split("for job ", 1)[1].split(",", 1)[0].strip() or None
 
 
 def _shed_pinned_results(window: list, used: int, budget: int) -> tuple[list, int]:

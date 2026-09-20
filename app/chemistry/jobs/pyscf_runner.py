@@ -1862,10 +1862,7 @@ def _reference_job_id(params: dict) -> str | None:
     records the user's explicit choice of the latter; it travels in
     `initial_orbitals_job_id` so the approval card shows it, and it means
     exactly the same here as the parameter being absent."""
-    source = params.get("initial_orbitals_job_id")
-    if not source or str(source).strip().lower() == "fresh":
-        return None
-    return str(source)
+    return active_space.reference_job_id(params)
 
 
 def _apply_orbital_choices(mc, params: dict) -> InitialActiveSpace:
