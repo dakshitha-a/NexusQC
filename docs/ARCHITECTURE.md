@@ -1356,6 +1356,67 @@ has run. Moving the `print` block to immediately after `casscf` fixed it, with
 the CASPT2 energy bit-for-bit identical (a print block is pure I/O, so its
 position changes only what it captures).
 
+### An orbital index is a position in one job's table
+
+A user read orbital numbers off a finished L-PDFT job's natural-orbital table,
+asked for a rerun with two of them swapped, and got a job whose active space
+was not the one they named, with nothing in the result to say so. Three things
+were wrong underneath, and the design that replaced them is in
+`app/chemistry/jobs/active_space.py` and `pyscf_runner._apply_orbital_choices`.
+
+*The numbers were applied to the wrong orbitals.* `active_space_orbital_indices`
+was handed to `mc.sort_mo` on whatever `mc.mo_coeff` held, which is a fresh
+SCF's canonical orbitals unless `initial_orbitals_job_id` was set. A
+natural-orbital table is a different ordering, so row 21 of the source meant
+some other orbital in the new run. The contract now is the section title: an
+index is a row of the table of the job named by `initial_orbitals_job_id`, and
+the draft fills that in (an attached or named job wins; otherwise it asks which
+of the conversation's jobs the numbers came from; only with nothing to read
+from does the run go against its own SCF, recorded as `fresh` so the choice is
+on the card and stable under re-validation). Any completed same-engine job with
+a table and its orbital file is a valid source, HF and recommendation jobs
+included, because those are the tables people read.
+
+*Even with a source, a virtual index could not survive.* PySCF's
+`project_init_guess` keeps only the first `ncore+ncas` columns of what it is
+given and rebuilds the rest from the fresh SCF, so under the original
+load-then-sort order a source row above the source's own active block was
+discarded before `sort_mo` ever saw it. The source's columns are now permuted
+with `mcscf.addons.sort_mo` *before* projection, so every named row is inside
+the block that survives. `use_hf_core=False` keeps the source's own core; the
+named orbitals sit in the active block, which that switch never touches.
+
+*Nothing said what actually happened.* CASSCF active/inactive rotations are
+non-redundant, so the optimizer may replace a requested orbital with a lower-
+energy one. Every CASSCF-family result on every engine now records
+`active_orbital_window`, the rows of its own table that are active (always the
+contiguous block after the core, since canonicalization keeps the blocks in
+place), and flags those rows. Where the starting block is in hand (PySCF
+always; BAGEL through its two moldens), each starting orbital's summed squared
+overlap with the converged active block is recorded as
+`reference_orbital_weights`, each active row carries the starting orbital it
+most resembles, and `active_space_warning` appears when a weight falls below
+0.5. The threshold sits between the two regimes seen in practice, near 1 and
+near 0, and row sums are rotation-invariant so a degenerate pair still scores
+1 each. The completion notice tells the model to lead with the warning. ORCA
+records the window only; it cannot name orbitals, and its molden does not
+round-trip through pyscf, so there is nothing to map.
+
+Two figures went with it. `facts.py` used to threshold natural occupations into
+a HOMO/LUMO and hand the model a "gap" between two natural-orbital eigenvalues
+(17.25 eV on uracil, taken for a result); a natural table now carries
+`frontier_orbitals_unavailable` instead. And `dominant_transitions` was read
+from `mc.ci` in the pseudo-canonical ordering the optimization ran in; the
+table writer now computes the natural orbitals itself from one `canonicalize`
+call and keeps the CI it returns in that basis, so "27->30" names table rows.
+The recommendation job had the same disease from the other side, writing its
+molden from the SCF while its indices pointed into the projector's set; it
+writes the projected set now.
+
+Jobs completed before this carry no window and no weights, and there is no
+adapter that pretends otherwise: a swap against such a job means running it
+once more under the new code.
+
 ---
 
 ## Vibrations and spectra

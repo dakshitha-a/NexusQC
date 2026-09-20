@@ -468,6 +468,22 @@ orbital numbers as the space is wide and they go in as they are. BAGEL and
 PySCF can both do this; ORCA has no way to express it, so asking for it on an
 ORCA job offers you the two engines that can instead of quietly ignoring you.
 
+An orbital number is a row of one particular job's orbital table, so the new
+job starts from that job's orbitals with exactly those rows active. Attach the
+job whose table you read the numbers from, or name it; if you do neither and
+the conversation holds more than one job with a table, you are asked which.
+Saying "fresh" means the numbers refer to the new run's own SCF orbitals, whose
+numbering is not any earlier table's. You can also edit a space rather than
+retype it: "repeat that with orbital 26 swapped for 21" is applied to the
+previous job's recorded active window and the full list goes on the card.
+
+Every multireference result records which rows of its own table were active,
+and, against the orbitals it started from, how much of each survives in the
+converged space. CASSCF is free to rotate an orbital out of the active space
+if a lower energy lies that way, and when it does the result says so, names
+the orbital, and the job's summary leads with it. The energies are then those
+of the space it found, not the one you asked for.
+
 This is only ever used when you name the orbitals. NexusQC will not put a list
 together out of orbital numbers that happen to be in the conversation already,
 because a guessed active space arrives on the approval card looking exactly like

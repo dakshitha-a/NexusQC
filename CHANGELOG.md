@@ -10,7 +10,59 @@ note saying what changed.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Every multireference result records its active space.** A CASSCF,
+  CASPT2, NEVPT2, MC-PDFT, L-PDFT or CMS-PDFT job on any engine now carries
+  `active_orbital_window`, the rows of its own orbital table that were active,
+  and flags those rows; the orbital table in the drawer marks them. Where the
+  run can be compared with the orbitals it started from (PySCF always, BAGEL
+  when it reuses a job's orbitals), each starting orbital's weight in the
+  converged active space is recorded, each active row says which orbital it
+  started as, and a warning names any orbital the optimizer rotated out, which
+  the assistant reports before any energy. `check_job_status` gains an
+  `active` field shortcut for those rows.
+- **A swap is a thing you can ask for.** "Repeat that with orbital 26 swapped
+  for 21" is applied to the earlier job's recorded window and the full list
+  goes on the card, with that job named as the source of the numbers.
+
+### Fixed
+
+- **Named active-space orbitals now mean the table they were read from.**
+  The orbital numbers a user gave were applied to a fresh SCF's canonical
+  orbitals, a different ordering from the natural-orbital table they had
+  read them off, so the job that came back had a different active space and
+  nothing in its result said so; on uracil the user's requested lone pair and
+  pi* never entered the space. The numbers are now rows of the table of the
+  job named in `initial_orbitals_job_id`, the draft fills that job in (the
+  one attached to the message or named, otherwise it asks which of the
+  conversation's jobs the numbers came from), and the run starts from that
+  job's orbitals with exactly those rows active. Any completed job on the same
+  engine with an orbital table can be the source now, HF and recommendation
+  jobs included. An index beyond the source table is refused, the source
+  table's occupations are checked against the claimed electron count, and an
+  unusable source is a question rather than a silent drop when orbitals are
+  named.
+- **A source's virtual orbital could not be named.** PySCF's projection of
+  reused orbitals keeps only the source's core and active columns, so a row
+  above them was replaced by the fresh SCF's before the named list was
+  applied. The source's columns are now reordered before projection.
+- **No more HOMO/LUMO gap on a natural-orbital table.** Thresholding natural
+  occupations labelled a fractionally occupied active orbital as the frontier
+  and reported a gap between two natural-orbital eigenvalues (17.25 eV on
+  uracil). A multireference result now says why the frontier is not defined
+  instead.
+- **Dominant transitions name table rows.** They were read from the CI vector
+  in the pseudo-canonical ordering the optimization ran in, so "27->30" did not
+  name the rows of the natural-orbital table shown beside it.
+- **The active-space recommendation's listed orbitals index its own table.**
+  Its molden and table were written from the SCF while the indices pointed
+  into the projected set, so a follow-up seeded from it took the HOMO window
+  rather than the recommended block.
+- **A CASSCF geometry optimization seeded from another job's orbitals** no
+  longer projects onto an SCF that has not run.
+- `tests/backend/p8_01_orbital_reuse.py` now removes the fixture jobs it
+  creates.
 
 ## [1.1.1] - 2026-09-20
 

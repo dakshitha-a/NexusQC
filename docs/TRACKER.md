@@ -112,7 +112,8 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 ## Phase 6: Docs and changelog
 
-- [todo] P6.1: ARCHITECTURE.md, README.md, QM_CAPABILITIES.md, CHANGELOG.md
+- [done] P6.1: ARCHITECTURE.md, README.md, QM_CAPABILITIES.md, CHANGELOG.md
+  evidence: docs/ARCHITECTURE.md → "new section 'An orbital index is a position in one job's table' under the orbital-availability section: the three mechanisms, sort-then-project, the record and its threshold, the two figures, the recommendation table, no adapter for old jobs; README.md's 'Or name the orbitals outright' says which job's table the numbers are rows of, the swap phrasing and the rotation warning; QM_CAPABILITIES.md does not list the parameter and needed nothing; CHANGELOG.md Unreleased carries Added and Fixed entries; scripts/check_public_safe.sh PASS"
 
 ## Phase 7: Acceptance on the dev stack
 
