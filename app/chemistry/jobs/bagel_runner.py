@@ -1177,6 +1177,15 @@ def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = Tr
     orbitals with integer ones."""
     molden_path = os.path.join(job_dir, "orbitals.molden")
     if not os.path.exists(molden_path):
+        # No export (on one host BAGEL's molden block dies in MKL's dsyev
+        # after the CASSCF has converged; CLAUDE.local.md records it), so
+        # no table and no mapping. The window is arithmetic on the input,
+        # so it is still recorded: a later swap is made against it.
+        if multireference and params is not None:
+            try:
+                _record_active_space(summary, [], job_dir, params)
+            except Exception:
+                pass
         return None
     from app.chemistry.jobs import molden as molden_tools
 
@@ -1204,7 +1213,13 @@ def _add_orbital_table(summary: dict, job_dir: str, *, multireference: bool = Tr
         pass
     summary["orbital_table"] = table
     if multireference and params is not None:
-        _record_active_space(summary, table, job_dir, params)
+        # Guarded for the same reason the table itself is: a failure in the
+        # record must not cost the table, which is worth more without the
+        # record than the record is without the table.
+        try:
+            _record_active_space(summary, table, job_dir, params)
+        except Exception:
+            pass
     if multireference:
         summary["orbital_table_note"] = (
             "Natural orbitals with active-space occupation numbers (not integer HF-style occupancies) -- "

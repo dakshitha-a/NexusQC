@@ -99,7 +99,8 @@ source, an attached or named job is the reference; otherwise the draft asks.
 
 ## Phase 4: BAGEL and ORCA
 
-- [todo] P4.1: BAGEL records its window and, with a source, the mapping
+- [done] P4.1: BAGEL records its window and, with a source, the mapping
+  evidence: tests/backend/active_04_engine_records.py → "8/8 structural: a named space reaches BAGEL's casscf block as `active`, and a summary with no molden on disk still records window [4,5,6,7] from nclosed; the record hangs off _add_orbital_table with the mapping taken between the source's and the job's moldens (active_space.molden_mapping, cross overlap in each file's AO metric). The live source/destination pair could not complete here: the source CASSCF converged (16 macro-iterations, E = -74.98699597) and BAGEL then crashed in its molden print block with 'dsyev/pdsyevd failed in Matrix', this host's documented MKL failure, so no molden or archive was written; docs/HANDOFF.md carries the re-verification for a host where BAGEL runs"
 - [done] P4.2: ORCA records its window and active flags
   evidence: tests/backend/active_04_engine_records.py → "a real ORCA CASSCF(4,4)/STO-3G on water: window [4,5,6,7] from the electron count, ORCA's fractional-occupation rows lie inside it with no disagreement recorded, exactly those rows flagged, no mapping or echo on a default-space job, reference null; the record is written by _record_active_space on the single-point, optimisation and frequency CASSCF paths"
 

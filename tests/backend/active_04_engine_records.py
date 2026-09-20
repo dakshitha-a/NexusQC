@@ -102,6 +102,22 @@ def main() -> int:
         text = bagel_runner.build_input_preview("casscf", WATER, {**src_params, "active_space_orbital_indices": [4, 5, 6, 7]})
         check("a named space reaches BAGEL's casscf block as `active`", '"active"' in text and "4," in text)
 
+        # A summary without an export still carries its window. On this
+        # host BAGEL's molden block dies in MKL's dsyev after the CASSCF
+        # has converged (CLAUDE.local.md; reproduced 2026-09-20: 16
+        # macro-iterations to E = -74.98699597, then 'dsyev/pdsyevd failed
+        # in Matrix' in the print block), which is how that case was found.
+        import tempfile
+        empty = tempfile.mkdtemp()
+        try:
+            summary = {"n_closed_orbitals": 3, "casscf_energy_hartree": -74.987}
+            path = bagel_runner._add_orbital_table(summary, empty, params={**src_params, "_job_dir": empty})
+            check("with no molden on disk the table is absent but the window is recorded",
+                  path is None and "orbital_table" not in summary and summary.get("active_orbital_window") == [4, 5, 6, 7],
+                  str(summary))
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+
         if not os.environ.get("ACTIVE_04_LIVE_BAGEL"):
             print("  [GAP] live BAGEL source/destination run not attempted (set ACTIVE_04_LIVE_BAGEL=1); "
                   "this host's BAGEL/MKL install is slow and has crashed mid-run (CLAUDE.local.md). "
