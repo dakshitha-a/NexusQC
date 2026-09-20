@@ -33,5 +33,5 @@ message: >-
   Affiliation at the time of project creation: Matsika Group, Temple
   University. Principal investigator: Spiridoula Matsika
   (smatsika@temple.edu). Coded with Claude Code (Model: Opus).
-version: "1.1.0"
-date-released: "2026-09-14"
+version: "1.1.1"
+date-released: "2026-09-20"
