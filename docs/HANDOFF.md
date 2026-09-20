@@ -10,4 +10,12 @@ state of this file.
 
 ## Open
 
-Nothing.
+- **Rebuild the dev stack onto `d7accf8`** (the quieter chat-box focus and
+  hairline in-progress cue). The checkout is at that commit and pushed, but
+  the api image and `frontend/dist` are still built from `02e5424`. A dry
+  run of `scripts/update.sh` on 2026-09-20 passed every gate with no
+  destructive changes and no jobs running; the session could not run the
+  real update because its permission mode refused to restart the shared
+  stack. Run `scripts/update.sh --yes` from the checkout, then confirm with
+  `grep -c hairline-clip frontend/dist/assets/*.css` (expect 1 for the main
+  bundle).
