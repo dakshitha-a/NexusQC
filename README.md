@@ -294,6 +294,15 @@ together, so one request does what you meant. A chart can be downloaded as SVG
 or PDF as well as PNG, at whatever size and font you set, which is what a
 figure headed for a paper needs.
 
+Any chart can carry text. Ask for the values on a method comparison and each
+number is written beside its own bar or energy level. The numbers are the
+ones the plot drew, so a label cannot disagree with the mark it sits next to.
+On an energy-level diagram they sit at the right end of each level, so two
+states a fraction of an eV apart stay readable. You can also put a note at
+one point on any chart, a spectrum included, with or without an arrow
+pointing at it: "mark the S1/S2 near-degeneracy for CASPT2", say. A note can
+be moved, reworded or removed later like any other change to the plot.
+
 A plot is kept for as long as any of the calculations behind it is still
 around. Delete one of the seven jobs behind a seven-method comparison and the
 chart stays; delete all seven and it goes with them, since by then there is
@@ -625,6 +634,13 @@ cooperation. Jobs are fully detached subprocesses, so a calculation outlives the
 request, the session, and a backend restart. Orphans get reconciled at startup.
 And engine output is parsed, never generated: every regex was written against
 real runs, because exact formatting isn't guaranteed across versions.
+
+A reply from a local model can take a while to start, especially late in a
+long conversation. While it works, the chat shows how many seconds it has been
+thinking, so a slow reply looks like a slow reply and not a dead one. If the
+model comes back with nothing at all, the app asks it once more. If the second
+try is also empty, the chat says so and asks you to send the message again,
+instead of leaving you looking at silence.
 
 A CASSCF job can run for hours. Close the tab and come back; it'll still be
 there, and nothing about the UI blocks while it runs, and nothing stops it: no
