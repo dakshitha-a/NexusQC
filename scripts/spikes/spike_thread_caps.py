@@ -33,6 +33,19 @@ so a run leaves the job list exactly as it found it.
 """
 from __future__ import annotations
 
+# Runs against a scratch data directory unless --live-data is given. This
+# host's data/ is the live deployment's, which a research group uses, and a
+# job created here would appear in their job list (unowned jobs are visible
+# to everyone). Set before anything imports app.config.
+import os as _os
+import sys as _sys
+import tempfile as _tempfile
+if "--live-data" in _sys.argv:
+    _sys.argv.remove("--live-data")
+else:
+    _os.environ.setdefault("QC_AGENT_DATA_DIR", _tempfile.mkdtemp(prefix="nexusqc-scratch-"))
+    print(f"(scratch data directory: {_os.environ['QC_AGENT_DATA_DIR']})")
+
 import json
 import os
 import shutil

@@ -15,6 +15,19 @@ sub-jobs through the params template the orchestrator already builds, so
 the checks below cover the derivation, the propagation, and the two gates
 (method, and a source that cannot actually supply orbitals).
 """
+# Runs against a scratch data directory unless --live-data is given. This
+# host's data/ is the live deployment's, which a research group uses, and a
+# job created here would appear in their job list (unowned jobs are visible
+# to everyone). Set before anything imports app.config.
+import os as _os
+import sys as _sys
+import tempfile as _tempfile
+if "--live-data" in _sys.argv:
+    _sys.argv.remove("--live-data")
+else:
+    _os.environ.setdefault("QC_AGENT_DATA_DIR", _tempfile.mkdtemp(prefix="nexusqc-scratch-"))
+    print(f"(scratch data directory: {_os.environ['QC_AGENT_DATA_DIR']})")
+
 import sys
 
 from app.chemistry.jobs.base import ENSEMBLE_ONLY_PARAM_KEYS

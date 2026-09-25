@@ -81,7 +81,8 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
 - [in-progress] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
 - [done] P1.5: every test run checks real users' data is intact before and after
   evidence: tests/backend/integ_01_integrity_check.py → "5/5: a live snapshot (3 real accounts, 29 owned items) compared with itself passes; a removed job, a file removed from a finished job, and a removed account are each reported by name; a changed setting is a note, not a loss. run_e2e.sh e2e_03 ran wrapped: snapshot, 9/9, integrity PASS"
-- [todo] P1.6: host scripts stay out of the live job folder
+- [done] P1.6: host scripts stay out of the live job folder
+  evidence: scripts/validate_ensemble_orbital_reuse.py → "all checks passed against a scratch QC_AGENT_DATA_DIR; data/jobs listing identical before and after. spike_thread_caps.py carries the same header (compile-checked; it needs engines). verify_orca_functionals writes data/verified, a reference list, not user data, so it is unchanged"
 - [todo] P1.7: guidance says the stack holds real data
 - merged:
 

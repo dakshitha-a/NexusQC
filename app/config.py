@@ -42,7 +42,11 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(PROJECT_ROOT / ".env")
 
-DATA_DIR = PROJECT_ROOT / "data"
+# Overridable so a host-side script (a spike, a validator) can run the job
+# machinery against a scratch directory instead of the deployment's own
+# data/, which on a shared stack is other people's work. Unset, it is
+# data/ as it always was; the container never sets it.
+DATA_DIR = Path(os.environ["QC_AGENT_DATA_DIR"]) if os.environ.get("QC_AGENT_DATA_DIR") else PROJECT_ROOT / "data"
 JOBS_DIR = DATA_DIR / "jobs"
 KB_DIR = DATA_DIR / "kb"
 UPLOADS_DIR = DATA_DIR / "uploads"
@@ -742,6 +746,12 @@ REDIS_URL = os.environ.get("QC_AGENT_REDIS_URL", "")
 # so a lockout would have no recovery path short of an admin CLI/DB fix.
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS", "10"))
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("QC_AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS", "60"))
+# The per-address ceiling across every account, on top of the per-account
+# budget above. Behind a proxy that hides client addresses (Docker's
+# userland port proxy does, and did on the deployment that motivated this),
+# every user arrives from one address, so this is the whole group's shared
+# budget and has to be generous; see app/auth/rate_limit.enforce_login.
+LOGIN_RATE_LIMIT_IP_MAX_ATTEMPTS = int(os.environ.get("QC_AGENT_LOGIN_RATE_LIMIT_IP_MAX_ATTEMPTS", "60"))
 REGISTER_RATE_LIMIT_MAX_ATTEMPTS = int(os.environ.get("QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS", "10"))
 REGISTER_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("QC_AGENT_REGISTER_RATE_LIMIT_WINDOW_SECONDS", "60"))
 
