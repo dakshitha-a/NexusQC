@@ -25,7 +25,7 @@ import * as api from "../lib/api";
  * everyone's.
  */
 export function PurgeAction({
-  label, description, phrase, onConfirm, pending, testId,
+  label, description, phrase, onConfirm, pending, testId, actionLabel = "Purge", pendingLabel = "Purging...",
 }: {
   label: string;
   description: string;
@@ -33,6 +33,11 @@ export function PurgeAction({
   onConfirm: () => void;
   pending: boolean;
   testId: string;
+  // The button's own word. The deployment controls reuse this component, and
+  // an "Update this deployment" card whose button said "Purge" was asking the
+  // admin to confirm something it was not going to do.
+  actionLabel?: string;
+  pendingLabel?: string;
 }) {
   const [typed, setTyped] = useState("");
   const armed = typed.trim().toUpperCase() === phrase;
@@ -65,7 +70,7 @@ export function PurgeAction({
               data-testid={testId}
               className="shrink-0 rounded bg-status-failed px-3 py-1 text-2xs font-medium text-on-status-failed disabled:cursor-not-allowed disabled:opacity-25"
             >
-              {pending ? "Purging..." : "Purge"}
+              {pending ? pendingLabel : actionLabel}
             </button>
           </div>
         </div>

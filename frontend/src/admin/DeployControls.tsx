@@ -280,6 +280,8 @@ export function DeployControls({
           phrase="UPDATE"
           pending={submit.isPending || (busy && action === "update")}
           testId="deploy-update"
+          actionLabel="Update"
+          pendingLabel="Updating..."
           onConfirm={() => submit.mutate({ action: "update", drain: true, ...noticeFields })}
         />
         {(running.length > 0 || unownedRunning > 0) && (
@@ -297,6 +299,8 @@ export function DeployControls({
             phrase="STOP AND UPDATE"
             pending={submit.isPending || (busy && action === "update")}
             testId="deploy-update-force"
+            actionLabel="Stop and update"
+            pendingLabel="Updating..."
             onConfirm={() => submit.mutate({ action: "update", drain: false, force: true, ...noticeFields })}
           />
         )}
@@ -316,6 +320,8 @@ export function DeployControls({
           phrase="ROLLBACK"
           pending={submit.isPending || (busy && action === "rollback")}
           testId="deploy-rollback"
+          actionLabel="Roll back"
+          pendingLabel="Rolling back..."
           onConfirm={() => submit.mutate({ action: "rollback", ...noticeFields })}
         />
       </div>
