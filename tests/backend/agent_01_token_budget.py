@@ -28,7 +28,7 @@ import sys
 
 from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tools import get_all_tools
-from app.config import LLM_BASE_URL, LLM_MODEL
+from app.config import LLM_BASE_URL, LLM_EXTRA_BODY, LLM_MODEL
 
 # The Phase 0 baseline and the Phase 2 target, both from
 # docs/MODEL_CONTEXT_BUDGET.md.
@@ -65,7 +65,7 @@ def measure_prompt_tokens() -> int | None:
         return None
 
     llm = ChatOpenAI(model=LLM_MODEL, base_url=LLM_BASE_URL, api_key="ollama",
-                     temperature=0.0, max_tokens=8, extra_body={"think": False},
+                     temperature=0.0, max_tokens=8, extra_body=LLM_EXTRA_BODY,
                      timeout=300, max_retries=0)
     bound = llm.bind_tools(get_all_tools())
     try:

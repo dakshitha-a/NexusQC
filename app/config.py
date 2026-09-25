@@ -101,6 +101,25 @@ LLM_API_KEY = os.environ.get("QC_AGENT_LLM_API_KEY", "ollama")  # unused by olla
 LLM_MODEL = os.environ.get("QC_AGENT_LLM_MODEL", "qwen3.8:27b")
 LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 
+# Sent with every chat completion, to switch off a hybrid model's hidden
+# reasoning. One definition so the agent, the token-budget test and the spike
+# scripts cannot drift apart again.
+#
+# `think: false` alone used to do this and stopped doing it without a sound.
+# Measured 2026-09-24 on Ollama 0.32.13 with qwen3.8:27b through the /v1
+# endpoint: `think: false` is accepted and ignored, and the model still
+# reasons, streaming it in a `reasoning` field that ChatOpenAI discards. A
+# 175-character table cost 258 completion tokens, about two thirds of them
+# reasoning nobody saw; through the app's own client with the real prompt and
+# tools, 131 tokens against 81 for the identical reply. Every turn paid that,
+# and one turn spent 106 seconds reasoning and then stopped with no visible
+# content at all, which the user saw as a chat that had silently died.
+# `reasoning: {effort: none}` is what this endpoint honours: 0 reasoning
+# characters, same tool calls. `think` stays alongside it because an
+# OpenAI-compatible server other than this Ollama may honour that one instead,
+# and on this one it is inert.
+LLM_EXTRA_BODY = {"think": False, "reasoning": {"effort": "none"}}
+
 # The context window the served model actually has, in tokens.
 #
 # This is a DECLARATION, not a request. Ollama sizes a model's context when

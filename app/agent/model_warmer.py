@@ -10,7 +10,7 @@ Ollama through its **OpenAI-compatible** endpoint (`LLM_BASE_URL` ends in
 /v1), and that endpoint silently drops `keep_alive`. Confirmed empirically,
 not assumed -- POSTing /v1/chat/completions with `keep_alive: "10m"` left
 `ollama ps` reporting the default ~5 minute TTL, so passing it through
-ChatOpenAI's `extra_body` (graph.py's `{"think": False}`) would have looked
+ChatOpenAI's `extra_body` (config.py's `LLM_EXTRA_BODY`) would have looked
 like a fix and done nothing. Only Ollama's native /api/generate honours it,
 hence a direct call here.
 

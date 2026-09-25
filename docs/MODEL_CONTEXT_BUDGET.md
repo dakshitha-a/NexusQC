@@ -277,3 +277,19 @@ reload and restart the same way.
 Raising the window does not retire the Phase 2 diet. Fitting comfortably
 inside the context is what keeps the agent working on any host; a larger
 window is headroom, not a substitute.
+
+## The output side: hidden reasoning (2026-09-24)
+
+Everything above measures the prompt. The reply has a cost too, and for a
+while part of it was invisible. The scripts here and the agent sent
+`think: false` to stop `qwen3.8:27b` reasoning before it answers. On Ollama
+0.32.13 the `/v1` endpoint ignores that setting. The model reasoned on every
+call, into a `reasoning` field that ChatOpenAI drops. The same short table
+cost 176 completion tokens with `think: false` and 80 with
+`reasoning: {"effort": "none"}`. The second setting is what the endpoint
+honours. Every caller, including `tests/backend/agent_01_token_budget.py` and
+`scripts/spikes/spike_model_context.py`, now sends `LLM_EXTRA_BODY` from
+`app/config.py`. `tests/backend/agent_11_reasoning_is_off.py` fails if
+reasoning comes back again. Hidden reasoning also counts against
+`LLM_MAX_TOKENS`, so while it was on, a long reply had less room than the
+budget above assumes.

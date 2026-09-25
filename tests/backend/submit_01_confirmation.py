@@ -75,6 +75,9 @@ READY_DRAFT = {
 }
 
 created_jobs: list[str] = []
+# Threads too, not only jobs: this script used to leave its four qatest_submit_*
+# conversations behind in the list on every run.
+created_threads: list[str] = []
 
 
 def check(label: str, ok: bool, detail: str = "") -> None:
@@ -116,6 +119,7 @@ def new_thread(label: str) -> dict:
     fixture, not of the code under test.
     """
     thread = thread_registry.create_thread(label=label)
+    created_threads.append(thread["thread_id"])
     config = {"configurable": {"thread_id": thread["thread_id"]}}
     get_graph().update_state(config, {
         "molecule": WATER,
@@ -171,6 +175,11 @@ def main() -> int:
                 delete_job_dir(job_id)
             except Exception as exc:  # noqa: BLE001
                 print(f"  (cleanup) could not remove job {job_id}: {exc}")
+        for thread_id in created_threads:
+            try:
+                thread_registry.delete_thread(thread_id)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  (cleanup) could not remove thread {thread_id}: {exc}")
 
 
 def run(counter: list[int]) -> int:

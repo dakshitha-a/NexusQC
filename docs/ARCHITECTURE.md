@@ -505,6 +505,52 @@ is queueing behind other tenants on the shared GPU, which this app does not
 control. This removes a cliff that long conversations fall off, and that is all
 it does.
 
+### Hidden reasoning is switched off by the request, and a test checks it
+
+The served model is a hybrid that reasons before it answers unless told not
+to. The app sent `think: false` for that, and the setting stopped working on
+an Ollama upgrade without any error. Measured on 2026-09-24 on Ollama 0.32.13
+with `qwen3.8:27b`, the `/v1` endpoint accepts `think: false` and ignores it.
+The model reasons anyway, and the reasoning arrives in a `reasoning` field
+that ChatOpenAI drops. So nothing in the app could see it. It showed up only
+as cost: a 175-character table took 258 completion tokens, about two thirds
+of them hidden.
+
+The endpoint honours `reasoning: {"effort": "none"}`. With it, the same
+question returned no reasoning and 80 to 105 completion tokens, and the
+agent's tool choices were unchanged. `LLM_EXTRA_BODY` in `app/config.py`
+sends both settings, from one definition every caller imports. The
+`reasoning` setting is the one that works here. `think` is kept because
+another OpenAI-compatible server may honour it instead.
+
+Since the failure is silent by nature, `tests/backend/agent_11_reasoning_is_off.py`
+reads the raw response, where the reasoning field is visible, and fails if
+any comes back. Run it after any Ollama or model upgrade. The 53 to 77 second
+drafting turns quoted above and in older trackers were measured before this
+fix. Some unknown share of that time was hidden reasoning.
+
+### A turn never ends on an empty reply
+
+A reply with no text and no tool call used to end the turn. The graph routes
+any reply without a tool call to END, and nothing checked for empty text. On
+2026-09-24 one model call ran for 106 seconds and returned exactly that. The
+chat got no message and the spinner simply stopped. The user typed "hello?"
+six minutes later to get the table they had asked for.
+
+`_agent_node` now retries such a reply once, with the same prompt. The
+prefix cache makes the retry cost only the generation. If the retry is empty
+too, the turn answers with one fixed sentence asking the user to send the
+message again. That sentence is the only text the app ever writes in the
+assistant's place. A reply cut off by `finish_reason: length` is not retried,
+because a retry would hit the same full prompt; `_warn_if_truncated` reports
+that case instead.
+
+Every model call now logs its wall-clock time and prompt size through
+uvicorn's logger, at WARNING above 60 seconds. There was no latency log
+before this, so a slow call and a hung one looked the same from outside.
+The app's own module loggers have no handler configured, so INFO on them is
+dropped. That is why this log goes through uvicorn's logger.
+
 ### A turn may not silently lose the results it just fetched
 
 `_trim_history` drops the oldest messages until the prompt fits. It used to do

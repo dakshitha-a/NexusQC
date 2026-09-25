@@ -40,6 +40,7 @@ from app.config import (
     DATABASE_URL,
     DRAFT_HOLD_SECONDS,
     LLM_BASE_URL,
+    LLM_EXTRA_BODY,
     LLM_API_KEY,
     LLM_FIXED_PROMPT_TOKENS,
     LLM_HISTORY_FLOOR,
@@ -130,10 +131,11 @@ def _build_llm():
         # without measuring that it does something; see
         # docs/MODEL_CONTEXT_BUDGET.md, which has caught this twice.
         #
-        # `think` is a different case and is kept: it IS honored. Measured
-        # the same day, 250 characters of visible content cost 93 completion
-        # tokens, so no hidden reasoning is being billed to the reply.
-        extra_body={"think": False},
+        # Hidden reasoning is switched off by LLM_EXTRA_BODY. `think: False`
+        # used to be sent here alone, with a comment saying it was honoured;
+        # it was when measured, and on Ollama 0.32.13 with qwen3.8:27b it no
+        # longer is. See the note on LLM_EXTRA_BODY in app/config.py.
+        extra_body=LLM_EXTRA_BODY,
         timeout=150,
         max_retries=0,
         max_tokens=LLM_MAX_TOKENS,
@@ -498,6 +500,58 @@ def _warn_if_truncated(response, sent_messages: list) -> None:
     )
 
 
+# The only words the app ever puts in the assistant's mouth for an empty
+# reply. Deliberately says nothing about what was asked, since nothing was
+# produced to say it from.
+_EMPTY_REPLY_FALLBACK = "I didn't manage to write a reply to that. Please send it again."
+
+# A model call slower than this is logged as a warning rather than at info.
+# Not a timeout: a long turn is allowed to finish. It is the point past which
+# a user watching the spinner starts wondering whether anything is happening.
+_SLOW_CALL_SECONDS = 60.0
+
+# uvicorn's logger, not this module's: the server configures no handler for
+# app loggers, so an INFO line on `logger` is dropped and only WARNING and
+# above reach stderr through logging's last-resort handler. job_watcher uses
+# the same one for the same reason.
+_call_log = logging.getLogger("uvicorn.error")
+
+
+def _is_empty_reply(response) -> bool:
+    """No visible content and no tool call: a reply that says nothing and
+    does nothing. A reply cut off by `finish_reason: length` is excluded,
+    since `_warn_if_truncated` already reports that one and its cause is a
+    prompt with no room left, which a retry would not change."""
+    if getattr(response, "tool_calls", None):
+        return False
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    if str(content or "").strip():
+        return False
+    metadata = getattr(response, "response_metadata", None) or {}
+    return metadata.get("finish_reason") != "length"
+
+
+def _timed_invoke(llm, messages: list):
+    """One model call, with its wall-clock time logged.
+
+    There was no latency log anywhere before this. A 106 s call on
+    2026-09-24 had to be reconstructed from checkpoint timestamps, which
+    is how a model call that is slow and one that has hung look identical
+    from the outside."""
+    started = time.monotonic()
+    response = llm.invoke(messages)
+    elapsed = time.monotonic() - started
+    calls = len(getattr(response, "tool_calls", None) or [])
+    _call_log.log(
+        logging.WARNING if elapsed > _SLOW_CALL_SECONDS else logging.INFO,
+        "agent: model call took %.1fs for a %d-message prompt (%d tool call(s), %d reply chars).",
+        elapsed, len(messages), calls, len(str(response.content or "")),
+    )
+    return response
+
+
 def build_prompt_messages(state: AgentState) -> list:
     """Exactly what goes to the model: the system prompt, the trimmed
     history, and the digest line when anything was trimmed.
@@ -548,7 +602,22 @@ def _agent_node(state: AgentState):
             "message and I'll start from that."
         ))]}
 
-    response = llm.invoke(messages)
+    response = _timed_invoke(llm, messages)
+
+    if _is_empty_reply(response):
+        # One retry, same shape as the fabrication retry below. The prompt is
+        # byte-identical, so the served model's prefix cache makes it cost
+        # generation only. Without this the turn ENDs on nothing: no tool
+        # call routes it anywhere, the chat gets no bubble, and the user is
+        # left looking at a spinner that simply stopped (observed
+        # 2026-09-24, a 106 s call that returned "" and a user who had to
+        # type "hello?" six minutes later to get their table).
+        logger.warning("Model returned an empty reply (no content, no tool call) to a "
+                       "%d-message prompt; retrying once.", len(messages))
+        response = _timed_invoke(llm, messages)
+        if _is_empty_reply(response):
+            logger.warning("Model returned an empty reply twice; answering with the fallback.")
+            return {"messages": [AIMessage(content=_EMPTY_REPLY_FALLBACK)]}
 
     active_job_ids = state.get("active_job_ids") or []
     if _looks_fabricated(response, active_job_ids, messages):
@@ -559,7 +628,7 @@ def _agent_node(state: AgentState):
         # corrective nudge below are never appended to permanent state --
         # only the retry's response becomes this node's actual output.
         logger.warning("Discarding a likely-fabricated job-submission response, retrying once: %r", response.content)
-        response = llm.invoke([*messages, response, HumanMessage(content=_FABRICATION_NUDGE)])
+        response = _timed_invoke(llm, [*messages, response, HumanMessage(content=_FABRICATION_NUDGE)])
         if _looks_fabricated(response, active_job_ids, messages):
             logger.warning("Fabrication check still tripped after retry; returning it as-is: %r", response.content)
 

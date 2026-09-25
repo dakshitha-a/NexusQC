@@ -42,7 +42,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO))
 
-from app.config import LLM_BASE_URL, LLM_MODEL  # noqa: E402
+from app.config import LLM_BASE_URL, LLM_EXTRA_BODY, LLM_MODEL  # noqa: E402
 
 
 def count_tokens(text: str) -> tuple[int, str]:
@@ -178,7 +178,7 @@ def truncation_probe(model: str | None = None) -> None:
     print("=" * 70)
 
     llm = ChatOpenAI(model=model, base_url=base, api_key="ollama", temperature=0.1,
-                     max_tokens=256, extra_body={"think": False}, timeout=1800, max_retries=0)
+                     max_tokens=256, extra_body=LLM_EXTRA_BODY, timeout=1800, max_retries=0)
     bound = llm.bind_tools(get_all_tools())
     turn = ("Please run a CASSCF calculation on benzene with cc-pVDZ and "
             "explain the orbital character. ")
@@ -244,7 +244,7 @@ def draft_shape_probe() -> None:
     base = endpoint_for_host()
     for model in ("qwen3.8:27b", "qwen3-coder:30b"):
         llm = ChatOpenAI(model=model, base_url=base, api_key="ollama", temperature=0.1,
-                         max_tokens=400, extra_body={"think": False}, timeout=600, max_retries=0)
+                         max_tokens=400, extra_body=LLM_EXTRA_BODY, timeout=600, max_retries=0)
         for shape, t in (("dict-arg", update_job_draft_dict), ("flat-arg", update_job_draft_flat)):
             ok, detail = 0, []
             for msg in cases:
