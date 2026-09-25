@@ -90,16 +90,16 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
 
 ## Phase 2: updates warn, lock out, and let back in
 
-- [todo] P2.1: the update notice: app_config row and GET /api/notice
-- [todo] P2.2: update.sh posts the notice, waits it out, locks, restarts, posts done
-- [todo] P2.3: users stay logged in through an update
+- [in-progress] P2.1: the update notice: app_config row and GET /api/notice
+- [in-progress] P2.2: update.sh posts the notice, waits it out, locks, restarts, posts done
+- [in-progress] P2.3: users stay logged in through an update
 - [todo] P2.4: the banner in the app, and the overlay text to match
 - merged:
 
 ## Phase 3: update from the console
 
 - [todo] P3.1: console controls: notice minutes, message, cancel, stop-and-update override
-- [todo] P3.2: deploy request carries the notice; cancel is an api action
+- [in-progress] P3.2: deploy request carries the notice; cancel is an api action
 - [todo] P3.3: the updater runs on this host
 - merged:
 

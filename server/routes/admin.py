@@ -792,9 +792,16 @@ class DeployRequest(BaseModel):
     ref: Optional[str] = None
     drain: bool = True
     force: bool = False
+    # How long users are warned before the lockout, and an optional note to
+    # them. None means the deployment's default (QC_AGENT_UPDATE_NOTICE_MINUTES,
+    # read by update.sh). Both are data for update.sh; neither is executed.
+    notice_minutes: Optional[int] = None
+    message: Optional[str] = None
 
 
-_DEPLOY_ACTIONS = {"ping", "report", "update", "rollback"}
+_DEPLOY_ACTIONS = {"ping", "report", "update", "rollback", "cancel"}
+_NOTICE_MAX_MINUTES = 120
+_NOTICE_MESSAGE_MAX = 500
 
 
 @router.post("/deploy")
@@ -807,6 +814,24 @@ def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
     """
     if req.action not in _DEPLOY_ACTIONS:
         raise HTTPException(status_code=400, detail=f"unknown action: {req.action}")
+    if req.notice_minutes is not None and not (0 <= req.notice_minutes <= _NOTICE_MAX_MINUTES):
+        raise HTTPException(status_code=400,
+                            detail=f"notice_minutes must be between 0 and {_NOTICE_MAX_MINUTES}")
+    message = (req.message or "").strip()
+    if len(message) > _NOTICE_MESSAGE_MAX:
+        raise HTTPException(status_code=400,
+                            detail=f"the message to users is limited to {_NOTICE_MESSAGE_MAX} characters")
+
+    # Cancelling needs no runner: the update that is waiting polls this flag
+    # itself, and the runner is busy running it. See app/auth/update_notice.
+    if req.action == "cancel":
+        from app.auth.update_notice import request_cancel
+        try:
+            n = request_cancel(admin)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        models.audit(str(admin["id"]), "deploy_cancel", target=str(n.get("id") or ""), details={})
+        return {"id": n.get("id"), "action": "cancel"}
 
     state = _runner_state()
     # Gated on `installed`, not on `alive`, and the difference matters. The
@@ -842,6 +867,8 @@ def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
         "ref": req.ref or "",
         "drain": bool(req.drain),
         "force": bool(req.force),
+        "notice_minutes": req.notice_minutes,
+        "message": message,
         "requested_by": str(admin["id"]),
         "requested_at": time.time(),
     }
@@ -860,7 +887,8 @@ def post_deploy(req: DeployRequest, admin: dict = Depends(require_admin)):
     tmp.replace(pending)
 
     models.audit(str(admin["id"]), f"deploy_{req.action}", target=deploy_id,
-                 details={"ref": req.ref or "", "drain": req.drain, "force": req.force})
+                 details={"ref": req.ref or "", "drain": req.drain, "force": req.force,
+                          "notice_minutes": req.notice_minutes, "message": message})
     return {"id": deploy_id, "action": req.action}
 
 

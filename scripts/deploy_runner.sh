@@ -179,6 +179,19 @@ except Exception:
     ref="$(python3 -c "import json;print(json.load(open('$dir/request.json')).get('ref') or '')" 2>/dev/null || true)"
     drain="$(python3 -c "import json;print('1' if json.load(open('$dir/request.json')).get('drain') else '0')" 2>/dev/null || echo 0)"
     force="$(python3 -c "import json;print('1' if json.load(open('$dir/request.json')).get('force') else '0')" 2>/dev/null || echo 0)"
+    # The notice: minutes as a number clamped to 0-120 (empty means the
+    # deployment's default), and the message written to a file in the run's
+    # own directory for update.sh to read. Neither reaches a command line as
+    # anything but a number and a path this script chose.
+    local notice_minutes
+    notice_minutes="$(python3 -c "
+import json
+v = json.load(open('$dir/request.json')).get('notice_minutes')
+print('' if v is None or isinstance(v, bool) else max(0, min(120, int(v))))" 2>/dev/null || true)"
+    python3 -c "
+import json
+m = str(json.load(open('$dir/request.json')).get('message') or '')[:500]
+open('$dir/notice_message.txt', 'w').write(m)" 2>/dev/null || : > "$dir/notice_message.txt"
 
     write_status "$dir" running "starting"
     : > "$dir/log.txt"
@@ -274,7 +287,8 @@ except Exception:
             fi
             ;;
         update)
-            local args=(--yes --maintenance)
+            local args=(--yes --notice-message-file "$dir/notice_message.txt")
+            [ -n "$notice_minutes" ] && args+=(--notice-minutes "$notice_minutes")
             [ "$drain" -eq 1 ] && args+=(--drain)
             [ "$force" -eq 1 ] && args+=(--force)
             write_status "$dir" running "updating" "{\"target\": \"$target_sha\"}"
@@ -286,12 +300,20 @@ except Exception:
                 write_status "$dir" done "updated" "{\"target\": \"$target_sha\"}"
             else
                 rc=$?
-                write_status "$dir" failed "the update did not complete" "{\"exit_code\": $rc}"
+                # An admin calling it off is not a failure, and the panel
+                # should not say it was.
+                if grep -q "cancelled this update before the lockout" "$dir/log.txt"; then
+                    write_status "$dir" cancelled "cancelled before the lockout; nothing was restarted"
+                else
+                    write_status "$dir" failed "the update did not complete" "{\"exit_code\": $rc}"
+                fi
             fi
             ;;
         rollback)
             write_status "$dir" running "rolling back"
-            if stdbuf -oL -eL bash scripts/update.sh --yes --maintenance --rollback \
+            local rargs=(--yes --rollback --notice-message-file "$dir/notice_message.txt")
+            [ -n "$notice_minutes" ] && rargs+=(--notice-minutes "$notice_minutes")
+            if stdbuf -oL -eL bash scripts/update.sh "${rargs[@]}" \
                     >>"$dir/log.txt" 2>&1; then
                 write_status "$dir" done "rolled back"
             else

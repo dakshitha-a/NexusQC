@@ -45,6 +45,8 @@ _MAINTENANCE_EXEMPT = (
     "/api/version",
     "/api/auth/",
     "/api/admin/",
+    # The update notice: the overlay asks it whether the lockout has lifted.
+    "/api/notice",
 )
 
 # Read through a short TTL rather than per request. This runs on EVERY request
@@ -103,6 +105,11 @@ def _maintenance_mode() -> bool:
         _maint_cache["refreshing"] = True
         threading.Thread(target=_refresh_maintenance_cache, daemon=True).start()
     return bool(_maint_cache["value"])
+
+
+def maintenance_mode() -> bool:
+    """The same cached answer, for callers outside this module."""
+    return _maintenance_mode()
 
 
 class AccessControlMiddleware(BaseHTTPMiddleware):

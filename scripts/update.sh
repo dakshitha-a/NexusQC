@@ -36,12 +36,20 @@
 #      destructive without an explicit decision
 #   4. takes a FULL backup (database + all of data/), unconditionally --
 #      there is no separate stack to fall back to if something goes wrong
-#   5. optionally drains jobs, by stopping admission and waiting
-#   6. fast-forwards to the target commit, rebuilds the frontend and image,
-#      brings the stack up
-#   7. waits for health, restores job admission, records what it did AND
-#      whether it came up healthy -- an unhealthy deployment is never
-#      recorded as a good commit to roll back to
+#   5. tells every user an update is coming (the in-app notice), with the
+#      time the app will restart: now plus --notice-minutes
+#   6. optionally drains jobs, by stopping admission and waiting
+#   7. fast-forwards to the target commit, rebuilds the frontend and image,
+#      waits out the notice, locks non-admins out, brings the stack up
+#   8. waits for health, lets everyone back in, tells them it is done,
+#      restores job admission, records what it did AND whether it came up
+#      healthy -- an unhealthy deployment is never recorded as a good commit
+#      to roll back to
+#
+# Users are warned and locked out by default, because a deployment has
+# people on it. --no-maintenance skips both, for a deployment nobody uses.
+# They stay signed in throughout: the lockout is a 503 on every non-admin
+# route, and the page reloads by itself when it lifts.
 #
 # Usage:
 #     scripts/update.sh                    # update to origin/main
@@ -50,8 +58,11 @@
 #     scripts/update.sh --drain            # wait for running jobs to finish
 #     scripts/update.sh --force            # accept killing in-flight jobs
 #     scripts/update.sh --yes              # accept the destructive report
-#     scripts/update.sh --maintenance      # lock users out for the restart
 #     scripts/update.sh --rollback         # go back to the last healthy commit
+#     scripts/update.sh --notice-minutes 30          # warn users 30 min ahead
+#                                                    # (default QC_AGENT_UPDATE_NOTICE_MINUTES, 10)
+#     scripts/update.sh --notice-message-file <f>    # add a note to the notice
+#     scripts/update.sh --no-maintenance   # no notice, no lockout
 set -euo pipefail
 
 # Sourced HERE, above main(), and that placement is load-bearing for the same
@@ -87,24 +98,37 @@ main() {
     UPDATE_LOG=".update-log"
 
     TARGET_REF=""
-    DRY_RUN=0; ASSUME_YES=0; DRAIN=0; FORCE=0; ROLLBACK=0; MAINTENANCE=0
+    DRY_RUN=0; ASSUME_YES=0; DRAIN=0; FORCE=0; ROLLBACK=0; MAINTENANCE=1
+    NOTICE_MINUTES="${QC_AGENT_UPDATE_NOTICE_MINUTES:-10}"
+    NOTICE_MESSAGE_FILE=""
     DRAIN_TIMEOUT="${QC_AGENT_DRAIN_TIMEOUT:-14400}"   # 4h: a CASSCF run is not an outlier here
 
     while [ $# -gt 0 ]; do
         case "$1" in
             --dry-run)  DRY_RUN=1; shift ;;
             --yes|-y)   ASSUME_YES=1; shift ;;
-            --maintenance) MAINTENANCE=1; shift ;;
+            --maintenance) MAINTENANCE=1; shift ;;   # the default now; kept so old callers work
+            --no-maintenance) MAINTENANCE=0; shift ;;
+            --notice-minutes)
+                [ $# -ge 2 ] || die "--notice-minutes needs a number"
+                NOTICE_MINUTES="$2"; shift 2 ;;
+            --notice-message-file)
+                [ $# -ge 2 ] || die "--notice-message-file needs a path"
+                NOTICE_MESSAGE_FILE="$2"; shift 2 ;;
             --drain)    DRAIN=1; shift ;;
             --force)    FORCE=1; shift ;;
             --rollback) ROLLBACK=1; shift ;;
-            -h|--help)  sed -n '2,53p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+            -h|--help)  sed -n '2,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
             -*)         die "unknown option: $1" ;;
             *)          [ -z "$TARGET_REF" ] || die "more than one ref given"; TARGET_REF="$1"; shift ;;
         esac
     done
 
     [ "$DRAIN" -eq 1 ] && [ "$FORCE" -eq 1 ] && die "--drain and --force contradict each other."
+    case "$NOTICE_MINUTES" in
+        ''|*[!0-9]*) die "--notice-minutes must be a whole number of minutes, got '${NOTICE_MINUTES}'" ;;
+    esac
+    [ "$NOTICE_MINUTES" -le 120 ] || die "--notice-minutes is capped at 120."
 
     step "checking this host"
     require_tools git docker openssl curl
@@ -551,15 +575,11 @@ EOF
             || die "could not enter maintenance mode -- refusing to restart without it."
         IN_MAINTENANCE=1
         ok "maintenance mode on: non-admins get a 503 until this finishes"
-
-        # One key per user, so this is every logged-in session. redis-cli's
-        # --scan is used rather than KEYS because KEYS blocks the server, and
-        # this runs against a live deployment.
-        local killed
-        killed="$("${COMPOSE[@]}" exec -T redis sh -c \
-            'redis-cli --scan --pattern "qc_agent:session:active:*" | xargs -r redis-cli DEL' \
-            2>/dev/null | tail -n1 || echo 0)"
-        ok "logged out ${killed:-0} session(s); they see the maintenance screen, not a login loop"
+        # Sessions are left alone. This used to delete every one, on the
+        # grounds that the restart would break them anyway; it does not.
+        # Sessions live in Redis, which an api update does not recreate, so
+        # the only effect was that every user came back to a login screen
+        # instead of the app they were using. The 503 is the lockout.
     }
 
     leave_maintenance() {
@@ -575,6 +595,84 @@ EOF
         DRAINED=0
         ok "job admission restored"
     }
+    # The in-app notice. One app_config row, update_notice, rewritten at each
+    # phase; app/auth/update_notice.py serves it at GET /api/notice and every
+    # tab polls that. Written only here, so an update from the console and an
+    # update from a shell tell users the same thing. See that module for the
+    # phases.
+    NOTICE_ACTIVE=0
+    NOTICE_STALE_AT=0
+    NOTICE_FINISHED=0
+    CANCELLED=0
+    NOTICE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    RESTART_AT=0
+    NOTICE_MESSAGE=""
+    if [ -n "$NOTICE_MESSAGE_FILE" ] && [ -f "$NOTICE_MESSAGE_FILE" ]; then
+        NOTICE_MESSAGE="$(head -c 500 "$NOTICE_MESSAGE_FILE")"
+    fi
+
+    # post_notice <phase> <expires_at epoch or 0> [waiting_jobs]
+    # The JSON is built by python and handed to psql as a variable read from
+    # stdin, so a message with quotes or backslashes cannot break the SQL.
+    post_notice() {
+        local phase="$1" expires="$2" waiting="${3:-0}" json
+        json="$(NOTICE_PHASE="$phase" NOTICE_EXPIRES="$expires" NOTICE_WAITING="$waiting" \
+                NOTICE_ID="$NOTICE_ID" RESTART_AT="$RESTART_AT" NOTICE_MESSAGE="$NOTICE_MESSAGE" \
+                NOTICE_COMMIT="${TARGET_SHA:0:12}" NOTICE_STOPS_JOBS="$FORCE" python3 -c '
+import json, os, time
+print(json.dumps({
+    "id": os.environ["NOTICE_ID"], "phase": os.environ["NOTICE_PHASE"],
+    "restart_at": float(os.environ["RESTART_AT"]) or None,
+    "waiting_jobs": int(os.environ["NOTICE_WAITING"]),
+    "message": os.environ["NOTICE_MESSAGE"].strip(),
+    "commit": os.environ["NOTICE_COMMIT"],
+    # --force: running calculations are stopped by the restart rather than
+    # waited for, and users must be told that in advance, not discover it.
+    "stops_running_jobs": os.environ["NOTICE_STOPS_JOBS"] == "1",
+    "updated_at": time.time(), "expires_at": float(os.environ["NOTICE_EXPIRES"]) or None,
+}))')"
+        printf '%s\n' "INSERT INTO app_config (key, value) VALUES ('update_notice', :'notice'::jsonb)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" \
+            | psql_stack -v notice="$json" >/dev/null 2>&1 \
+            || warn "could not update the in-app notice (phase ${phase}); the update itself continues"
+    }
+
+    cancel_requested() {
+        local id
+        id="$(psql_stack -c "SELECT value->>'id' FROM app_config WHERE key='update_cancel'" 2>/dev/null | tr -d '[:space:]' || true)"
+        [ -n "$id" ] && [ "$id" = "$NOTICE_ID" ]
+    }
+
+    stop_if_cancelled() {
+        if cancel_requested; then
+            CANCELLED=1
+            die "an administrator cancelled this update before the lockout. Nothing was
+      restarted; users were told and job admission is restored."
+        fi
+    }
+
+    # Sleeps until the epoch in $1, checking for a cancellation every 5 s.
+    wait_until() {
+        local target="$1" now
+        while :; do
+            now="$(date +%s)"
+            [ "$now" -ge "$target" ] && return 0
+            stop_if_cancelled
+            sleep 5
+        done
+    }
+
+    finish_notice_on_exit() {
+        [ "$NOTICE_ACTIVE" -eq 1 ] && [ "$NOTICE_FINISHED" -eq 0 ] || return 0
+        NOTICE_FINISHED=1
+        if [ "$CANCELLED" -eq 1 ]; then
+            post_notice cancelled "$(( $(date +%s) + 900 ))"
+        else
+            post_notice failed "$(( $(date +%s) + 900 ))"
+        fi
+        psql_stack -c "DELETE FROM app_config WHERE key='update_cancel'" >/dev/null 2>&1 || true
+    }
+
     # INT and TERM as well as EXIT, and R-023 is why. Bash does not reliably
     # run an EXIT trap when it is killed by a signal it does not handle: it
     # re-raises and dies. install.sh learned that the hard way (commit 4faa632)
@@ -591,29 +689,31 @@ EOF
         warn "interrupted; putting the deployment back the way it was"
         leave_maintenance
         restore_admission
+        finish_notice_on_exit
         exit "$((128 + sig))"
     }
-    trap 'leave_maintenance; restore_admission' EXIT
+    trap 'leave_maintenance; restore_admission; finish_notice_on_exit' EXIT
     trap 'on_signal 2' INT
     trap 'on_signal 15' TERM
 
-    if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
-        step "draining"
-        # Its own flag rather than max_concurrent_jobs_total=0. The cap is an
-        # admin-facing setting whose API refuses any value <= 0, so writing 0
-        # here meant this script and the admin console disagreed about what a
-        # legal value was -- and a job queued behind it reported "waiting for
-        # a free job slot", which says nothing about why the queue is stopped
-        # or that it will restart by itself.
+    # Stops new jobs from starting; they queue as pending and run after the
+    # update. Its own flag rather than max_concurrent_jobs_total=0. The cap is
+    # an admin-facing setting whose API refuses any value <= 0, so writing 0
+    # here meant this script and the admin console disagreed about what a
+    # legal value was -- and a job queued behind it reported "waiting for a
+    # free job slot", which says nothing about why the queue is stopped or
+    # that it will restart by itself.
+    pause_admission() {
+        [ "$DRAINED" -eq 1 ] && return 0
         psql_stack -c "INSERT INTO app_config (key, value) VALUES ('job_admission_paused', 'true'::jsonb)
                        ON CONFLICT (key) DO UPDATE SET value='true'::jsonb, updated_at=now()" >/dev/null \
             || die "could not stop job admission -- not draining blind."
         DRAINED=1
         ok "new jobs are no longer admitted (they queue as pending)"
-        info "waiting for ${INFLIGHT} in-flight job(s); Ctrl-C is safe, admission is restored on exit"
-        WAITED=0
-        while [ "$WAITED" -lt "$DRAIN_TIMEOUT" ]; do
-            RUNNING="$(python3 - data/jobs <<'PY'
+    }
+
+    count_running() {
+        python3 - data/jobs <<'PY'
 import json, os, sys
 root = sys.argv[1]
 n = 0
@@ -629,20 +729,67 @@ for name in (os.listdir(root) if os.path.isdir(root) else []):
         pass
 print(n)
 PY
-    )"
-            [ "$RUNNING" -eq 0 ] && break
-            printf '\r  .. %s job(s) still running, waited %ss   ' "$RUNNING" "$WAITED"
-            sleep 30
-            WAITED=$((WAITED + 30))
+    }
+
+    # Waits for every running job to finish, telling users how many are left.
+    # Called up front when --drain is asked for with jobs in flight, and again
+    # just before the restart for anything that started in between.
+    drain_running() {
+        step "draining"
+        pause_admission
+        info "waiting for running job(s); Ctrl-C is safe, admission is restored on exit"
+        local waited=0 running last=""
+        while [ "$waited" -lt "$DRAIN_TIMEOUT" ]; do
+            running="$(count_running)"
+            [ "$running" -eq 0 ] && break
+            printf '\r  .. %s job(s) still running, waited %ss   ' "$running" "$waited"
+            if [ "$NOTICE_ACTIVE" -eq 1 ] && [ "$running" != "$last" ]; then
+                post_notice waiting_for_jobs "$NOTICE_STALE_AT" "$running"
+                last="$running"
+            fi
+            for _ in 1 2 3 4 5 6; do
+                [ "$NOTICE_ACTIVE" -eq 1 ] && stop_if_cancelled
+                sleep 5
+            done
+            waited=$((waited + 30))
         done
         echo
-        if [ "${RUNNING:-0}" -ne 0 ]; then
+        if [ "${running:-0}" -ne 0 ]; then
             restore_admission
-            die "still ${RUNNING} job(s) running after ${DRAIN_TIMEOUT}s. Admission restored;
+            die "still ${running} job(s) running after ${DRAIN_TIMEOUT}s. Admission restored;
       nothing was updated. Wait longer (QC_AGENT_DRAIN_TIMEOUT=<seconds>), or use
       --force if you have decided to lose them."
         fi
         ok "drained"
+        # Everyone was told the restart waits for these jobs. Now that they are
+        # done, a restart that was due already still gets a minute's warning.
+        if [ "$NOTICE_ACTIVE" -eq 1 ] && [ -n "$last" ]; then
+            local now
+            now="$(date +%s)"
+            [ "$RESTART_AT" -ge $((now + 60)) ] || RESTART_AT=$((now + 60))
+            post_notice scheduled "$NOTICE_STALE_AT"
+        fi
+    }
+
+    if [ "$MAINTENANCE" -eq 1 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
+        step "telling users an update is coming"
+        psql_stack -c "DELETE FROM app_config WHERE key='update_cancel'" >/dev/null 2>&1 || true
+        RESTART_AT="$(( $(date +%s) + NOTICE_MINUTES * 60 ))"
+        # Stale-proofing: a notice outlives nothing. If this script is killed
+        # outright, no trap runs, and the notice expires a drain timeout plus an
+        # hour after it was due rather than sitting on everyone's screen.
+        NOTICE_STALE_AT="$(( RESTART_AT + DRAIN_TIMEOUT + 3600 ))"
+        post_notice scheduled "$NOTICE_STALE_AT"
+        NOTICE_ACTIVE=1
+        ok "announced in the app: restart at $(date -d "@${RESTART_AT}" '+%H:%M:%S') (${NOTICE_MINUTES} min notice)"
+        # A calculation started inside the notice window would be killed by
+        # the restart it was warned about. So from the announcement on, new
+        # ones queue and start after the update, and the banner says so.
+        pause_admission
+    fi
+
+    if [ "$DRAIN" -eq 1 ] && [ "$INFLIGHT" -gt 0 ] && [ "$NEEDS_RESTART" -eq 1 ]; then
+        drain_running
     fi
 
     if [ "$REBUILD_ONLY" -eq 1 ]; then
@@ -752,6 +899,37 @@ PY
     #
     # The lockout is now the recreate plus the health check: about ninety
     # seconds, which is the api container's start period.
+    #
+    # And it does not start before users were told it would. The build ran
+    # inside the notice window, so on a normal update the wait here is
+    # whatever is left of it; a minute before the end the banner turns to
+    # "about to lock".
+    # Anything that started between the in-flight check and the pause is
+    # still running. Wait for it rather than kill it, unless --force said
+    # losing running jobs was the decision.
+    if [ "$FORCE" -eq 0 ] && [ "$(count_running)" -gt 0 ]; then
+        drain_running
+    fi
+    if [ "$NOTICE_ACTIVE" -eq 1 ]; then
+        step "waiting for the announced restart time"
+        # The build usually takes about as long as the default notice, so the
+        # announced time has often passed by now. Users still get their last
+        # minute's warning: the restart moves to a minute from now.
+        NOW="$(date +%s)"
+        if [ "$RESTART_AT" -lt $((NOW + 60)) ]; then
+            RESTART_AT=$((NOW + 60))
+            post_notice scheduled "$NOTICE_STALE_AT"
+        fi
+        if [ "$(date +%s)" -lt $((RESTART_AT - 60)) ]; then
+            info "restart at $(date -d "@${RESTART_AT}" '+%H:%M:%S'); an administrator can cancel until then"
+            wait_until $((RESTART_AT - 60))
+        fi
+        post_notice imminent "$NOTICE_STALE_AT"
+        wait_until "$RESTART_AT"
+        stop_if_cancelled
+        post_notice in_progress "$NOTICE_STALE_AT"
+        ok "restart time reached"
+    fi
     enter_maintenance
 
     if ! "${COMPOSE[@]}" up -d; then
@@ -849,6 +1027,15 @@ PY
 
     leave_maintenance
     restore_admission
+    if [ "$NOTICE_ACTIVE" -eq 1 ]; then
+        NOTICE_FINISHED=1
+        if [ "$HEALTHY" -eq 1 ]; then
+            post_notice done "$(( $(date +%s) + 3600 ))"
+        else
+            post_notice failed "$(( $(date +%s) + 3600 ))"
+        fi
+        psql_stack -c "DELETE FROM app_config WHERE key='update_cancel'" >/dev/null 2>&1 || true
+    fi
     trap - EXIT INT TERM
 
     # Recorded WITH the verdict, and only after it is known. The old code appended
