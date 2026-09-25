@@ -1,5 +1,8 @@
 <!-- artifact: https://claude.ai/artifact/WfEymuYySz4YWuVSn5xHqx -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: the stack holds real data, and updates warn, lock out and let back in
+# Closed Tracker: the stack holds real data, and updates warn, lock out and let back in
+
+**Closed 2026-09-25. Nineteen steps in four phases, all done.**
+No tracker is active until the next plan begins.
 
 **Opened 2026-09-24.** Four phases. The tracker this replaces is
 [`trackers/2026-09-cores-per-calculation.md`](trackers/2026-09-cores-per-calculation.md),
@@ -101,7 +104,7 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: scripts/update.sh → "first rollout (a38f690 -> 89e9bac) logged out no one: no 'logged out' line in its log, and dma's Redis session key dates from 8.6 h before, maneesh's from his password reset an hour before"
 - [done] P2.4: the banner in the app, and the overlay text to match
   evidence: tests/frontend/notice_01_update_notice.spec.mjs → "36/36 on the deployed bundle: every phase renders its sentence, done dismisses and stays dismissed, the sign-in screen shows it, the overlay does not reload while the lockout is on and reloads once it lifts; screenshots of each phase looked at"
-- merged:
+- merged: d1a20bc
 
 ## Phase 3: update from the console
 
@@ -111,7 +114,7 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: tests/backend/notice_01_update_notice.py → "bounds and cancel covered there; the console run carried the admin's note through the signed request and the runner's message file to every tab's banner, seen in the watcher's screenshots"
 - [done] P3.3: the updater runs on this host
   evidence: scripts/install_updater.sh → "installed; runner alive with a 9 s heartbeat; a signed report request came back done, measured from the running commit 89e9bac after fixing the runner to use it (it had said nothing to update); QC_AGENT_DEPLOY_SECRET added to .env before the first rollout so the api signs with it"
-- merged:
+- merged: d1a20bc
 
 ## Phase 4: verification and rollout
 
@@ -123,4 +126,4 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: tests/frontend/accept_update_watch.mjs → "console update 89e9bac->1ea4601 watched from a fresh test user's tab: imminent banner with the admin's note at 23:42:01, overlay saying you stay signed in at 23:42:16, reload onto the new build still signed in with the done banner at 23:42:26; scheduled and its countdown were missed by a watcher bug (fixed) and are covered by the spec; dma's 7 jobs still present; integrity snapshot 3 accounts, 41 items"
 - [done] P4.4: docs, changelog, and the tracker closed out
   evidence: CHANGELOG.md → "Unreleased lists the notice, console controls, per-user quota overrides, admin scope, staying signed in, per-account login limits and every fix found while testing; README, DEPLOYMENT, CONFIGURATION, ARCHITECTURE, WORKFLOW, TESTING and tests/README describe them; BACKLOG closes two entries and adds two; HANDOFF carries the Docker userland-proxy decision"
-- merged:
+- merged: d1a20bc
