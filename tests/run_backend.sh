@@ -46,6 +46,12 @@
 # returns conf_01 as well, and that one is safe because it only asserts a
 # non-admin gets 403, but any new name in that list needs checking before it
 # joins the default run.
+#
+# That exclusion still only protects a run that goes THROUGH this file. On
+# 2026-09-24 p1_03 was run on its own and purged a real account's jobs. So
+# fixtures.admin_client() now refuses any /api/admin/purge/ request unless
+# QC_AGENT_TEST_ALLOW_PURGE=1, and the scripts above skip their purge checks
+# without it. The exclusion stays as a second line of defence.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 

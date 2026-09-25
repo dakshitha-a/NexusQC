@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_all_qatest_users, summary  # noqa: E402
+from fixtures import admin_client, check, cleanup_all_qatest_users, purge_allowed, skip, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 N_SEED_JOBS = 300
@@ -142,15 +142,19 @@ def main() -> None:
 
     # Correctness over speed: a purge must be reflected on the very next
     # read, not masked by a stale cached value for up to the TTL window.
-    job_bytes_before = admin.get("/api/admin/storage").json()["global"]["job_bytes"]
-    r_purge = admin.post("/api/admin/purge/jobs")
-    check("purge/jobs succeeds", r_purge.status_code == 200, str(r_purge.status_code))
-    job_bytes_after = admin.get("/api/admin/storage").json()["global"]["job_bytes"]
-    check(
-        "FIX VERIFIED: usage numbers reflect a purge on the very next read, not a stale cached value",
-        job_bytes_after < job_bytes_before,
-        f"before={job_bytes_before} after={job_bytes_after} -- unchanged would mean invalidation isn't wired to purges",
-    )
+    if purge_allowed():
+        job_bytes_before = admin.get("/api/admin/storage").json()["global"]["job_bytes"]
+        r_purge = admin.post("/api/admin/purge/jobs")
+        check("purge/jobs succeeds", r_purge.status_code == 200, str(r_purge.status_code))
+        job_bytes_after = admin.get("/api/admin/storage").json()["global"]["job_bytes"]
+        check(
+            "FIX VERIFIED: usage numbers reflect a purge on the very next read, not a stale cached value",
+            job_bytes_after < job_bytes_before,
+            f"before={job_bytes_before} after={job_bytes_after} -- unchanged would mean invalidation isn't wired to purges",
+        )
+    else:
+        skip("usage numbers reflect a purge on the very next read",
+             "the purge deletes every user's jobs; set QC_AGENT_TEST_ALLOW_PURGE=1 to run it")
 
     n_cleaned = cleanup_all_qatest_users(admin)
     print(f"cleaned up {n_cleaned} qatest_ user(s) (owner_id was {owner_id})")

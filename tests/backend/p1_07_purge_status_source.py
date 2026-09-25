@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, summary  # noqa: E402
+from fixtures import admin_client, check, require_purge_opt_in, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -99,6 +99,7 @@ def _dirs_present() -> list[str]:
 
 
 def main() -> None:
+    require_purge_opt_in("p1_07 purge status source")
     admin = admin_client()
     try:
         rc, out, err = _exec_api(_SEED)

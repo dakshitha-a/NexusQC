@@ -35,7 +35,7 @@ python3 tests/backend/_00_bootstrap.py   # provisions qatest_admin, run once per
 ```bash
 bash tests/run_backend.sh          # everything except the opt-in scripts below
 python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py   # opt-in, see its own docstring
-python3 tests/backend/p1_07_purge_status_source.py              # opt-in, WIPES EVERY JOB
+QC_AGENT_TEST_ALLOW_PURGE=1 python3 tests/backend/p1_07_purge_status_source.py   # opt-in, WIPES EVERY JOB
 python3 tests/backend/perf_10_api_memory_settle.py              # opt-in, RESTARTS THE API, ~1 hour
 ```
 
@@ -56,6 +56,17 @@ job artifacts behind three live conversations. The conversations themselves
 survived, because a job purge does not touch the Postgres checkpoints, but the
 results on disk were gone. Run it against a stack you are willing to empty,
 and not against one somebody is using.
+
+**Every admin purge now needs `QC_AGENT_TEST_ALLOW_PURGE=1`.** Leaving a
+script out of `run_backend.sh` only protects a run that goes through the
+runner. On 2026-09-24 `p1_03` was run on its own to check a config change, and
+its purge deleted seven finished jobs belonging to a real account. So the
+refusal now lives in `fixtures.admin_client()`: the client it returns will not
+send any request under `/api/admin/purge/` unless that variable is `1`, and
+raises `BlindPurgeRefused` instead. The scripts that purge honour the same
+flag. `p1_07` exits at once without it. `p1_03`, `perf_02` and `e2e_16` skip
+only their purge checks, report them as `[SKIP]`, and run everything else.
+Setting the variable is how you say an empty stack is what you want.
 
 ```bash
 

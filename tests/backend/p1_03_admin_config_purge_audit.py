@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, summary  # noqa: E402
+from fixtures import admin_client, check, purge_allowed, skip, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -50,26 +50,30 @@ def main() -> None:
     # count is pinned at 500 and "after > before" can never be true again --
     # which is exactly how this check started failing, long after the
     # behaviour it guards was still working fine.
-    r_before = admin.get("/api/admin/audit-log")
-    rows_before = r_before.json()
-    newest_id_before = rows_before[0]["id"] if rows_before else None
+    if purge_allowed():
+        r_before = admin.get("/api/admin/audit-log")
+        rows_before = r_before.json()
+        newest_id_before = rows_before[0]["id"] if rows_before else None
 
-    r_purge = admin.post("/api/admin/purge/jobs")
-    check("purge/jobs succeeds", r_purge.status_code == 200, str(r_purge.status_code))
+        r_purge = admin.post("/api/admin/purge/jobs")
+        check("purge/jobs succeeds", r_purge.status_code == 200, str(r_purge.status_code))
 
-    rows_after = admin.get("/api/admin/audit-log").json()
-    newest_id_after = rows_after[0]["id"] if rows_after else None
-    check(
-        "purge/jobs adds a new audit-log entry",
-        newest_id_after is not None and newest_id_after != newest_id_before,
-        f"newest id before={newest_id_before} after={newest_id_after}",
-    )
-    latest_action = rows_after[0]["action"] if rows_after else None
-    check(
-        "the newest audit-log entry records the purge",
-        latest_action == "purge_all_jobs",
-        str(latest_action),
-    )
+        rows_after = admin.get("/api/admin/audit-log").json()
+        newest_id_after = rows_after[0]["id"] if rows_after else None
+        check(
+            "purge/jobs adds a new audit-log entry",
+            newest_id_after is not None and newest_id_after != newest_id_before,
+            f"newest id before={newest_id_before} after={newest_id_after}",
+        )
+        latest_action = rows_after[0]["action"] if rows_after else None
+        check(
+            "the newest audit-log entry records the purge",
+            latest_action == "purge_all_jobs",
+            str(latest_action),
+        )
+    else:
+        skip("purge/jobs adds an audit-log entry",
+             "the purge deletes every user's jobs; set QC_AGENT_TEST_ALLOW_PURGE=1 to run it")
 
     # --- Audit log immutability (direct DB attempt, bypassing the app entirely) ---
     rc, out, err = _exec_api(

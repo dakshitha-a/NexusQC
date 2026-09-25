@@ -48,6 +48,43 @@ ADMIN_PASS = _default_admin_pass()
 
 QATEST_PREFIX = "qatest_"
 
+# The deployment-wide admin purges (POST /api/admin/purge/jobs and its
+# siblings) delete EVERY user's data on the stack, not only what a test
+# created. run_backend.sh already leaves the scripts that call them out of
+# its default set, but that only protects a run that goes through the
+# runner: on 2026-09-24 p1_03 was run on its own to check a config change
+# and took seven finished jobs belonging to a real account with it. So the
+# refusal lives here, on the admin client every script gets, where running
+# a script directly cannot route around it. Setting this variable is how a
+# person says a blind purge of the whole stack is what they want.
+ALLOW_PURGE_ENV = "QC_AGENT_TEST_ALLOW_PURGE"
+_ADMIN_PURGE_PREFIX = "/api/admin/purge/"
+
+
+def purge_allowed() -> bool:
+    return os.environ.get(ALLOW_PURGE_ENV) == "1"
+
+
+class BlindPurgeRefused(RuntimeError):
+    pass
+
+
+def _refuse_blind_purge(request: httpx.Request) -> None:
+    if request.url.path.startswith(_ADMIN_PURGE_PREFIX) and not purge_allowed():
+        raise BlindPurgeRefused(
+            f"refused {request.method} {request.url.path}: it deletes every user's data on "
+            f"the stack. Set {ALLOW_PURGE_ENV}=1 to run it on purpose."
+        )
+
+
+def require_purge_opt_in(what: str) -> None:
+    """For a script whose whole point is a deployment-wide purge: stop
+    before it touches anything unless the opt-in is set."""
+    if not purge_allowed():
+        print(f"[SKIP] {what} -- this script purges every user's data on the stack; "
+              f"set {ALLOW_PURGE_ENV}=1 to run it on purpose.")
+        sys.exit(0)
+
 
 def _origin() -> str:
     return BASE_URL
@@ -99,7 +136,7 @@ def admin_client() -> httpx.Client:
             file=sys.stderr,
         )
         sys.exit(1)
-    c = new_client()
+    c = new_client(event_hooks={"request": [_refuse_blind_purge]})
     r = c.post("/api/auth/login", json={"email_or_username": ADMIN_USER, "password": ADMIN_PASS})
     if r.status_code != 200:
         print(f"FAIL: admin login failed: {r.status_code} {r.text}", file=sys.stderr)
