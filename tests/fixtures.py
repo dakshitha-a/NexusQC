@@ -537,10 +537,15 @@ def cleanup_jobs(admin: httpx.Client, job_ids) -> tuple[int, list[str]]:
         if r.status_code in (200, 404):
             deleted += 1
             continue
-        # One retry: the route waits a while for a cancelled job to stop,
-        # and one that was mid-spawn can take longer.
-        time.sleep(3)
-        r = admin.delete(f"/api/admin/jobs/{job_id}", timeout=60)
+        # A 409 means cancelled but not yet stopped. A job whose submitting
+        # process has exited (sec_07 does that deliberately) has no live
+        # manager to stop it, and only reaches a terminal status when the
+        # server's reconcile sweep marks it, about a minute later. Keep
+        # asking for up to 90 s rather than leave it behind.
+        deadline = time.time() + 90
+        while r.status_code == 409 and time.time() < deadline:
+            time.sleep(5)
+            r = admin.delete(f"/api/admin/jobs/{job_id}", timeout=60)
         if r.status_code in (200, 404):
             deleted += 1
         else:

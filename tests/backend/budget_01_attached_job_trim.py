@@ -138,8 +138,11 @@ def _shared_marker() -> None:
     check("the route uses that definition rather than its own copy",
           chat_routes._JOB_ATTACH_PREFIX == JOB_ATTACH_PREFIX, "")
     graph_src = inspect.getsource(sys.modules["app.agent.graph"])
-    check("the graph recognises it through the same name, not a literal",
-          "JOB_ATTACH_MARKER" in graph_src, "")
+    # Since a13417e the graph asks state.attached_job_id, which reads the
+    # marker, rather than importing the marker itself. What this guards is
+    # that the graph never carries its own copy of the text.
+    check("the graph recognises it through the shared helper, not a literal",
+          "attached_job_id" in graph_src and "(attached job context" not in graph_src, "")
 
 
 def main() -> None:

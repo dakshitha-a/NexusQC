@@ -1339,6 +1339,35 @@ class JobManager:
                 "Job interrupted by a server restart with no recoverable result. Please resubmit."
             )))
 
+    def _settle_untracked(self, job_id: str):
+        """For cancel(): a job on disk as "running" that this manager is not
+        running. Returns None if there is nothing to cancel, True if the job
+        is now terminal, or the worker pid to stop if it is still alive.
+
+        The same three facts _reconcile_orphaned_jobs goes by: a result the
+        worker already wrote is authoritative; a live, identity-verified
+        worker is adopted like an orphan so it can be stopped; a worker that
+        is gone with no result is recorded as cancelled, since cancelling it
+        is what was asked and nothing is left running."""
+        if (read_status(job_id) or {}).get("status") != "running":
+            return None
+        spec = read_spec(job_id)
+        if spec is None or is_master_spec(spec):
+            return None
+        result = read_result(job_id)
+        if result is not None and result.get("status") in TERMINAL_STATUSES:
+            write_status(job_id, result["status"], "settled when a cancel found it untracked")
+            return True
+        meta = read_meta(job_id)
+        pid = meta.get("worker_pid")
+        if _pid_is_same_process(pid, meta.get("worker_pid_create_time")):
+            with self._lock:
+                self._orphan_pids[job_id] = pid
+            return pid
+        write_status(job_id, "cancelled", "cancelled by user; its worker had already stopped")
+        write_result(JobResult(job_id, "cancelled", error="Cancelled by user. Its worker had already stopped."))
+        return True
+
     def _watch_orphan_worker(self, job_id: str, pid: int) -> None:
         """Companion to _reconcile_orphaned_jobs case 2: finalizes a job
         whose worker subprocess is still alive but was spawned by a
@@ -1847,8 +1876,19 @@ class JobManager:
             proc = self._procs.get(job_id)
             orphan_pid = self._orphan_pids.get(job_id) if proc is None else None
             pending = proc is None and orphan_pid is None and (read_status(job_id) or {}).get("status") == "pending"
-            if proc is None and orphan_pid is None and not pending:
+        if proc is None and orphan_pid is None and not pending:
+            # "running" on disk, but not a job this manager is running. That
+            # happens when another process submitted it and has since
+            # exited: only a new manager's startup reconcile would ever settle
+            # it, so it sat "running" and uncancellable, and DELETE refused it
+            # as non-terminal. Settle it here with the reconcile's own rules.
+            settled = self._settle_untracked(job_id)
+            if settled is None:
                 return False
+            if settled is True:
+                return True
+            orphan_pid = settled
+        with self._lock:
             self._cancelled.add(job_id)
         # Best-effort removal from the scheduler's own queue -- a no-op if
         # the dispatcher already popped this job (it's a live proc/orphan
