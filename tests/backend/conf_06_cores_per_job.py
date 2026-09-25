@@ -10,7 +10,7 @@ itself to the .env value. This checks each hop from the console to the job:
      "setting". Values the host cannot supply (0, one above the ceiling),
      a fraction, a string and a boolean are each refused with a 400 that
      names the ceiling.
-  2. One water HF/STO-3G PySCF job, submitted inside the api container
+  2. One benzene HF/cc-pVDZ PySCF job, submitted inside the api container
      after the change, records cores=2 in its meta.json. While it runs,
      its worker's environment (read from /proc/<pid>/environ in the
      container) carries QC_AGENT_N_CORES=2, OMP_NUM_THREADS=2 and the
@@ -58,33 +58,47 @@ def _exec_api(code: str) -> str:
 # Submits the job and watches its worker from inside the container, where
 # the worker's pid is meaningful. Prints one JSON line.
 SUBMIT_AND_WATCH = r'''
-import json, time
+import json, threading, time
 from pathlib import Path
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager
 from app.config import JOBS_DIR
 
-m = resolve_molecule("water")
+# submit() returns only once the job is done when called from a process like
+# this one, so the worker is watched from a thread started first. It looks
+# for any job directory that appears, reads its worker pid from meta.json,
+# and reads that process's environment while it is alive. Benzene
+# HF/cc-pVDZ runs for a few seconds, which is ample at a 20 ms poll.
+existing = {p.name for p in JOBS_DIR.iterdir()}
+found = {}
+stop = threading.Event()
+
+def watch():
+    while not stop.is_set() and "env" not in found:
+        for d in JOBS_DIR.iterdir():
+            if d.name in existing:
+                continue
+            try:
+                pid = json.loads((d / "meta.json").read_text()).get("worker_pid")
+                raw = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if pid else None
+            except Exception:
+                raw = None
+            if raw:
+                found["env"] = dict(kv.decode().split("=", 1) for kv in raw if b"=" in kv)
+        time.sleep(0.02)
+
+watcher = threading.Thread(target=watch, daemon=True)
+watcher.start()
+m = resolve_molecule("benzene")
 spec = JobSpec(method="hf", engine="pyscf", task="single_point", subtype="gs",
-               molecule=m.to_dict(), params={"basis": "sto-3g"}, label="qatest conf_06 cores")
+               molecule=m.to_dict(), params={"basis": "cc-pvdz"}, label="qatest conf_06 cores")
 job_id = get_job_manager().submit(spec)
-env, meta = None, {}
-deadline = time.time() + 180
-while time.time() < deadline:
-    try:
-        meta = json.loads((JOBS_DIR / job_id / "meta.json").read_text())
-    except Exception:
-        meta = {}
-    pid = meta.get("worker_pid")
-    if pid and env is None:
-        try:
-            raw = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
-            env = dict(kv.decode().split("=", 1) for kv in raw if b"=" in kv)
-        except Exception:
-            pass
-    if get_job_manager().status(job_id)["status"] in ("completed", "failed", "cancelled"):
-        break
-    time.sleep(0.05)
+deadline = time.time() + 300
+while get_job_manager().status(job_id)["status"] not in ("completed", "failed", "cancelled") and time.time() < deadline:
+    time.sleep(0.2)
+stop.set()
+meta = json.loads((JOBS_DIR / job_id / "meta.json").read_text())
+env = found.get("env")
 keep = ("QC_AGENT_N_CORES", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "QC_AGENT_JOB_WORKER")
 print(json.dumps({"job_id": job_id, "cores": meta.get("cores"),
                   "status": get_job_manager().status(job_id)["status"],

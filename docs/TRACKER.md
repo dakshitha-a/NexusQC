@@ -34,8 +34,12 @@ there was no single place a live setting could have gone.
 
 ## Phase 1: one live value
 
-- [in-progress] P1.1: `cores_per_job()` and every read site use it; the worker gets it in its environment
-- [in-progress] P1.2: admin route and console field
-- [in-progress] P1.3: docs, changelog and tests README
-- [todo] P1.4: stack rebuilt, backend and browser checks pass
+- [done] P1.1: `cores_per_job()` and every read site use it; the worker gets it in its environment
+  evidence: tests/backend/conf_06_cores_per_job.py → "15/15 on the stack at a383154: set to 2, a benzene HF job recorded cores=2, its running worker carried QC_AGENT_N_CORES=2 and OMP_NUM_THREADS=2, PySCF ran 2 threads after its own import, ORCA wrote and capped %pal nprocs 2"
+- [done] P1.2: admin route and console field
+  evidence: tests/frontend/admin_02_cores_per_job.spec.mjs → "9/9: field renders with the live value and a per-engine note, Save disabled above 64 and for 2.5, saved 3 survives a reload, note says Set here (screenshot looked at); restored to the .env default"
+- [done] P1.3: docs, changelog and tests README
+  evidence: docs/CONFIGURATION.md → "QC_AGENT_N_CORES is the default the console overrides, with what applies when; README, CHANGELOG Unreleased and tests/README.md updated"
+- [done] P1.4: stack rebuilt, backend and browser checks pass
+  evidence: tests/backend/perf_04_fair_scheduling.py → "stack on a383154 healthy; perf_03 7/7, perf_04 6/6, p1_03 10/10, perf_05 19/19, sched_01 6/6; no job or thread left behind"
 - merged: -
