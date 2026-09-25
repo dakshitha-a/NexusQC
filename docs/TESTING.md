@@ -32,11 +32,19 @@ Two things that look like breakage but are not:
 - **A `sec_*` script printing `[FAIL]` is often the expected outcome.** Several
   exist specifically to demonstrate that a particular gap is real. `run_backend.sh`
   still reports overall success for those.
-- **Every script in `tests/backend/` shares one apparent client IP**, which
-  collides with the per-IP login rate limiter. The shared fixture resets the
-  buckets before logging in; scripts that must exceed the budget within their own
-  run reset around their own heavy sections. A lone rate-limit failure usually
-  means something else was running against the same stack concurrently.
+- **Every script in `tests/backend/` shares one apparent client IP**, and where
+  Docker's port proxy hides client addresses so does every real user. Login is
+  limited per account and per address. The shared fixture clears the test
+  accounts' and per-address buckets before logging in; scripts that must exceed
+  the budget within their own run reset around their own heavy sections. A lone
+  rate-limit failure usually means someone else was using the stack at the time.
+
+**The stack may have real users on it.** The development stack is also a
+research group's deployment. Every runner snapshots real users' data before it
+starts and fails if any of it is gone afterwards (`tests/integrity.py`), and
+scripts that purge, restart the api or change a shared setting refuse or skip
+while that would touch someone else. `tests/README.md`, "This stack has real
+users on it", lists every guard.
 
 `tests/backend/sec_10_*` is excluded from the default run, destructive-shaped,
 though scoped to a disposable account, and must be run deliberately.

@@ -35,8 +35,8 @@ python3 tests/backend/_00_bootstrap.py   # provisions qatest_admin, run once per
 ```bash
 bash tests/run_backend.sh          # everything except the opt-in scripts below
 python3 tests/backend/sec_10_bootstrap_reactivation_bypass.py   # opt-in, see its own docstring
-QC_AGENT_TEST_ALLOW_PURGE=1 python3 tests/backend/p1_07_purge_status_source.py   # opt-in, WIPES EVERY JOB
-python3 tests/backend/perf_10_api_memory_settle.py              # opt-in, RESTARTS THE API, ~1 hour
+QC_AGENT_TEST_ALLOW_PURGE=1 python3 tests/backend/p1_07_purge_status_source.py   # WIPES EVERY JOB; only runs on a stack with no real users
+QC_AGENT_TEST_ALLOW_RESTART=1 python3 tests/backend/perf_10_api_memory_settle.py   # RESTARTS THE API, ~1 hour; only when nobody is active
 ```
 
 **`perf_10` is opt-in for a reason that is not destructiveness.** It restarts
@@ -57,16 +57,37 @@ survived, because a job purge does not touch the Postgres checkpoints, but the
 results on disk were gone. Run it against a stack you are willing to empty,
 and not against one somebody is using.
 
-**Every admin purge now needs `QC_AGENT_TEST_ALLOW_PURGE=1`.** Leaving a
-script out of `run_backend.sh` only protects a run that goes through the
-runner. On 2026-09-24 `p1_03` was run on its own to check a config change, and
-its purge deleted seven finished jobs belonging to a real account. So the
-refusal now lives in `fixtures.admin_client()`: the client it returns will not
-send any request under `/api/admin/purge/` unless that variable is `1`, and
-raises `BlindPurgeRefused` instead. The scripts that purge honour the same
-flag. `p1_07` exits at once without it. `p1_03`, `perf_02` and `e2e_16` skip
-only their purge checks, report them as `[SKIP]`, and run everything else.
-Setting the variable is how you say an empty stack is what you want.
+Since 2026-09-24 a purge needs more than the flag. See the next section.
+
+## This stack has real users on it
+
+The development stack is also the research group's testing deployment. Every
+account on it whose name does not start with `qatest_` belongs to a person, and
+their jobs, conversations, uploads and plots are their work. The suites run
+against that same stack, so every script is written to leave it alone. Stopping
+and rebuilding the containers is fine; deleting or changing people's data is
+not. These are the guards, where each lives, and what it protects:
+
+| Guard | Where | What it stops |
+|---|---|---|
+| Whole-stack purges refuse unless `QC_AGENT_TEST_ALLOW_PURGE=1` **and** every account is `qatest_*` | `fixtures.purge_refusal()`, enforced on the client `admin_client()` returns | `p1_07`, `p1_03`, `perf_02` and `e2e_16` D3 deleting everyone's jobs. On this stack they print `[SKIP]` and name the accounts they would have hurt |
+| `e2e_16 --destroy` (reset-all) needs the same two conditions | `e2e_16` | deleting every account |
+| Restarting the api needs `QC_AGENT_TEST_ALLOW_RESTART=1` **and** no real user with a job running or the app open, and no job without an owner running | `fixtures.restart_refusal()`, `restart_api()` | `conf_04`, `perf_05`, `e2e_13` S4 and `perf_10` dropping everyone's chat and killing their calculations |
+| Tests that change how jobs run skip while real users have jobs in flight, or the app open for settings a new job reads | `fixtures.jobs_refusal()`, `require_jobs_quiet()`; `realUsersActive()` in `frontend/_helpers.mjs` | a concurrency cap of 1, or 2 cores per calculation, landing on somebody's real work |
+| A changed setting is restored only if it still holds the test's value | `fixtures.config_override()`, `restore_config()` | a test writing over an admin's own change. `p1_03` did exactly that on 2026-09-24 |
+| To prove a setting can be written, write back the value already there | `p1_03`, `up_01`, `e2e_16` | a literal quietly changing everybody's allowance. `up_01` held the uploads quota below its default for ten days |
+| Squeeze one account's storage cap, never everyone's | `fixtures.quota_override()`, `PUT /api/admin/users/{id}/quota-override` | the app evicting every user's oldest work, which it does on every submission while a per-user cap is below their usage |
+| The rate-limit reset clears only test accounts' buckets and the shared per-address ones | `fixtures.reset_rate_limits()` | wiping the record of attempts against a real account's password |
+| Every runner snapshots real users' data first and fails if any of it is gone afterwards | `tests/integrity.py`, called by `run_backend.sh`, `e2e/run_e2e.sh`, `frontend/run_frontend.mjs` | a loss passing unnoticed because every script said PASS. `integ_01` proves the check can fail |
+| Host scripts that run the job machinery use a scratch data directory unless given `--live-data` | `QC_AGENT_DATA_DIR`, set by `scripts/spikes/spike_thread_caps.py` and `scripts/validate_ensemble_orbital_reuse.py` | a scratch job appearing in the group's job list |
+
+Two rules for anything new. A script that deletes, restarts, or changes a
+shared setting goes through one of the helpers above rather than calling the
+route directly. And a script cleans up only what it created, by id; never by
+listing everything and deleting what looks like clutter.
+
+If a run ever ends with `integrity: FAIL`, stop and restore from the backup
+directory (`QC_AGENT_BACKUP_DIR`) before doing anything else.
 
 ```bash
 
@@ -132,8 +153,10 @@ looks wrong again: an admission order on its own cannot tell an unfair
 scheduler from a test that lost a race.
 
 **Every script shares one apparent client IP** (whatever machine runs the
-suite, seen by nginx as one address), which collides with the per-IP
-login/register rate limiter (`app/auth/rate_limit.py`) unless managed --
+suite, seen by nginx as one address; on a host where Docker's port proxy hides
+client addresses, real users share it too), which collides with the
+per-address login and register budgets (`app/auth/rate_limit.py`) unless
+managed --
 `fixtures.admin_client()` (the first call in every script) already calls
 `fixtures.reset_rate_limits()` before logging in, so a fresh script always
 gets a full budget. If you add a new script that itself needs more than a

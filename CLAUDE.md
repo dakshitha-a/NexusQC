@@ -115,15 +115,22 @@ stack**, not just a running `server.main`: the auth layer is inert without
 `QC_AGENT_DATABASE_URL`, and several of the bugs it exists to catch are
 properties of the nginx-fronted deployment rather than the bare process.
 
+**The stack the suites run against may have real users on it.** Scripts that
+purge, restart the api, or change a shared setting go through the guards in
+`tests/fixtures.py`, and every runner checks with `tests/integrity.py` that
+no real user's data was lost. `tests/README.md`, "This stack has real users
+on it", lists each guard and what it protects.
+
 Two things that look like breakage but aren't:
 
 - A `sec_*` script printing `[FAIL]` is often the expected, informative outcome.
   Several exist specifically to prove a gap is real. See `tests/README.md`.
-- Every script in `tests/backend/` shares one apparent client IP, which collides
-  with the per-IP login rate limiter. `tests/fixtures.py`'s `admin_client()`
-  resets the buckets before logging in, so each script starts with a full budget.
-  Scripts that must exceed the budget within their own run reset around their own
-  heavy sections.
+- Every script in `tests/backend/` shares one apparent client IP, and where
+  Docker's port proxy hides client addresses so does every real user. Login is
+  limited per account and per address. `tests/fixtures.py`'s `admin_client()`
+  clears the test accounts' and per-address buckets before logging in, so each
+  script starts with a full budget. Scripts that must exceed the budget within
+  their own run reset around their own heavy sections.
 
 `tests/backend/sec_10_*` is excluded from `run_backend.sh` by default,
 destructive-shaped even though scoped to a disposable account, and must be run

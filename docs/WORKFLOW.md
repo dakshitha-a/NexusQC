@@ -272,6 +272,22 @@ your real deployment is the built-in safety net either way. It reports what
 a pending update would do (schema changes, new required config, in-flight
 jobs) before anything is touched.
 
+## The stack's data belongs to people
+
+A deployment of this project, including the development stack on the
+maintainer's host, which is also a research group's testing deployment, holds
+other people's work. Containers and images are disposable: stop, restart and
+rebuild them whenever it helps. The data is not:
+
+- Never `docker compose down -v`. It deletes the Postgres volume, which is
+  every account, every conversation and every audit record.
+- Never delete jobs, conversations, uploads or accounts you did not create
+  yourself. Clean up by id, never by listing everything.
+- Tests run against the stack with the guards `tests/README.md` describes, and
+  every runner checks afterwards that no real user's data was lost.
+- An update is something users see. It warns them, locks them out briefly and
+  lets them back in; see below.
+
 ## Updating a deployment
 
 ```bash
