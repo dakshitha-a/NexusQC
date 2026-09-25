@@ -1,8 +1,11 @@
 <!-- artifact: https://claude.ai/artifact/KBBsDm9Mz8jbZZMegquMeL -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: plots can be annotated, and a turn never ends in silence
+# Closed Tracker: plots can be annotated, and a turn never ends in silence
+
+**Closed 2026-09-24. Eleven steps in four phases, all done.**
+No tracker is active until the next plan begins.
 
 **Opened 2026-09-24.** Four phases. The tracker this replaces is
-[`2026-09-named-active-space.md`](trackers/2026-09-named-active-space.md),
+[`2026-09-named-active-space.md`](2026-09-named-active-space.md),
 which closed on 2026-09-20. **Exactly one tracker is active at a time.**
 
 ## Rules (enforced by `scripts/check_tracker.py`)
@@ -76,4 +79,4 @@ turn has been paying for hidden reasoning that LangChain drops.
   evidence: tests/backend/agent_02_draft_flow.py → "37/37 against the served model; chain_01 27, reject_01 24, submit_01 27, agent_08 15 all pass; agent_11 shows 0 reasoning chars"
 - [done] P4.3: dev stack rebuilt, live turn and browser check
   evidence: tests/frontend/plots_03_annotations_live.spec.mjs → "stack on e460e5a; a real turn chose value_labels, the plot loaded inline (2400 px) with values on the levels; 7/7; container log shows 'agent: model call took 11.6s for a 13-message prompt'"
-- merged: -
+- merged: f54fd9e
