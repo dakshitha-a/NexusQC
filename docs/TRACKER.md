@@ -75,7 +75,8 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
 
 - [done] P1.1: whole-stack purges and reset-all refuse on a stack with real users
   evidence: tests/fixtures.py → "with QC_AGENT_TEST_ALLOW_PURGE=1 set on this stack: a direct admin purge raised BlindPurgeRefused naming dakshitha, dma, maneesh; p1_07 skipped; e2e_16 --destroy skipped D3 and D6-D8, 6/6 other checks passed; no purge reached nginx, job list and accounts unchanged"
-- [todo] P1.2: api restarts are opt-in and refuse while real users are active
+- [done] P1.2: api restarts are opt-in and refuse while real users are active
+  evidence: tests/fixtures.py → "conf_04 and perf_05 printed [SKIP] without the flag; with QC_AGENT_TEST_ALLOW_RESTART=1 restart_refusal answered 'real users are active: dma (0 running, 1 open)'; api StartedAt unchanged. Scripts kept in the default set since they skip themselves; e2e_13 S4 and perf_10 use the same check"
 - [todo] P1.3: every config change in tests restores; quota tests cannot evict others
 - [todo] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
 - [todo] P1.5: every test run checks real users' data is intact before and after

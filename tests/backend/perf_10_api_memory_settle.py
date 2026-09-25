@@ -94,7 +94,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import admin_client, check, require_restart_opt_in, cleanup_user, mint_invite, register, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 POLLS = 50
@@ -278,6 +278,7 @@ print(json.dumps(ids))
 
 def main() -> None:
     admin = admin_client()
+    require_restart_opt_in(admin, "perf_10 api memory settle")
     token = mint_invite(admin)
     client, user = register(token)
     created: dict = {}

@@ -122,6 +122,69 @@ def require_purge_opt_in(what: str) -> None:
         sys.exit(0)
 
 
+# Restarting the api container interrupts everyone using the app: open chat
+# streams drop, and every running calculation is killed whoever started it.
+# That is fine on an idle stack and not on one a research group is working
+# on, so a restart needs QC_AGENT_TEST_ALLOW_RESTART=1 AND nobody but test
+# accounts active: no real user with a running job or the app open, and no
+# running job without an owner, since that could be anyone's.
+ALLOW_RESTART_ENV = "QC_AGENT_TEST_ALLOW_RESTART"
+
+
+class RestartRefused(RuntimeError):
+    pass
+
+
+def restart_refusal(admin: httpx.Client) -> str | None:
+    """Why the api may not be restarted right now, or None when it may."""
+    if os.environ.get(ALLOW_RESTART_ENV) != "1":
+        return (f"restarting the api interrupts everyone using the stack; set "
+                f"{ALLOW_RESTART_ENV}=1 to allow it when nobody else is active")
+    act = admin.get("/api/admin/activity")
+    act.raise_for_status()
+    body = act.json()
+    busy = [
+        f"{u['username']} ({u['running_jobs']} running, {u['open_streams']} open)"
+        for u in body["users"]
+        if not (u["username"] or "").startswith(QATEST_PREFIX)
+        and (u["running_jobs"] or u["open_streams"])
+    ]
+    if body["unowned"]["running_jobs"]:
+        busy.append(f"{body['unowned']['running_jobs']} running job(s) with no owner")
+    if busy:
+        return "real users are active: " + "; ".join(busy)
+    return None
+
+
+def require_restart_opt_in(admin: httpx.Client, what: str) -> None:
+    """For a script whose whole point needs a restart: stop before it sets
+    anything up unless a restart may happen now."""
+    why = restart_refusal(admin)
+    if why:
+        print(f"[SKIP] {what} -- {why}")
+        sys.exit(0)
+
+
+def restart_api(admin: httpx.Client, wait_seconds: float = 180.0) -> bool:
+    """Restarts the api container if restart_refusal allows it, then waits
+    for /api/health. Raises RestartRefused otherwise. Returns whether the
+    api came back healthy in time."""
+    why = restart_refusal(admin)
+    if why:
+        raise RestartRefused(why)
+    subprocess.run(["docker", "compose", "restart", "api"], cwd=str(_COMPOSE_DIR),
+                   check=True, capture_output=True, timeout=300)
+    deadline = time.time() + wait_seconds
+    while time.time() < deadline:
+        try:
+            if new_client().get("/api/health", timeout=5).status_code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
 def _origin() -> str:
     return BASE_URL
 

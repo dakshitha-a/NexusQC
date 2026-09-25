@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import check, new_client, summary  # noqa: E402
+from fixtures import admin_client, check, new_client, require_restart_opt_in, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 N_CONCURRENT = 25
@@ -50,6 +50,7 @@ def _wait_healthy(timeout: float = HEALTH_WAIT_SECONDS) -> bool:
 
 
 def main() -> None:
+    require_restart_opt_in(admin_client(), "conf_04 cold-start race after an api restart")
     print("restarting api container to force a cold pool/redis-client singleton...")
     subprocess.run(["docker", "compose", "restart", "api"], cwd=str(COMPOSE_DIR), check=True, capture_output=True)
     check(f"api container became healthy again after restart (waited up to "

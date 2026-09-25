@@ -61,7 +61,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, cleanup_user, mint_invite, register, restart_refusal, skip, summary,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import record  # noqa: E402
@@ -305,55 +307,60 @@ print("@@@" + json.dumps({{"job": j, "pid": pid, "alive_before": alive_before,
 
         # ------------------------------------------------------------ S4
         print("\n=== S4: orphan reconciliation after an api restart ===\n")
-        print("    (the api is PID 1 of its container, so a restart also kills")
-        print("     the detached worker -- what is asserted is that the job is")
-        print("     CLASSIFIED, not that it survives)")
-        code4 = f'''
-import json, os, time
-from app.chemistry.molecule import resolve_molecule
-from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
-m = resolve_molecule("water").to_dict()
-mgr = get_job_manager()
-j = mgr.submit(JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m,
-                       params={json.dumps(CAS)}), owner_user_id="{uid}")
-for _ in range(30):
-    if (read_status(j) or {{}}).get("status") == "running":
-        break
-    time.sleep(1)
-print("@@@" + json.dumps({{"job": j, "status": (read_status(j) or {{}}).get("status")}}))
-os._exit(0)
-'''
-        res4 = marker(api_py(code4, timeout=600))
-        orphan = res4["job"]
-        check("S4a a job was left running on disk before the restart",
-              res4["status"] == "running", f"status={res4['status']}")
+        why_not = restart_refusal(admin)
+        if why_not:
+            skip("S4 orphan reconciliation after an api restart", why_not)
+            record("S4", "SKIP")
+        else:
+            print("    (the api is PID 1 of its container, so a restart also kills")
+            print("     the detached worker -- what is asserted is that the job is")
+            print("     CLASSIFIED, not that it survives)")
+            code4 = f'''
+    import json, os, time
+    from app.chemistry.molecule import resolve_molecule
+    from app.chemistry.jobs.base import JobSpec, get_job_manager, read_status
+    m = resolve_molecule("water").to_dict()
+    mgr = get_job_manager()
+    j = mgr.submit(JobSpec(task="single_point", subtype="gs", method="casscf", engine="orca", molecule=m,
+                           params={json.dumps(CAS)}), owner_user_id="{uid}")
+    for _ in range(30):
+        if (read_status(j) or {{}}).get("status") == "running":
+            break
+        time.sleep(1)
+    print("@@@" + json.dumps({{"job": j, "status": (read_status(j) or {{}}).get("status")}}))
+    os._exit(0)
+    '''
+            res4 = marker(api_py(code4, timeout=600))
+            orphan = res4["job"]
+            check("S4a a job was left running on disk before the restart",
+                  res4["status"] == "running", f"status={res4['status']}")
 
-        subprocess.run(["docker", "compose", "restart", "api"],
-                       cwd=str(REPO), capture_output=True, timeout=180)
-        # wait for the api to answer again
-        for _ in range(60):
-            try:
-                if admin.get("/api/health", timeout=5).status_code == 200:
-                    break
-            except Exception:
-                pass
-            time.sleep(2)
-        time.sleep(5)
+            subprocess.run(["docker", "compose", "restart", "api"],
+                           cwd=str(REPO), capture_output=True, timeout=180)
+            # wait for the api to answer again
+            for _ in range(60):
+                try:
+                    if admin.get("/api/health", timeout=5).status_code == 200:
+                        break
+                except Exception:
+                    pass
+                time.sleep(2)
+            time.sleep(5)
 
-        st = json.loads(api_py(
-            f'import json;from app.chemistry.jobs.base import read_status;'
-            f'print("@@@"+json.dumps(read_status("{orphan}") or {{}}))'
-        ).splitlines()[-1][3:])
-        print(f"    after restart, orphan {orphan} -> {st.get('status')} "
-              f"({str(st.get('message'))[:100]})")
-        check("S4b _reconcile_orphaned_jobs classified the orphan into a "
-              "terminal state instead of leaving it stuck 'running' forever",
-              st.get("status") in ("failed", "cancelled", "completed"),
-              f"status={st.get('status')} message={str(st.get('message'))[:150]}")
-        check("S4c the reconciliation explains itself in the job's message",
-              bool(st.get("message")), str(st.get("message"))[:200])
-        record("S4", "PASS" if st.get("status") in ("failed", "cancelled", "completed") else "FAIL",
-               job=orphan, **st)
+            st = json.loads(api_py(
+                f'import json;from app.chemistry.jobs.base import read_status;'
+                f'print("@@@"+json.dumps(read_status("{orphan}") or {{}}))'
+            ).splitlines()[-1][3:])
+            print(f"    after restart, orphan {orphan} -> {st.get('status')} "
+                  f"({str(st.get('message'))[:100]})")
+            check("S4b _reconcile_orphaned_jobs classified the orphan into a "
+                  "terminal state instead of leaving it stuck 'running' forever",
+                  st.get("status") in ("failed", "cancelled", "completed"),
+                  f"status={st.get('status')} message={str(st.get('message'))[:150]}")
+            check("S4c the reconciliation explains itself in the job's message",
+                  bool(st.get("message")), str(st.get("message"))[:200])
+            record("S4", "PASS" if st.get("status") in ("failed", "cancelled", "completed") else "FAIL",
+                   job=orphan, **st)
 
     finally:
         if orig_per_user is not None:

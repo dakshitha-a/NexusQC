@@ -52,6 +52,13 @@
 # fixtures.admin_client() now refuses any /api/admin/purge/ request unless
 # QC_AGENT_TEST_ALLOW_PURGE=1, and the scripts above skip their purge checks
 # without it. The exclusion stays as a second line of defence.
+#
+# Restarts follow the same rule. conf_04 and perf_05 restart the api, which
+# drops every open stream and kills every running calculation on the stack.
+# They stay in the default set because they now check first, through
+# fixtures.restart_refusal(): without QC_AGENT_TEST_ALLOW_RESTART=1, or while
+# any real user has a job running or the app open, they print [SKIP] and
+# touch nothing. e2e_13's S4 and perf_10 use the same check.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
