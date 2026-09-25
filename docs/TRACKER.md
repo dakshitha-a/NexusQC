@@ -95,7 +95,8 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
 
 - [done] P2.1: the update notice: app_config row and GET /api/notice
   evidence: tests/backend/notice_01_update_notice.py → "18/18: public route with server clock, maintenance-exempt, expiry hides a notice, deploy bounds 0-120 min and 500 chars, cancel with nothing announced is 409, update.sh post_notice keeps quotes and backslash, cancel_requested matches only its own id; the live done notice was saved and put back identical"
-- [in-progress] P2.2: update.sh posts the notice, waits it out, locks, restarts, posts done
+- [done] P2.2: update.sh posts the notice, waits it out, locks, restarts, posts done
+  evidence: scripts/update.sh → "two real runs: a38f690->89e9bac from the host with 0 min notice, and 89e9bac->1ea4601 started from the console with the default 10: announced 23:31:57 for 23:41:57, the build ran inside the window, imminent then lockout at 23:41:57, healthy, lockout lifted, done posted; runner status done - updated"
 - [done] P2.3: users stay logged in through an update
   evidence: scripts/update.sh → "first rollout (a38f690 -> 89e9bac) logged out no one: no 'logged out' line in its log, and dma's Redis session key dates from 8.6 h before, maneesh's from his password reset an hour before"
 - [done] P2.4: the banner in the app, and the overlay text to match
@@ -104,15 +105,20 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
 
 ## Phase 3: update from the console
 
-- [in-progress] P3.1: console controls: notice minutes, message, cancel, stop-and-update override
-- [in-progress] P3.2: deploy request carries the notice; cancel is an api action
-- [todo] P3.3: the updater runs on this host
+- [done] P3.1: console controls: notice minutes, message, cancel, stop-and-update override
+  evidence: tests/frontend/notice_01_update_notice.spec.mjs → "36/36: notice fields default to 10 and an empty note, cancel shows only while announced and sends cancel, the override names whose calculations stop, typing UPDATE sends notice_minutes 25 and the note; buttons say Update, Stop and update, Roll back; section screenshot looked at"
+- [done] P3.2: deploy request carries the notice; cancel is an api action
+  evidence: tests/backend/notice_01_update_notice.py → "bounds and cancel covered there; the console run carried the admin's note through the signed request and the runner's message file to every tab's banner, seen in the watcher's screenshots"
+- [done] P3.3: the updater runs on this host
+  evidence: scripts/install_updater.sh → "installed; runner alive with a 9 s heartbeat; a signed report request came back done, measured from the running commit 89e9bac after fixing the runner to use it (it had said nothing to update); QC_AGENT_DEPLOY_SECRET added to .env before the first rollout so the api signs with it"
 - merged:
 
 ## Phase 4: verification and rollout
 
-- [todo] P4.1: backend and browser tests for the notice, console and guards
+- [done] P4.1: backend and browser tests for the notice, console and guards
+  evidence: tests/backend/priv_01_admin_scope.py → "priv_01 21/21, notice_01 18/18, sec_17 4/4, integ_01 5/5, notice_01 browser spec 36/36, all on the rebuilt stack"
 - [todo] P4.2: full default suites leave real users' data unchanged and restart nothing
-- [todo] P4.3: rollout, then a console update watched from a non-admin session
+- [done] P4.3: rollout, then a console update watched from a non-admin session
+  evidence: tests/frontend/accept_update_watch.mjs → "console update 89e9bac->1ea4601 watched from a fresh test user's tab: imminent banner with the admin's note at 23:42:01, overlay saying you stay signed in at 23:42:16, reload onto the new build still signed in with the done banner at 23:42:26; scheduled and its countdown were missed by a watcher bug (fixed) and are covered by the spec; dma's 7 jobs still present; integrity snapshot 3 accounts, 41 items"
 - [todo] P4.4: docs, changelog, and the tracker closed out
 - merged:

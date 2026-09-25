@@ -69,8 +69,17 @@ try {
   await watcher.goto(BASE_URL, { waitUntil: "load" });
   await watcher.waitForSelector(LOGGED_IN, { timeout: 20000 });
   const loadsBefore = reloads;
+  // A notice already on screen belongs to an earlier update (a done notice
+  // stays for an hour). The run is judged only on notices that came after.
+  const initial = await (await watcherCtx.request.get(`${BASE_URL}/api/notice`)).json();
+  // Only a finished one: an update keeps one notice id through all its
+  // phases, so ignoring a live one would hide the very update being watched.
+  const initialId = ["done", "failed", "cancelled"].includes(initial.notice?.phase) ? initial.notice.id : null;
+  if (initialId) timeline.push(`${stamp()} ignoring the earlier update's ${initial.notice.phase} notice ${initialId}`);
 
-  // Start it from the console, the way an admin would.
+  // Start it from the console, the way an admin would. QC_AGENT_ACCEPT_WATCH_ONLY=1
+  // watches an update already started instead.
+  if (process.env.QC_AGENT_ACCEPT_WATCH_ONLY !== "1") {
   const ap = await admin.newPage();
   await ap.goto(BASE_URL, { waitUntil: "domcontentloaded" });
   await ap.waitForSelector(LOGGED_IN, { timeout: 20000 });
@@ -83,6 +92,7 @@ try {
   await ap.locator('[data-testid="deploy-update"]').click();
   timeline.push(`${stamp()} admin pressed Update (notice ${await ap.locator('[data-testid="deploy-notice-minutes"]').inputValue()} min)`);
   await ap.screenshot({ path: path.join(outDir, "admin-after-update.png") });
+  }
 
   const seen = new Set();
   let overlaySeen = false, signinSeen = false, last = "";
@@ -99,6 +109,9 @@ try {
     } catch { /* mid-reload */ continue; }
     if (overlay) overlaySeen = true;
     if (signin) signinSeen = true;
+    let id = null;
+    try { id = (await (await watcherCtx.request.get(`${BASE_URL}/api/notice`)).json()).notice?.id || null; } catch { /* down */ }
+    if (id && id === initialId) { phase = ""; text = ""; }
     const key = `${phase}|${overlay}|${signedIn}|${signin}`;
     if (key !== last) {
       last = key;
