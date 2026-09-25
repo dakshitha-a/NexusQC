@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, summary  # noqa: E402
+from fixtures import check, matrix_user_client, summary  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, record  # noqa: E402
@@ -124,8 +124,9 @@ print("@@@" + json.dumps(done))
 
 
 def main() -> None:
-    admin = admin_client()
-    jobs = find_jobs(admin)
+    # The user e2e_08 ran its matrix as, who owns the jobs used here.
+    owner = matrix_user_client()
+    jobs = find_jobs(owner)
     print(f"Completed jobs available: "
           f"{sorted(f'{m}/{e}' for m, e in jobs.keys())}\n")
     if not jobs:
@@ -147,11 +148,11 @@ def main() -> None:
             print(f"    (no completed {key[0]}/{key[1]} job; {xn} not exercised)")
             record(xn, "SKIPPED", reason=f"no {key[0]}/{key[1]} job available")
             continue
-        called, text, turn = plot_via_agent(admin, job["job_id"], kind)
+        called, text, turn = plot_via_agent(owner, job["job_id"], kind)
         refused = looks_like_refusal(text)
         # The artifact must ALSO not exist -- a refusal message plus a
         # written plot would be worse than either alone.
-        r = admin.get(f"/api/jobs/{job['job_id']}")
+        r = owner.get(f"/api/jobs/{job['job_id']}")
         arts = (r.json().get("artifacts") or {}) if r.status_code == 200 else {}
         art_key = "uvvis_spectrum" if kind == "uvvis" else "ir_spectrum"
         no_artifact = art_key not in arts
@@ -174,14 +175,14 @@ def main() -> None:
             print(f"    (no completed {key[0]}/{key[1]} job; {pid} not exercised)")
             record(pid, "SKIPPED", reason=f"no {key[0]}/{key[1]} job available")
             continue
-        called, text, turn = plot_via_agent(admin, job["job_id"], kind)
-        r = admin.get(f"/api/jobs/{job['job_id']}")
+        called, text, turn = plot_via_agent(owner, job["job_id"], kind)
+        r = owner.get(f"/api/jobs/{job['job_id']}")
         arts = (r.json().get("artifacts") or {}) if r.status_code == 200 else {}
         wrote = art_key in arts
         check(f"{pid} plot artifact written for {key[0]}/{key[1]}", wrote,
               f"artifacts={sorted(arts.keys())} :: {text[:160]}")
         if wrote:
-            img = admin.get(f"/api/jobs/{job['job_id']}/artifacts/{art_key}")
+            img = owner.get(f"/api/jobs/{job['job_id']}/artifacts/{art_key}")
             check(f"{pid} the plot artifact is downloadable and is a PNG",
                   img.status_code == 200 and img.content[:4] == b"\x89PNG",
                   f"status={img.status_code} bytes={len(img.content)}")
@@ -206,13 +207,13 @@ def main() -> None:
     # it as a defect. Two trivial single-points at different basis sets are
     # cheap, always comparable, and make the check about the tool instead of
     # about the account's history.
-    comparable = _submit_comparable_single_points(admin, n=2)
+    comparable = _submit_comparable_single_points(owner, n=2)
     completed_ids = comparable or [
-        j["job_id"] for j in (admin.get("/api/jobs").json() or [])
+        j["job_id"] for j in (owner.get("/api/jobs").json() or [])
         if j.get("status") == "completed"
     ]
     if len(completed_ids) >= 2:
-        s = AgentSession.new(admin, label="e2e plot comparison")
+        s = AgentSession.new(owner, label="e2e plot comparison")
         turn = s.say(
             f"Compare the total energy across these jobs and plot it: "
             f"{', '.join(completed_ids[:4])}.", timeout=420)
@@ -241,7 +242,7 @@ def main() -> None:
         # not "no plot of any kind succeeded" -- a custom-kind plot from a
         # real field path is the new capability working as intended, not a
         # regression of this scenario's original intent.
-        s2 = AgentSession.new(admin, label="e2e plot bad field")
+        s2 = AgentSession.new(owner, label="e2e plot bad field")
         t2 = s2.say(f"Plot a comparison of the dipole moment across jobs "
                     f"{', '.join(completed_ids[:3])}.", timeout=420)
         comparison_calls = [a for n, a in t2.tools_requested() if n == "plot" and a.get("kind") == "comparison"]
@@ -271,7 +272,7 @@ def main() -> None:
     # a field name unprompted (that's what lookup_capabilities'
     # plottable_fields is for, and is exercised separately, not here).
     if len(completed_ids) >= 2:
-        s3 = AgentSession.new(admin, label="e2e plot custom")
+        s3 = AgentSession.new(owner, label="e2e plot custom")
         t3 = s3.say(
             f"Make a custom plot for these jobs: {', '.join(completed_ids[:3])}. "
             f"Use x_field 'homo_lumo_gap_eV' and one series with y_field "
@@ -287,7 +288,7 @@ def main() -> None:
         # fabricate -- the same requirement plot(kind='comparison')'s
         # P-compare-badfield case already covers for its own field list,
         # exercised here for kind='custom''s free-form field paths instead.
-        s4 = AgentSession.new(admin, label="e2e plot custom bad field")
+        s4 = AgentSession.new(owner, label="e2e plot custom bad field")
         t4 = s4.say(
             f"Make a custom plot for these jobs: {', '.join(completed_ids[:3])}. "
             f"Use x_field 'homo_lumo_gap_eV' and one series with y_field "
@@ -307,7 +308,7 @@ def main() -> None:
         # docstring and correctly answered "not supported". So this is as much
         # a test of the docstring as of the renderer, and it is the one place
         # in this file that tests discovery on purpose.
-        s5 = AgentSession.new(admin, label="e2e plot levels")
+        s5 = AgentSession.new(owner, label="e2e plot levels")
         t5 = s5.say(
             f"Using these jobs: {', '.join(completed_ids[:3])}. Plot their energies "
             f"with the job names along the x axis and stacks of horizontal lines for "

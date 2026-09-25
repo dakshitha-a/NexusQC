@@ -59,6 +59,16 @@ note saying what changed.
 
 - During an update, a browser tab that had not started it reloaded every
   couple of seconds into the lockout. It now waits until the lockout lifts.
+- The updating screen appears the moment an update's restart begins. It
+  used to wait for a request to fail with the maintenance answer, and while
+  the server was being replaced the panels showed "Couldn't load jobs" for
+  about twenty seconds first.
+- A job left "running" by a process that had exited could not be cancelled
+  or deleted until the next server restart. Cancelling it now settles it:
+  its result if it wrote one, otherwise cancelled.
+- The admin console's "Check what an update would do" measured from the
+  checkout rather than from what is running, and on a host whose checkout is
+  also the deployment it said "nothing to update" with commits waiting.
 - The confirm buttons on "Update this deployment" and "Roll back" said
   "Purge". They say what they do.
 - The update impact report could miss a removed route or column on a host

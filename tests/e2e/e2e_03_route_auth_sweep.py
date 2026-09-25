@@ -49,6 +49,9 @@ PUBLIC_ROUTES = {
     ("GET", "/api/health"),
     ("GET", "/api/health/deep"),
     ("GET", "/api/version"),
+    # The update notice: public on purpose, so the sign-in screen can say an
+    # update is coming (server/routes/notice.py).
+    ("GET", "/api/notice"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/register"),
 }

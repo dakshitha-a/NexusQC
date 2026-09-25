@@ -107,6 +107,7 @@ docs/ARCHITECTURE-full.md
 
 # Test-provisioned admin credentials for tests/ (see tests/backend/_00_bootstrap.py)
 tests/.admin_creds
+tests/.e2e_matrix_user
 # Which jobs existed before a suite run started. Written by
 # tests/backend/_00_bootstrap.py, consumed and removed by
 # tests/backend/zz_99_job_cleanup.py -- per-run bookkeeping, never source.

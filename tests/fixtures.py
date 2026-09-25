@@ -368,6 +368,34 @@ def login(username_or_email: str, password: str, client: httpx.Client | None = N
     return c, r
 
 
+# e2e_08 runs its job matrix as a fresh test user and leaves that user in
+# place for the scripts that follow (e2e_09, e2e_10, e2e_12), which work with
+# its completed jobs. They used to find those jobs as the admin, which only
+# worked while admins saw every user's items. e2e_08 now writes the user's
+# sign-in here (gitignored), and the follow-ups sign in as that user.
+MATRIX_USER_FILE = Path(__file__).resolve().parent / ".e2e_matrix_user"
+
+
+def record_matrix_user(username: str, password: str) -> None:
+    MATRIX_USER_FILE.write_text(json.dumps({"username": username, "password": password}))
+
+
+def matrix_user_client() -> httpx.Client:
+    """Signed in as the user e2e_08 ran its matrix as. Exits with a clear
+    message if e2e_08 has not run, rather than falling back to an account
+    that cannot see the jobs."""
+    if not MATRIX_USER_FILE.exists():
+        print(f"FAIL: no {MATRIX_USER_FILE.name} -- run tests/e2e/e2e_08_job_matrix.py first", file=sys.stderr)
+        sys.exit(1)
+    creds = json.loads(MATRIX_USER_FILE.read_text())
+    reset_rate_limits()
+    c, r = login(creds["username"], creds["password"])
+    if r.status_code != 200:
+        print(f"FAIL: could not sign in as the matrix user {creds['username']}: {r.status_code}", file=sys.stderr)
+        sys.exit(1)
+    return c
+
+
 # --- Rate-limit reset --------------------------------------------------
 
 

@@ -326,7 +326,20 @@ class AgentSession:
         r.raise_for_status()
 
         elapsed = time.perf_counter() - t0
+        # The POST returns when the resume is done, but what the resume
+        # published travels back over the SSE connection through nginx and
+        # can land a moment after the POST's own response. Draining at once
+        # raced it and read no agent_step at all (H12). Collect until the
+        # stream has been quiet for half a second, for at most five.
         collected = self._drain_events()
+        settle_until = time.perf_counter() + 5.0
+        quiet_since = time.perf_counter()
+        while time.perf_counter() < settle_until and time.perf_counter() - quiet_since < 0.5:
+            try:
+                collected.append(self._events.get(timeout=0.1))
+                quiet_since = time.perf_counter()
+            except queue.Empty:
+                pass
         st2 = self.state()
         new = [m for m in st2.get("messages", []) if m.get("id") not in before]
         self.new_job_ids = [

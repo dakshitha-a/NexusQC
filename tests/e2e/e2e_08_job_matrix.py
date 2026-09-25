@@ -34,7 +34,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, skip, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, cleanup_user, mint_invite, record_matrix_user, register, skip, summary,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, check_tools, record  # noqa: E402
@@ -478,6 +480,9 @@ def main() -> None:
     tok = mint_invite(admin, "user")
     user, info = register(tok)
     uid = (info.get("user") or info).get("id")
+    # The follow-up scripts sign in as this user to reach its jobs; see
+    # fixtures.matrix_user_client. register()'s default password.
+    record_matrix_user((info.get("user") or info).get("username"), "correct horse battery staple 1")
     print(f"Running {len(cells)} matrix cell(s) as a normal user account.\n")
 
     for cell in cells:

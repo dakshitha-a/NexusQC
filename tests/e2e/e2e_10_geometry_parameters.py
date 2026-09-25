@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, summary  # noqa: E402
+from fixtures import check, matrix_user_client, summary  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, record  # noqa: E402
@@ -86,8 +86,9 @@ print("@@@" + job_id)
 
 
 def main() -> None:
-    admin = admin_client()
-    job_id = find_completed_job(admin)
+    # The user e2e_08 ran its matrix as, who owns the jobs used here.
+    owner = matrix_user_client()
+    job_id = find_completed_job(owner)
     if not job_id:
         check("a completed hf/pyscf job exists to query (run e2e_08_job_matrix.py first)", False)
         summary(exit_on_failure=False)
@@ -96,7 +97,7 @@ def main() -> None:
 
     # ------------------------------------------------ refusals (the point)
     calls, texts, turn = ask(
-        admin, f"What's the bond length between atoms 1 and 9 in job {job_id}?",
+        owner, f"What's the bond length between atoms 1 and 9 in job {job_id}?",
         "e2e geo bad index",
     )
     joined = "\n".join(texts)
@@ -106,7 +107,7 @@ def main() -> None:
     record("G-badindex", "PASS" if refused else "FAIL", job_id=job_id, text=joined[:300])
 
     calls2, texts2, turn2 = ask(
-        admin, f"What's the dihedral angle between atoms 1, 2, 3 and 4 in job {job_id}?",
+        owner, f"What's the dihedral angle between atoms 1, 2, 3 and 4 in job {job_id}?",
         "e2e geo bad dihedral",
     )
     joined2 = "\n".join(texts2)
@@ -117,7 +118,7 @@ def main() -> None:
 
     # ------------------------------------------------ single-geometry success
     calls3, texts3, turn3 = ask(
-        admin, f"What's the O-H1 bond length in job {job_id}?", "e2e geo bond",
+        owner, f"What's the O-H1 bond length in job {job_id}?", "e2e geo bond",
     )
     joined3 = "\n".join(texts3)
     ok3 = bool(calls3) and "| Parameter | Atoms | Value | Unit |" in joined3 and "Å" in joined3
@@ -126,12 +127,12 @@ def main() -> None:
     record("G-bond", "PASS" if ok3 else "FAIL", job_id=job_id, text=joined3[:300])
 
     # ------------------------------------------------ ordered table (geometry_set)
-    gset_id = _submit_water_geometry_set(admin)
+    gset_id = _submit_water_geometry_set(owner)
     if not gset_id:
         check("geometry_set fixture submitted for the ordered-table case", False)
     else:
         calls4, texts4, turn4 = ask(
-            admin, f"What's the O-H1 bond length for each geometry in job {gset_id}? Give me a table.",
+            owner, f"What's the O-H1 bond length for each geometry in job {gset_id}? Give me a table.",
             "e2e geo ordered table",
         )
         joined4 = "\n".join(texts4)

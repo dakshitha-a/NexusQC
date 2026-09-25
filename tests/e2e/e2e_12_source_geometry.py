@@ -46,7 +46,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, summary  # noqa: E402
+from fixtures import check, matrix_user_client, summary  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _agent import AgentSession, record  # noqa: E402
@@ -69,8 +69,9 @@ def draft_update_calls(turn) -> list[dict]:
 
 
 def main() -> None:
-    admin = admin_client()
-    job_id = find_completed_job(admin)
+    # The user e2e_08 ran its matrix as, who owns the jobs used here.
+    owner = matrix_user_client()
+    job_id = find_completed_job(owner)
     if not job_id:
         check("a completed hf/pyscf single-point job exists to tag (run e2e_08_job_matrix.py first)", False)
         summary(exit_on_failure=False)
@@ -78,7 +79,7 @@ def main() -> None:
     print(f"Using job {job_id} as the geometry source.\n")
 
     # ------------------------------------------------------------ G1: explicit tag, no panel molecule
-    s1 = AgentSession.new(admin, label="e2e source-geometry explicit tag")
+    s1 = AgentSession.new(owner, label="e2e source-geometry explicit tag")
     turn1 = s1.say(
         f"Set up (but do not submit) a single-point HF/STO-3G calculation using the exact same "
         f"geometry as job {job_id}. Do not ask me to pick a molecule -- use that job's geometry.",
@@ -104,7 +105,7 @@ def main() -> None:
     s1.close()
 
     # ------------------------------------------------------------ G2: bad tag refuses, not fabricates
-    s2 = AgentSession.new(admin, label="e2e source-geometry bad tag")
+    s2 = AgentSession.new(owner, label="e2e source-geometry bad tag")
     turn2 = s2.say(
         "Set up (but do not submit) a single-point HF/STO-3G calculation using the exact same "
         "geometry as job zzz-does-not-exist. Do not pick any other molecule.",
@@ -120,7 +121,7 @@ def main() -> None:
     s2.close()
 
     # ------------------------------------------------------------ G3: full round trip
-    s3 = AgentSession.new(admin, label="e2e source-geometry round trip")
+    s3 = AgentSession.new(owner, label="e2e source-geometry round trip")
     s3.say(
         f"Start a single-point HF/STO-3G calculation using the exact same geometry as job {job_id}. "
         f"Do not ask me to pick a molecule.",
@@ -169,7 +170,7 @@ print(json.dumps({{'src_symbols': src.get('symbols'), 'new_symbols': new.get('sy
     s3.close()
 
     # ------------------------------------------------------------ G4: conversational reuse (two turns)
-    s4 = AgentSession.new(admin, label="e2e source-geometry conversational reuse")
+    s4 = AgentSession.new(owner, label="e2e source-geometry conversational reuse")
     s4.say(f"What's the HOMO-LUMO gap for job {job_id}?", timeout=240)
     turn4b = s4.say(
         "Now set up (but do not submit) that same calculation again, but with a cc-pVDZ basis "

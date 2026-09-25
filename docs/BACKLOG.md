@@ -71,33 +71,28 @@ what produced it, load average 39 with nginx returning intermittent 502s), and
 read the `pageState()` line. Full triage in
 `docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md`.
 
-**The approval resume no longer shows a tool chip.**
-`tests/e2e/e2e_04_harness_gate.py`'s H12 asserts that resuming a turn after the
-user clicks Approve publishes an `agent_step` event, and it did: at the Phase 1
-gate it recorded `steps=[('update_job_draft', 'finished')]`. At the final gate
-it recorded `steps=[]`. This is a consequence of R-101 rather than a break in
-the streaming path. The card used to be raised by `submit_draft`; it is now
-raised inside `update_job_draft`, which returns a `Command` when it resumes, so
-the tools node in `_stream_resume`'s payload carries no message to publish.
-Token deltas still stream, so the screen is not blank after the click, which is
-what F-008 was about. What is lost is the chip naming the tool.
+**Ownership rows outlive the jobs they name.** On 2026-09-25 the database held
+59 job rows in `ownership_index` for 21 job directories; the test admin alone
+had 20 rows and no jobs. Nothing shows them, but `models.list_owned` returns
+them, so any code asking "does this account own a job" gets a wrong yes
+(`tests/frontend/_helpers.mjs`'s `ensureAdminJob` did, until it checked the job
+exists). Some date from August, before every delete path forgot ownership.
+**Next experiment:** list the rows with no job directory by owner and date to
+see whether any current delete path still leaves them, fix that path, then
+remove the orphaned rows with the owners' agreement.
 
-Next experiment: drive one approval on a quiet stack with the raw stream
-payloads printed, and see whether the resumed `update_job_draft` appears under
-a node name `_stream_resume` does not handle. If it does, publishing an
-`agent_step` for it is a two-line change; if it does not, H12 should be
-retired and say why.
-
-**The admin console's purge controls cannot be found by their own spec.**
-`tests/frontend/fe_sec_02_adminpanel_silent_failure.spec.mjs` times out
-waiting for `button:has-text("Purge")` after the admin console opens. It was
-failing this way at the Phase 1 gate too, so it predates every change in the
-fix phase, and the console was reorganised in the UI pass before that.
-
-Next experiment: open the admin console in a browser and read what the purge
-controls are actually called now; the selector is almost certainly describing a
-button that was renamed, and if it is not, the controls are genuinely missing
-and that is a real gap in a destructive surface.
+**The agent reaches the approval card less often than it did.** In the
+2026-09-25 end-to-end run: `e2e_21` carded 0 of 3 Wigner-ensemble requests
+and 1 of 3 BAGEL conical-intersection requests, asking a question instead
+(the tool trail shows `lookup_capabilities` then a question); `e2e_19` did
+not reach the ensemble card at all; `e2e_12`'s explicit "use job X's
+geometry" request (G1) did not reach READY, as it also failed on 2026-09-14;
+`model_compat` carded a basis the model chose itself without flagging it as
+unstated. None of tonight's changes touched the agent, the registry or
+the prompts. **Next experiment:** rerun `e2e_21` at the commit before
+`50f96f9` (hidden reasoning switched off for real on 2026-09-24) and at
+`HEAD`; if the card rate differs, the drafting prompt was leaning on the
+reasoning the model no longer does.
 
 **A scrubber drag costs three cube renders, not one.**
 `tests/e2e/ui/ui_09_orbital_and_mode_panels.spec.mjs` reports "3 during the
