@@ -28,9 +28,15 @@ export default defineConfig({
       // FastAPI backend (server/main.py) runs on 8000; proxying avoids
       // needing CORS for local dev at all, and matches how the built app
       // will be served (behind the same origin) if ever reverse-proxied.
+      //
+      // QC_AGENT_DEV_PROXY_TARGET points it at a running compose stack
+      // instead (e.g. https://127.0.0.1:8443), which is how a frontend
+      // change is looked at against real data before it is deployed. The
+      // stack's certificate is self-signed, hence secure: false.
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.QC_AGENT_DEV_PROXY_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
+        secure: false,
       },
     },
   },

@@ -222,11 +222,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* body wasn't JSON -- fall back to statusText */
     }
-    // Checked BEFORE the 401 branch below, and that order matters. During an
-    // update every session is deliberately dropped, so a tab that treated the
-    // maintenance response as an auth failure would bounce the user to a
-    // login screen they cannot get past -- which looks exactly like the app
-    // being broken rather than being updated.
+    // Checked BEFORE the 401 branch below, and that order matters. Updates
+    // used to drop every session, so a tab that treated the maintenance
+    // response as an auth failure bounced the user to a login screen they
+    // could not get past. Sessions now survive an update, but a maintenance
+    // 503 is still never an auth problem and must not be handled as one.
     if (res.status === 503 && detail === "maintenance") {
       let message = "NexusQC is being updated and will be back shortly.";
       try {
@@ -784,7 +784,7 @@ export interface DestructiveFinding {
 export interface DeployRun {
   id: string;
   status: {
-    state?: "queued" | "running" | "done" | "failed";
+    state?: "queued" | "running" | "done" | "failed" | "cancelled";
     step?: string;
     error?: string;
     target?: string;
@@ -804,10 +804,14 @@ export interface DeployRun {
 }
 
 export const postAdminDeploy = (body: {
-  action: "ping" | "report" | "update" | "rollback";
+  action: "ping" | "report" | "update" | "rollback" | "cancel";
   ref?: string;
   drain?: boolean;
   force?: boolean;
+  // How long users are warned before the lockout, and an optional note to
+  // them. Omitted, the deployment's own default applies (10 minutes).
+  notice_minutes?: number;
+  message?: string;
 }) =>
   request<{ id: string; action: string }>("/api/admin/deploy", {
     method: "POST",
@@ -817,6 +821,39 @@ export const postAdminDeploy = (body: {
 export const getAdminDeploy = (id: string) => request<DeployRun>(`/api/admin/deploy/${id}`);
 
 export const getAdminDeployment = () => request<AdminDeployment>("/api/admin/deployment");
+
+// --- The update notice ---------------------------------------------------
+// Written by scripts/update.sh as an update moves through its phases, served
+// by GET /api/notice to every tab, signed in or not. See
+// app/auth/update_notice.py for what each phase means.
+export type UpdateNoticePhase =
+  | "scheduled"
+  | "waiting_for_jobs"
+  | "imminent"
+  | "in_progress"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface UpdateNotice {
+  id: string;
+  phase: UpdateNoticePhase;
+  restart_at: number | null; // epoch seconds, on the server's clock
+  waiting_jobs: number;
+  message: string;
+  commit: string;
+  updated_at: number;
+  expires_at: number | null;
+  stops_running_jobs: boolean;
+}
+
+export interface NoticeResponse {
+  notice: UpdateNotice | null;
+  maintenance: boolean;
+  now: number; // the server's clock, so a countdown does not trust the laptop's
+}
+
+export const getNotice = () => request<NoticeResponse>("/api/notice");
 export const getAdminActivity = () => request<AdminActivity>("/api/admin/activity");
 
 export const getAdminConfig = () => request<AdminConfig>("/api/admin/config");

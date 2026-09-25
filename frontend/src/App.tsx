@@ -1,6 +1,7 @@
 import { PanelErrorBoundary } from "./app-shell/PanelErrorBoundary";
 import { MaintenanceGate } from "./app-shell/MaintenanceGate";
 import { ShellLayout } from "./app-shell/ShellLayout";
+import { UpdateNoticeBanner } from "./app-shell/UpdateNoticeBanner";
 import { AuthGate } from "./auth/AuthGate";
 
 // AuthGate (and LoginScreen, which it renders while unauthenticated) sat
@@ -15,11 +16,18 @@ import { AuthGate } from "./auth/AuthGate";
 function App() {
   return (
     <PanelErrorBoundary label="App">
-      <AuthGate>
-        <MaintenanceGate>
-          <ShellLayout />
-        </MaintenanceGate>
-      </AuthGate>
+      {/* The update notice sits outside AuthGate so the sign-in screen shows
+          it too: someone arriving just before an update should be told. */}
+      <div className="flex h-full w-full flex-col">
+        <UpdateNoticeBanner />
+        <div className="min-h-0 flex-1">
+          <AuthGate>
+            <MaintenanceGate>
+              <ShellLayout />
+            </MaintenanceGate>
+          </AuthGate>
+        </div>
+      </div>
     </PanelErrorBoundary>
   );
 }

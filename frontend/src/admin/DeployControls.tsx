@@ -47,7 +47,14 @@ export function DeployControls({
   onMutationSuccess: () => void;
 }) {
   const [runId, setRunId] = useState<string | null>(null);
+  // How long users are warned, and an optional note to them. The default
+  // matches update.sh's QC_AGENT_UPDATE_NOTICE_MINUTES default.
+  const [noticeMinutes, setNoticeMinutes] = useState(10);
+  const [noticeMessage, setNoticeMessage] = useState("");
   const runner = deployment?.runner;
+  // Shares the banner's cache key, so this costs no extra request.
+  const notice = useQuery({ queryKey: ["notice"], queryFn: api.getNotice, refetchInterval: 15_000 });
+  const cancellable = ["scheduled", "waiting_for_jobs", "imminent"].includes(notice.data?.notice?.phase ?? "");
 
   // Polled only while a run is in flight. `refetchInterval` returning false
   // stops it, so a finished run costs nothing.
@@ -57,14 +64,16 @@ export function DeployControls({
     enabled: Boolean(runId),
     refetchInterval: (q) => {
       const st = q.state.data?.status?.state;
-      return st === "done" || st === "failed" ? false : 2000;
+      return st === "done" || st === "failed" || st === "cancelled" ? false : 2000;
     },
   });
 
   const submit = useMutation({
     mutationFn: api.postAdminDeploy,
     onSuccess: (r) => {
-      setRunId(r.id);
+      // A cancel is not a run: the update being cancelled is the one already
+      // on screen, and the id that comes back is the notice's, not a run's.
+      if (r.action !== "cancel") setRunId(r.id);
       // The overlay in MaintenanceGate reads this to know which run to watch
       // through nginx once the api goes away mid-restart. sessionStorage
       // rather than state, because the point is that it survives the reload.
@@ -98,6 +107,15 @@ export function DeployControls({
   const othersInterrupted = activity?.totals.others_interrupted ?? 0;
   const runningJobs = activity?.totals.running_jobs ?? 0;
   const destructive = report?.destructive ?? 0;
+  // Whose calculations the override would stop, named rather than counted:
+  // this is the moment somebody decides to throw away hours of someone's work.
+  const running = (activity?.users ?? []).filter((u) => u.running_jobs > 0);
+  const unownedRunning = activity?.unowned.running_jobs ?? 0;
+  const noticeOk = Number.isInteger(noticeMinutes) && noticeMinutes >= 0 && noticeMinutes <= 120;
+  const noticeFields = {
+    notice_minutes: noticeOk ? noticeMinutes : 10,
+    message: noticeMessage.trim() || undefined,
+  };
 
   if (!runner?.installed || !runner.alive) {
     return (
@@ -189,12 +207,13 @@ export function DeployControls({
             {othersInterrupted > 0 && (
               <>
                 <strong>{othersInterrupted}</strong> other user
-                {othersInterrupted === 1 ? "" : "s"} would be logged out.
+                {othersInterrupted === 1 ? " has" : "s have"} the app open. They are warned in
+                advance, locked out for the restart, and stay signed in.
               </>
             )}
             <div className="mt-1 text-text-muted">
-              Draining waits for running jobs to finish before anyone is logged out, however
-              long that takes. Everyone stays logged in and working while it waits.
+              An update waits for running calculations to finish before the restart, however
+              long that takes. Everyone keeps working while it waits; new calculations queue.
             </div>
           </div>
         </div>
@@ -203,17 +222,84 @@ export function DeployControls({
       {/* Step three, and only now. A typed phrase, the same shape every other
           irreversible action in this panel uses. */}
       <div className="space-y-2">
+        {/* What users are told. Everyone with the app open sees a banner with
+            a countdown to the restart, and the note below it if there is one. */}
+        <div className="rounded border border-border bg-surface px-3 py-2" data-testid="deploy-notice-settings">
+          <div className="text-2xs font-medium text-text">Warning to users</div>
+          <label className="mt-1.5 flex items-center gap-2 text-2xs text-text-muted">
+            Restart
+            <input
+              type="number"
+              min={0}
+              max={120}
+              step={1}
+              value={Number.isNaN(noticeMinutes) ? "" : noticeMinutes}
+              onChange={(e) => setNoticeMinutes(e.target.value === "" ? NaN : Number(e.target.value))}
+              data-testid="deploy-notice-minutes"
+              className="w-14 rounded border border-border bg-bg px-1.5 py-0.5 text-2xs text-text"
+            />
+            minutes after the update is started. The image is built during this time.
+          </label>
+          {!noticeOk && (
+            <div className="mt-1 text-2xs text-status-failed">Choose a whole number of minutes from 0 to 120.</div>
+          )}
+          <textarea
+            value={noticeMessage}
+            onChange={(e) => setNoticeMessage(e.target.value.slice(0, 500))}
+            placeholder="Optional note to users, for example what the update brings"
+            rows={2}
+            data-testid="deploy-notice-message"
+            className="mt-1.5 w-full resize-y rounded border border-border bg-bg px-2 py-1 text-2xs text-text placeholder:text-text-muted"
+          />
+        </div>
+
+        {cancellable && (
+          <div className="flex items-center gap-2 rounded border border-status-running/40 bg-status-running/5 px-3 py-2 text-2xs text-text">
+            <span className="flex-1">
+              An update is announced and has not locked anyone out yet. You can still call it off.
+            </span>
+            <button
+              onClick={() => submit.mutate({ action: "cancel" })}
+              disabled={submit.isPending}
+              data-testid="deploy-cancel"
+              className="rounded border border-border px-2.5 py-1 text-2xs text-text hover:bg-surface-raised disabled:opacity-30"
+            >
+              Cancel the update
+            </button>
+          </div>
+        )}
+
         <PurgeAction
           label="Update this deployment"
           description={
-            "Waits for running calculations to finish, then logs everyone out, rebuilds and " +
-            "restarts. Takes a full backup first. Browsers reload themselves when it is done."
+            `Warns everyone in the app, restarts ${noticeOk ? noticeMinutes : 10} minutes from now, and ` +
+            "waits longer if calculations are still running. Non-admins are locked out for the restart, " +
+            "a minute or two, and stay signed in. Takes a full backup first. Browsers reload themselves " +
+            "when it is done."
           }
           phrase="UPDATE"
           pending={submit.isPending || (busy && action === "update")}
           testId="deploy-update"
-          onConfirm={() => submit.mutate({ action: "update", drain: true })}
+          onConfirm={() => submit.mutate({ action: "update", drain: true, ...noticeFields })}
         />
+        {(running.length > 0 || unownedRunning > 0) && (
+          <PurgeAction
+            label="Stop running calculations and update"
+            description={
+              "Does not wait. Calculations still running at the restart are killed and cannot be " +
+              "resumed: " +
+              [
+                ...running.map((u) => `${u.username} (${u.running_jobs})`),
+                ...(unownedRunning > 0 ? [`${unownedRunning} with no owner`] : []),
+              ].join(", ") +
+              ". Users are warned in advance that their calculations will be stopped."
+            }
+            phrase="STOP AND UPDATE"
+            pending={submit.isPending || (busy && action === "update")}
+            testId="deploy-update-force"
+            onConfirm={() => submit.mutate({ action: "update", drain: false, force: true, ...noticeFields })}
+          />
+        )}
         {destructive > 0 && (
           <div className="text-2xs text-status-failed">
             The report above found {destructive} destructive change
@@ -230,7 +316,7 @@ export function DeployControls({
           phrase="ROLLBACK"
           pending={submit.isPending || (busy && action === "rollback")}
           testId="deploy-rollback"
-          onConfirm={() => submit.mutate({ action: "rollback" })}
+          onConfirm={() => submit.mutate({ action: "rollback", ...noticeFields })}
         />
       </div>
 
@@ -244,6 +330,8 @@ export function DeployControls({
               className={
                 state === "failed"
                   ? "text-status-failed"
+                  : state === "cancelled"
+                    ? "text-text-muted"
                   : state === "done"
                     ? "text-status-running"
                     : "text-text-muted"

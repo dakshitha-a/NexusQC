@@ -59,9 +59,15 @@ export function MaintenanceOverlay({
       setElapsed(Date.now() - started);
 
       // Two independent signals. The status file says what the runner is
-      // doing; /api/health answers again the moment the new api is up, which
-      // is the one that matters when there is no runner (someone updated from
-      // a shell) and there is no status file to read at all.
+      // doing. /api/notice says whether the lockout is still on, which is
+      // the one that matters when there is no runner (someone updated from a
+      // shell) and no status file to read at all.
+      //
+      // It used to be /api/health, and that was a bug: health is exempt from
+      // maintenance mode and answers 200 both in the seconds before the
+      // restart and in the half-minute after it while the frontend bundle is
+      // installed, so a tab reloaded straight back into the lockout, over and
+      // over. The notice route reports the lockout itself.
       let done = false;
       if (deployId) {
         try {
@@ -78,8 +84,11 @@ export function MaintenanceOverlay({
       }
       if (!done) {
         try {
-          const h = await fetch("/api/health", { cache: "no-store" });
-          if (h.ok && !deployId) done = true;
+          const h = await fetch("/api/notice", { cache: "no-store" });
+          if (h.ok) {
+            const body = (await h.json()) as { maintenance?: boolean };
+            if (body.maintenance === false) done = true;
+          }
         } catch {
           /* still down */
         }
@@ -135,7 +144,7 @@ export function MaintenanceOverlay({
         <p className="mt-3 text-2xs text-text-muted">
           {failed
             ? "You can keep this page open; reloading is safe."
-            : `This page will reload itself when the update is done. Elapsed ${mins}m ${String(secs).padStart(2, "0")}s.`}
+            : `You stay signed in. This page will reload itself when the update is done. Elapsed ${mins}m ${String(secs).padStart(2, "0")}s.`}
         </p>
 
         {/* An admin driving the update needs the panel underneath this, and
