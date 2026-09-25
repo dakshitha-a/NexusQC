@@ -270,7 +270,20 @@ open('$dir/notice_message.txt', 'w').write(m)" 2>/dev/null || : > "$dir/notice_m
     case "$action" in
         report)
             write_status "$dir" running "checking what this would do"
-            if bash scripts/check_destructive.sh --to "$target_sha" --json \
+            # Measured from what is RUNNING, the commit stamped on the api
+            # image, which is what update.sh does too. Without --from the
+            # report started at the checkout's HEAD, and on a deployment whose
+            # checkout is also its working copy HEAD is often ahead of what is
+            # deployed: the panel said "nothing to update" with commits waiting.
+            local deployed="" cid
+            local compose=(docker compose -f docker-compose.yml)
+            [ -f docker-compose.override.yml ] && compose+=(-f docker-compose.override.yml)
+            cid="$("${compose[@]}" ps -q api 2>/dev/null | head -n1 || true)"
+            [ -n "$cid" ] && deployed="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$cid" 2>/dev/null || true)"
+            deployed="$(git rev-parse --verify --quiet "${deployed}^{commit}" 2>/dev/null || true)"
+            local from_args=()
+            [ -n "$deployed" ] && from_args=(--from "$deployed")
+            if bash scripts/check_destructive.sh ${from_args[@]+"${from_args[@]}"} --to "$target_sha" --json \
                     > "$dir/report.json" 2>>"$dir/log.txt"; then rc=0; else rc=$?; fi
             # 1 means "found something destructive", which is a result, not a
             # failure of the check. Only 2 means it could not run.
@@ -278,7 +291,7 @@ open('$dir/notice_message.txt', 'w').write(m)" 2>/dev/null || : > "$dir/notice_m
             # what would BREAK; this says what would CHANGE, which is the
             # other half of the question an admin is answering and is
             # otherwise only available by reading the repository on the host.
-            git log --oneline --no-decorate "HEAD..${target_sha}" 2>/dev/null \
+            git log --oneline --no-decorate "${deployed:-HEAD}..${target_sha}" 2>/dev/null \
                 | head -50 > "$dir/changes.txt" || true
             if [ "$rc" -ge 2 ]; then
                 write_status "$dir" failed "the impact report could not be produced" "{\"error\": \"check_destructive exited $rc\"}"
