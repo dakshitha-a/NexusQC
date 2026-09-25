@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, purge_allowed, skip, summary  # noqa: E402
+from fixtures import admin_client, check, purge_allowed, purge_refusal, skip, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -50,7 +50,7 @@ def main() -> None:
     # count is pinned at 500 and "after > before" can never be true again --
     # which is exactly how this check started failing, long after the
     # behaviour it guards was still working fine.
-    if purge_allowed():
+    if purge_allowed(admin):
         r_before = admin.get("/api/admin/audit-log")
         rows_before = r_before.json()
         newest_id_before = rows_before[0]["id"] if rows_before else None
@@ -73,7 +73,7 @@ def main() -> None:
         )
     else:
         skip("purge/jobs adds an audit-log entry",
-             "the purge deletes every user's jobs; set QC_AGENT_TEST_ALLOW_PURGE=1 to run it")
+             purge_refusal(admin) or "")
 
     # --- Audit log immutability (direct DB attempt, bypassing the app entirely) ---
     rc, out, err = _exec_api(

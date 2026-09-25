@@ -50,39 +50,75 @@ QATEST_PREFIX = "qatest_"
 
 # The deployment-wide admin purges (POST /api/admin/purge/jobs and its
 # siblings) delete EVERY user's data on the stack, not only what a test
-# created. run_backend.sh already leaves the scripts that call them out of
-# its default set, but that only protects a run that goes through the
-# runner: on 2026-09-24 p1_03 was run on its own to check a config change
-# and took seven finished jobs belonging to a real account with it. So the
+# created. On 2026-09-24 p1_03 was run on its own to check a config change
+# and took seven finished jobs belonging to a real account with it, so the
 # refusal lives here, on the admin client every script gets, where running
-# a script directly cannot route around it. Setting this variable is how a
-# person says a blind purge of the whole stack is what they want.
+# a script directly cannot route around it.
+#
+# Two conditions, both required. QC_AGENT_TEST_ALLOW_PURGE=1 says a person
+# wants an empty stack. And the stack must have nobody on it but test
+# accounts: the development stack is also a research group's deployment, so
+# a stack with any account not named qatest_* holds someone's real work and
+# no flag makes a blind purge of it acceptable. A whole-stack purge, or
+# e2e_16's reset-all, belongs on a throwaway stack such as the one
+# tests/install_interactive.py builds.
 ALLOW_PURGE_ENV = "QC_AGENT_TEST_ALLOW_PURGE"
 _ADMIN_PURGE_PREFIX = "/api/admin/purge/"
+_real_users_cache: list[str] | None = None
 
 
-def purge_allowed() -> bool:
-    return os.environ.get(ALLOW_PURGE_ENV) == "1"
+def real_usernames(admin: httpx.Client | None = None) -> list[str]:
+    """Every account on the stack that is not a test account. Asked once per
+    process: accounts are not created mid-script by anyone but the script."""
+    global _real_users_cache
+    if _real_users_cache is None:
+        client = admin or admin_client()
+        r = client.get("/api/admin/users")
+        r.raise_for_status()
+        _real_users_cache = sorted(
+            u["username"] for u in r.json() if not u["username"].startswith(QATEST_PREFIX)
+        )
+    return _real_users_cache
+
+
+def shared_stack(admin: httpx.Client | None = None) -> bool:
+    return bool(real_usernames(admin))
+
+
+def purge_refusal(admin: httpx.Client | None = None) -> str | None:
+    """Why a whole-stack purge may not run here, or None when it may."""
+    if os.environ.get(ALLOW_PURGE_ENV) != "1":
+        return f"it deletes every user's data on the stack; set {ALLOW_PURGE_ENV}=1 on a throwaway stack"
+    real = real_usernames(admin)
+    if real:
+        return (f"this stack has real users ({', '.join(real)}), and a whole-stack purge would "
+                f"delete their work; it only runs on a stack with nothing but qatest_ accounts")
+    return None
+
+
+def purge_allowed(admin: httpx.Client | None = None) -> bool:
+    return purge_refusal(admin) is None
 
 
 class BlindPurgeRefused(RuntimeError):
     pass
 
 
-def _refuse_blind_purge(request: httpx.Request) -> None:
-    if request.url.path.startswith(_ADMIN_PURGE_PREFIX) and not purge_allowed():
-        raise BlindPurgeRefused(
-            f"refused {request.method} {request.url.path}: it deletes every user's data on "
-            f"the stack. Set {ALLOW_PURGE_ENV}=1 to run it on purpose."
-        )
+def _purge_guard(admin_ref: list) -> "callable":
+    def hook(request: httpx.Request) -> None:
+        if request.url.path.startswith(_ADMIN_PURGE_PREFIX):
+            why = purge_refusal(admin_ref[0])
+            if why:
+                raise BlindPurgeRefused(f"refused {request.method} {request.url.path}: {why}")
+    return hook
 
 
 def require_purge_opt_in(what: str) -> None:
     """For a script whose whole point is a deployment-wide purge: stop
-    before it touches anything unless the opt-in is set."""
-    if not purge_allowed():
-        print(f"[SKIP] {what} -- this script purges every user's data on the stack; "
-              f"set {ALLOW_PURGE_ENV}=1 to run it on purpose.")
+    before it touches anything unless it may run here."""
+    why = purge_refusal()
+    if why:
+        print(f"[SKIP] {what} -- {why}")
         sys.exit(0)
 
 
@@ -139,11 +175,13 @@ def admin_client() -> httpx.Client:
     # The refusal goes on this client and not on new_client(): conf_01 and
     # e2e_03 send purge requests as a non-admin or anonymously on purpose,
     # to prove they are rejected, and those must still reach the server.
-    c = new_client(event_hooks={"request": [_refuse_blind_purge]})
+    ref: list = [None]
+    c = new_client(event_hooks={"request": [_purge_guard(ref)]})
     r = c.post("/api/auth/login", json={"email_or_username": ADMIN_USER, "password": ADMIN_PASS})
     if r.status_code != 200:
         print(f"FAIL: admin login failed: {r.status_code} {r.text}", file=sys.stderr)
         sys.exit(1)
+    ref[0] = c
     return c
 
 

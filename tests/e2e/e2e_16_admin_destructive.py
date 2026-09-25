@@ -35,7 +35,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import (  # noqa: E402
-    admin_client, check, cleanup_user, mint_invite, new_client, purge_allowed, register, skip,
+    admin_client, check, cleanup_user, mint_invite, new_client, purge_allowed, purge_refusal,
+    register, skip,
     summary,
 )
 
@@ -149,7 +150,7 @@ print("@@@" + json.dumps({{"job": j}}))
         time.sleep(2)
     print(f"    probe job {rj} is {st_before.get('status')} before the purge")
 
-    if purge_allowed():
+    if purge_allowed(admin):
         before_audit = len(admin.get("/api/admin/audit-log").json())
         pr = admin.post("/api/admin/purge/jobs")
         check("D3a POST /api/admin/purge/jobs succeeds", pr.status_code == 200,
@@ -220,7 +221,7 @@ print("@@@" + json.dumps({{"job": j}}))
                before=st_before.get("status"), after=st_after.get("status"))
     else:
         skip("D3 bulk purge works, is audited, and spares running jobs",
-             "the purge deletes every user's jobs; set QC_AGENT_TEST_ALLOW_PURGE=1 to run it")
+             purge_refusal(admin) or "")
         record("D3", "SKIP")
 
     # ---------------------------------------------------------------- D5
@@ -259,6 +260,14 @@ print("@@@" + json.dumps({{"job": j}}))
 
     if not destroy:
         print("\n(stopping before reset-all; pass --destroy to run D6-D8)")
+        summary(exit_on_failure=False)
+        return
+    # reset-all deletes every account. --destroy alone used to be enough, which
+    # on a stack with a research group's accounts on it is one flag away from
+    # losing all of them. It now needs the same two conditions as a purge.
+    why = purge_refusal(admin)
+    if why:
+        skip("D6-D8 reset-all, audit trigger and lockout recovery", f"--destroy refused: {why}")
         summary(exit_on_failure=False)
         return
 
