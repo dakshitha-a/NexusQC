@@ -124,7 +124,10 @@ export function UpdateNoticeBanner() {
   const q = useQuery({
     queryKey: ["notice"],
     queryFn: api.getNotice,
-    refetchInterval: POLL_MS,
+    // Every 3 s around the restart, so the overlay goes up within seconds
+    // of the lockout; every 15 s otherwise.
+    refetchInterval: (query) =>
+      ["imminent", "in_progress"].includes(query.state.data?.notice?.phase ?? "") ? 3000 : POLL_MS,
     refetchOnWindowFocus: true,
     retry: false,
   });
@@ -132,6 +135,15 @@ export function UpdateNoticeBanner() {
   const [, setTick] = useState(0);
 
   const notice = q.data?.notice ?? null;
+  const lockedOut = Boolean(q.data?.maintenance) || notice?.phase === "in_progress";
+
+  // Raise the lockout overlay as soon as the notice says the restart has
+  // begun, rather than waiting for a request to come back 503: between the
+  // lockout starting and the new api answering, nginx returns gateway errors,
+  // and a tab that only listened for 503s showed broken panels meanwhile.
+  useEffect(() => {
+    if (lockedOut) api.announceMaintenance();
+  }, [lockedOut]);
   const counting =
     notice && notice.restart_at && (notice.phase === "scheduled" || notice.phase === "imminent");
 

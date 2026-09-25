@@ -206,6 +206,14 @@ export function registerMaintenanceHandler(handler: (message: string) => void): 
   onMaintenance = handler;
 }
 
+// For the update notice, which knows the lockout has begun before any request
+// comes back 503. While the api container is being recreated nginx answers
+// with gateway errors instead, so waiting for the 503 left tabs showing
+// "Couldn't load jobs" for the first twenty seconds of every update.
+export function announceMaintenance(message = "NexusQC is being updated and will be back shortly."): void {
+  onMaintenance?.(message);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,

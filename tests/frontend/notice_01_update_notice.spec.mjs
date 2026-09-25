@@ -14,9 +14,9 @@
 //      the administrator's note; done can be dismissed and stays dismissed
 //      after a reload.
 //   2. Banner on the sign-in screen, signed out: scheduled renders there too.
-//   3. Overlay: a 503 maintenance answer on the job list raises it, and it
-//      does not reload the page while /api/notice still reports the lockout;
-//      once the lockout is reported lifted, it reloads.
+//   3. Overlay: an in_progress notice raises it before any request answers
+//      503, and it does not reload the page while /api/notice still reports
+//      the lockout; once the lockout is reported lifted, it reloads.
 //   4. Console, as the test admin, with a live runner and one user running
 //      calculations mocked: the notice fields render with 10 minutes and an
 //      empty note; a cancel button shows while an update is announced and
@@ -128,17 +128,19 @@ try {
   current = notice("n-prog", { phase: "in_progress" });
   await userCtx.unroute("**/api/notice");
   await noticeRoute(userCtx, () => current, () => locked);
-  await userCtx.route("**/api/jobs**", (r) => (locked
-    ? r.fulfill({ status: 503, json: { detail: "maintenance", message: "NexusQC is being updated and will be back shortly." } })
-    : r.continue()));
   let reloads = 0;
   page.on("load", () => { reloads += 1; });
   // Wait for this reload's own load event before counting from it, or the
   // count starts one short and the overlay is blamed for the spec's reload.
   await page.reload({ waitUntil: "load" });
   const before = reloads;
-  await page.waitForSelector("text=NexusQC is being updated", { timeout: 30000 });
-  check("a maintenance answer raises the overlay", true);
+  // No request answers 503 yet: the notice alone must raise the overlay,
+  // because while the api is recreated nginx answers with gateway errors.
+  await page.waitForSelector("text=NexusQC is being updated", { timeout: 15000 });
+  check("the in_progress notice alone raises the overlay, before any 503", true);
+  await userCtx.route("**/api/jobs**", (r) => (locked
+    ? r.fulfill({ status: 503, json: { detail: "maintenance", message: "NexusQC is being updated and will be back shortly." } })
+    : r.continue()));
   check("it tells the user they stay signed in",
         (await page.locator("text=You stay signed in").count()) > 0);
   await page.screenshot({ path: path.join(outDir, "overlay.png") });
