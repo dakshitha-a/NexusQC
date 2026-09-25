@@ -68,7 +68,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, cleanup_user, mint_invite, register, require_jobs_quiet, restore_config, summary,
+)
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 CASSCF_PARAMS = {"active_electrons": 4, "active_orbitals": 4, "basis": "sto-3g", "n_states": 1, "weights": [1.0]}
@@ -164,6 +166,7 @@ mgr.cancel(job2)
 
 def main() -> None:
     admin = admin_client()
+    require_jobs_quiet(admin, "perf_03 per-user cap enforcement")
     token = mint_invite(admin)
     _c, user = register(token)
 
@@ -177,7 +180,7 @@ def main() -> None:
         _run_cap_check("orca", user["id"])
         _run_cap_check("bagel", user["id"])
     finally:
-        admin.patch("/api/admin/config", json={"key": "max_concurrent_jobs_per_user", "value": original_cap})
+        restore_config(admin, "max_concurrent_jobs_per_user", original_cap, 1)
         cleanup_user(admin, user["id"])
 
     summary()

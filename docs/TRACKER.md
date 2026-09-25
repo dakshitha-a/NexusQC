@@ -77,9 +77,10 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: tests/fixtures.py → "with QC_AGENT_TEST_ALLOW_PURGE=1 set on this stack: a direct admin purge raised BlindPurgeRefused naming dakshitha, dma, maneesh; p1_07 skipped; e2e_16 --destroy skipped D3 and D6-D8, 6/6 other checks passed; no purge reached nginx, job list and accounts unchanged"
 - [done] P1.2: api restarts are opt-in and refuse while real users are active
   evidence: tests/fixtures.py → "conf_04 and perf_05 printed [SKIP] without the flag; with QC_AGENT_TEST_ALLOW_RESTART=1 restart_refusal answered 'real users are active: dma (0 running, 1 open)'; api StartedAt unchanged. Scripts kept in the default set since they skip themselves; e2e_13 S4 and perf_10 use the same check"
-- [todo] P1.3: every config change in tests restores; quota tests cannot evict others
-- [todo] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
-- [todo] P1.5: every test run checks real users' data is intact before and after
+- [in-progress] P1.3: every config change in tests restores; quota tests cannot evict others
+- [in-progress] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
+- [done] P1.5: every test run checks real users' data is intact before and after
+  evidence: tests/backend/integ_01_integrity_check.py → "5/5: a live snapshot (3 real accounts, 29 owned items) compared with itself passes; a removed job, a file removed from a finished job, and a removed account are each reported by name; a changed setting is a note, not a loss. run_e2e.sh e2e_03 ran wrapped: snapshot, 9/9, integrity PASS"
 - [todo] P1.6: host scripts stay out of the live job folder
 - [todo] P1.7: guidance says the stack holds real data
 - merged:

@@ -79,7 +79,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, cleanup_user, mint_invite, register, require_jobs_quiet, restore_config, summary,
+)
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 CASSCF_PARAMS = {"active_electrons": 4, "active_orbitals": 4, "basis": "sto-3g",
@@ -279,6 +281,7 @@ def _print_timeline(events: list[dict]) -> None:
 
 def main() -> None:
     admin = admin_client()
+    require_jobs_quiet(admin, "perf_09 scheduler fairness trace")
     token_a = mint_invite(admin)
     _client_a, user_a = register(token_a)
     token_b = mint_invite(admin)
@@ -350,8 +353,7 @@ def main() -> None:
             f"control verdict was {control_verdict}",
         )
     finally:
-        admin.patch("/api/admin/config",
-                    json={"key": "max_concurrent_jobs_total", "value": original_cap})
+        restore_config(admin, "max_concurrent_jobs_total", original_cap, 1)
         for jid in created_job_ids:
             try:
                 admin.delete(f"/api/jobs/{jid}")

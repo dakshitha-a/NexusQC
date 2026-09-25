@@ -63,6 +63,11 @@ if [ "$WITH_DESTRUCTIVE" = "1" ]; then
   SCRIPTS+=("${DESTRUCTIVE[@]}")
 fi
 
+# Every run proves it left real users' data alone; see tests/integrity.py.
+INTEGRITY_SNAPSHOT="$(mktemp -t nexusqc-integrity.XXXXXX)"
+trap 'rm -f "$INTEGRITY_SNAPSHOT"' EXIT
+python3 tests/integrity.py snapshot "$INTEGRITY_SNAPSHOT" || { echo "could not take the integrity snapshot; refusing to run"; exit 1; }
+
 pass=0; fail=0; skipped=0; failed_names=()
 for name in "${SCRIPTS[@]}"; do
   path="tests/e2e/$name"
@@ -88,6 +93,11 @@ done
 echo ""
 echo "============================================================"
 echo "SUMMARY: $pass script(s) passed, $fail failed, $skipped skipped"
+if ! python3 tests/integrity.py compare "$INTEGRITY_SNAPSHOT"; then
+  echo "The run above lost data belonging to real users. Restore it from the"
+  echo "backup directory before anything else; see docs/DEPLOYMENT.md."
+  exit 1
+fi
 if [ "$fail" -gt 0 ]; then
   printf '  failed: %s\n' "${failed_names[@]}"
   echo ""

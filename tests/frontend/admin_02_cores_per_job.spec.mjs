@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   newBrowser, newContext, adminApiLogin, openUserMenu, check, summary, BASE_URL, LOGGED_IN,
+  realUsersActive,
 } from "./_helpers.mjs";
 
 const ORIGIN = { headers: { Origin: BASE_URL } };
@@ -23,6 +24,13 @@ const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "admin02-"));
 const browser = await newBrowser();
 const context = await newContext(browser);
 await adminApiLogin(context);
+const busy = await realUsersActive(context);
+if (busy) {
+  console.log(`[SKIP] admin_02 cores per calculation -- real users are active and this spec changes ` +
+    `how their next jobs run: ${busy}`);
+  await browser.close();
+  process.exit(0);
+}
 const before = await (await context.request.get(`${BASE_URL}/api/admin/config`, ORIGIN)).json();
 const original = before.cores_per_job_source === "setting" ? before.cores_per_job : null;
 const target = before.cores_per_job === 3 ? 2 : 3;

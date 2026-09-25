@@ -43,7 +43,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, require_restart_opt_in, new_client, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, new_client, require_jobs_quiet, require_restart_opt_in, restore_config, summary,
+)
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 CASSCF_PARAMS = {"active_electrons": 4, "active_orbitals": 4, "basis": "sto-3g", "n_states": 1, "weights": [1.0]}
@@ -79,6 +81,7 @@ def _wait_healthy(timeout: float = 60.0) -> bool:
 def main() -> None:
     admin = admin_client()
     require_restart_opt_in(admin, "perf_05 admission queue across an api restart")
+    require_jobs_quiet(admin, "perf_05 admission queue across an api restart")
     r_cfg = admin.get("/api/admin/config")
     original_cap = r_cfg.json()["max_concurrent_jobs_total"]
 
@@ -166,7 +169,7 @@ print(json.dumps({{"job2_final": s2, "job1_final": read_status("{job1_id}")}}))
         )
         print(f"(job1, which really was running when the container died, reconciled as: {post['job1_final']})")
     finally:
-        admin.patch("/api/admin/config", json={"key": "max_concurrent_jobs_total", "value": original_cap})
+        restore_config(admin, "max_concurrent_jobs_total", original_cap, 1)
 
     summary()
 

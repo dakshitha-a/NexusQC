@@ -40,7 +40,11 @@ def main() -> None:
         str(r_over_ceiling.status_code),
     )
 
-    r_valid = admin.patch("/api/admin/config", json={"key": "max_concurrent_jobs_per_user", "value": 3})
+    # The value already there, written back. Writing 3 here overwrote an
+    # admin's own choice of 8 on the group's deployment and never restored
+    # it; proving a valid PATCH is accepted does not need to change anything.
+    current_cap = admin.get("/api/admin/config").json()["max_concurrent_jobs_per_user"]
+    r_valid = admin.patch("/api/admin/config", json={"key": "max_concurrent_jobs_per_user", "value": current_cap})
     check("a valid, in-range config PATCH succeeds", r_valid.status_code == 200, f"{r_valid.status_code} {r_valid.text[:150]}")
 
     # --- Purge produces an audit entry ---

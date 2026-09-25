@@ -99,13 +99,17 @@ def main() -> None:
     # existed -- confirmed real by reproducing it standalone. A no-op admin
     # config PATCH is the documented way to force an early refresh
     # (server/routes/admin.py's own invalidate_usage_report_cache() call).
-    admin.patch("/api/admin/config", json={"key": "per_user_uploads_quota_bytes", "value": 500_000_000})
+    # The value already set, written back: a real no-op. This used to write a
+    # literal 500 MB, which was below the 512 MiB default, so it quietly
+    # lowered every user's uploads allowance and never put it back.
+    uploads_cap = admin.get("/api/admin/config").json()["per_user_uploads_quota_bytes"]
+    admin.patch("/api/admin/config", json={"key": "per_user_uploads_quota_bytes", "value": uploads_cap})
     r_quota_a = client_a.get("/api/uploads/quota")
     quota = r_quota_a.json()
     check(
         "A's quota reports the per-user category with real usage",
         quota.get("category") == "per_user_uploads" and quota.get("used_bytes", 0) > 0
-        and quota.get("quota_bytes") == 500_000_000,
+        and quota.get("quota_bytes") == uploads_cap,
         str(quota),
     )
 

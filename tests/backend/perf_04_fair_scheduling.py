@@ -93,7 +93,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import (  # noqa: E402
+    admin_client, check, cleanup_user, mint_invite, register, require_jobs_quiet, restore_config, summary,
+)
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 CASSCF_PARAMS = {"active_electrons": 4, "active_orbitals": 4, "basis": "sto-3g", "n_states": 1, "weights": [1.0]}
@@ -114,6 +116,7 @@ def _exec_api(code: str, timeout: int = 220) -> str:
 
 def main() -> None:
     admin = admin_client()
+    require_jobs_quiet(admin, "perf_04 fair scheduling")
     token_a = mint_invite(admin)
     _client_a, user_a = register(token_a)
     token_b = mint_invite(admin)
@@ -268,13 +271,12 @@ print(json.dumps({{
         # what happened to this host, and it went unnoticed until a later
         # probe read the config for its own reasons. A test that throttles a
         # deployment must be loud when it cannot un-throttle it.
-        r_restore = admin.patch("/api/admin/config",
-                                json={"key": "max_concurrent_jobs_total", "value": original_cap})
-        r_readback = admin.get("/api/admin/config")
-        now = r_readback.json().get("max_concurrent_jobs_total") if r_readback.status_code == 200 else None
-        check(f"the concurrency cap is restored to {original_cap}",
-              r_restore.status_code == 200 and now == original_cap,
-              f"patch={r_restore.status_code} cap now={now} -- the deployment is left throttled")
+        restored = restore_config(admin, "max_concurrent_jobs_total", original_cap, 1)
+        now = admin.get("/api/admin/config").json().get("max_concurrent_jobs_total")
+        check(f"the concurrency cap is not left at the test's 1 (restored to {original_cap} "
+              f"unless an admin changed it meanwhile)",
+              now != 1 or original_cap == 1,
+              f"restored={restored} cap now={now} -- the deployment is left throttled")
         cleanup_user(admin, user_a["id"])
         cleanup_user(admin, user_b["id"])
 

@@ -83,6 +83,13 @@ SCRIPTS=$(find tests/backend -maxdepth 1 -name '*.py' \
     ! -name 'p1_03_*' ! -name 'perf_02_admin_storage_latency.py' \
     ! -name 'perf_10_api_memory_settle.py' | sort)
 
+# The stack is also a research group's deployment, so every run proves it
+# left their data alone: a snapshot now, compared when the scripts finish.
+# See tests/integrity.py.
+INTEGRITY_SNAPSHOT="$(mktemp -t nexusqc-integrity.XXXXXX)"
+trap 'rm -f "$INTEGRITY_SNAPSHOT"' EXIT
+python3 tests/integrity.py snapshot "$INTEGRITY_SNAPSHOT" || { echo "could not take the integrity snapshot; refusing to run"; exit 1; }
+
 n_total=0
 n_failed=0
 failed_names=()
@@ -103,6 +110,13 @@ echo ""
 echo "=================================================================="
 echo "  SUMMARY: $((n_total - n_failed))/$n_total scripts reported all checks passing"
 echo "=================================================================="
+integrity_ok=1
+python3 tests/integrity.py compare "$INTEGRITY_SNAPSHOT" || integrity_ok=0
+if [ "$integrity_ok" -eq 0 ]; then
+    echo "The run above lost data belonging to real users. Restore it from the"
+    echo "backup directory before anything else; see docs/DEPLOYMENT.md."
+    exit 1
+fi
 if [ "$n_failed" -gt 0 ]; then
     # This blurb used to say a FAIL was "expected for several sec_* scripts,
     # which PASS when they confirm a real gap exists". That was true while

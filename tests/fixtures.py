@@ -185,6 +185,83 @@ def restart_api(admin: httpx.Client, wait_seconds: float = 180.0) -> bool:
     return False
 
 
+# Deployment-wide settings are shared with everyone on the stack, including
+# an admin who may change one while a test runs. On 2026-09-24 an admin set
+# max_concurrent_jobs_per_user to 8 and a test six minutes later wrote 3 over
+# it and never put anything back. So a test that must change a setting uses
+# config_override(): it records what was there, and on the way out restores
+# it ONLY if the setting still holds the test's own value. If someone else
+# changed it in between, theirs stands and the test says so.
+#
+# Prefer not to change a shared setting at all. To prove "a valid change is
+# accepted", write back the value that is already there. To put one account
+# over a storage cap, use quota_override() on that account: lowering a cap
+# for everyone makes the app evict every user's oldest work.
+@contextmanager
+def config_override(admin: httpx.Client, key: str, value):
+    before = admin.get("/api/admin/config").json().get(key)
+    r = admin.patch("/api/admin/config", json={"key": key, "value": value})
+    if r.status_code != 200:
+        raise RuntimeError(f"could not set {key}={value!r}: {r.status_code} {r.text[:200]}")
+    try:
+        yield before
+    finally:
+        restore_config(admin, key, before, value)
+
+
+def restore_config(admin: httpx.Client, key: str, original, test_value) -> bool:
+    """Puts `key` back to `original` if it still holds `test_value`, the
+    value the test set. Someone else's change in between is left alone.
+    Returns whether the setting now holds `original`."""
+    now = admin.get("/api/admin/config").json().get(key)
+    if now != test_value:
+        print(f"    note: {key} was changed to {now!r} by someone else during the test; "
+              f"leaving it rather than restoring {original!r}")
+        return now == original
+    r = admin.patch("/api/admin/config", json={"key": key, "value": original})
+    return r.status_code == 200
+
+
+@contextmanager
+def quota_override(admin: httpx.Client, user_id: str, key: str, value: int):
+    """One account's storage cap, for the duration. Nobody else's changes."""
+    r = admin.put(f"/api/admin/users/{user_id}/quota-override", json={"key": key, "value": value})
+    if r.status_code != 200:
+        raise RuntimeError(f"could not override {key} for {user_id}: {r.status_code} {r.text[:200]}")
+    try:
+        yield
+    finally:
+        admin.put(f"/api/admin/users/{user_id}/quota-override", json={"key": key, "value": None})
+
+
+def jobs_refusal(admin: httpx.Client, include_open_apps: bool = False) -> str | None:
+    """Why a test may not change how the deployment runs jobs now, or None.
+    Lowering a concurrency cap queues everybody's new jobs behind the
+    test's, so it waits for a moment when no real user has a job running or
+    queued. A setting a new job picks up at submission, such as cores per
+    calculation, also waits for nobody to have the app open
+    (include_open_apps), since anyone who does could submit into it."""
+    body = admin.get("/api/admin/activity").json()
+    busy = [
+        f"{u['username']} ({u['running_jobs']} running, {u['pending_jobs']} queued, "
+        f"{u['open_streams']} open)"
+        for u in body["users"]
+        if not (u["username"] or "").startswith(QATEST_PREFIX)
+        and (u["running_jobs"] or u["pending_jobs"] or (include_open_apps and u["open_streams"]))
+    ]
+    if body["unowned"]["running_jobs"] or body["unowned"]["pending_jobs"]:
+        busy.append("jobs with no owner are running or queued")
+    return ("real users are active, and this test changes how the deployment runs "
+            "their jobs: " + "; ".join(busy)) if busy else None
+
+
+def require_jobs_quiet(admin: httpx.Client, what: str, include_open_apps: bool = False) -> None:
+    why = jobs_refusal(admin, include_open_apps)
+    if why:
+        print(f"[SKIP] {what} -- {why}")
+        sys.exit(0)
+
+
 def _origin() -> str:
     return BASE_URL
 
@@ -303,15 +380,30 @@ def reset_rate_limits() -> None:
     own login call. Call this before AND after any such script. Uses the
     `api` container's own Python (it already has `redis` installed and a
     working QC_AGENT_REDIS_URL) rather than assuming redis-cli's SCAN/DEL
-    are on the test host."""
+    are on the test host.
+
+    Scoped, because the stack is shared with real users. It clears the test
+    accounts' own login buckets and the per-address buckets, which every
+    user behind the same address shares, so clearing them only ever gives
+    people back budget. It leaves a real account's own login bucket alone:
+    that one records attempts against that account's password, and wiping
+    it mid-attempt would hand a guesser a fresh ten tries. It used to clear
+    every rate-limit key on the stack. SCAN rather than KEYS, which blocks
+    Redis for everyone while it runs."""
     subprocess.run(
         [
             "docker", "compose", "exec", "-T", "api",
             "python", "-c",
-            "from app.auth.redis_session import get_client; "
-            "c = get_client(); "
-            "keys = c.keys('qc_agent:ratelimit:*'); "
-            "c.delete(*keys) if keys else None",
+            "from app.auth.redis_session import get_client\n"
+            "c = get_client()\n"
+            "shared = ('login_ip', 'register', 'password_reset')\n"
+            "for k in c.scan_iter('qc_agent:ratelimit:*', count=500):\n"
+            "    k = k.decode() if isinstance(k, bytes) else k\n"
+            "    bucket = k.split(':')[2]\n"
+            # login:<ip> with no account is the pre-split per-address form,
+            # still what a stack running older code writes.
+            "    if bucket in shared or 'qatest_' in k or (bucket == 'login' and k.count(':') == 3):\n"
+            "        c.delete(k)\n",
         ],
         cwd=str(_COMPOSE_DIR),
         capture_output=True,

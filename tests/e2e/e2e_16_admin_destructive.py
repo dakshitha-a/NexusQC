@@ -73,8 +73,11 @@ def main() -> None:
     print("=== D1: audit-log immutability at the DATABASE level ===\n")
     # Ensure at least one row exists to attempt to mutate.
     admin.get("/api/admin/storage")
+    # The value already set, written back, so the audit row exists without
+    # changing anyone's allowance.
+    kb_cap = admin.get("/api/admin/config").json()["per_user_kb_quota_bytes"]
     admin.patch("/api/admin/config",
-                json={"key": "per_user_kb_quota_bytes", "value": 2 * 1024**3})
+                json={"key": "per_user_kb_quota_bytes", "value": kb_cap})
 
     for label, sql in [
         ("UPDATE", "update admin_audit_log set action='tampered' where true;"),

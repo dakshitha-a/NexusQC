@@ -62,7 +62,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import (  # noqa: E402
-    admin_client, check, cleanup_user, mint_invite, register, restart_refusal, skip, summary,
+    admin_client, check, cleanup_user, mint_invite, register, require_jobs_quiet, restart_refusal,
+    restore_config, skip, summary,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -97,6 +98,7 @@ def set_cap(admin, key, value):
 
 def main() -> None:
     admin = admin_client()
+    require_jobs_quiet(admin, "e2e_13 stability")
     cfg = admin.get("/api/admin/config").json()
     orig_per_user = cfg.get("max_concurrent_jobs_per_user")
     print(f"original max_concurrent_jobs_per_user = {orig_per_user}\n")
@@ -364,7 +366,7 @@ print("@@@" + json.dumps({{"job": j, "pid": pid, "alive_before": alive_before,
 
     finally:
         if orig_per_user is not None:
-            set_cap(admin, "max_concurrent_jobs_per_user", orig_per_user)
+            restore_config(admin, "max_concurrent_jobs_per_user", orig_per_user, 1)
             print(f"\nrestored max_concurrent_jobs_per_user = {orig_per_user}")
         cleanup_user(admin, uid)
 

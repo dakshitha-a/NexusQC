@@ -82,6 +82,23 @@ export async function adminApiLogin(context) {
   await page.close();
 }
 
+// The stack these specs run against is also a research group's deployment.
+// A spec that changes how new jobs run for everyone (cores per calculation,
+// concurrency caps) checks this first and skips while any real user has the
+// app open or a job in flight: anyone who does could submit into the
+// changed setting. Mirrors tests/fixtures.py's jobs_refusal.
+export async function realUsersActive(adminContext) {
+  const res = await adminContext.request.get(`${BASE_URL}/api/admin/activity`,
+    { headers: { Origin: BASE_URL } });
+  const body = await res.json();
+  const busy = body.users
+    .filter((u) => !(u.username || "").startsWith("qatest_")
+      && (u.running_jobs || u.pending_jobs || u.open_streams))
+    .map((u) => `${u.username} (${u.running_jobs} running, ${u.pending_jobs} queued, ${u.open_streams} open)`);
+  if (body.unowned.running_jobs || body.unowned.pending_jobs) busy.push("jobs with no owner in flight");
+  return busy.length ? busy.join("; ") : null;
+}
+
 export function randSuffix(n = 8) {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let s = "";

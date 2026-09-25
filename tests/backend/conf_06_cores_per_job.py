@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_jobs, skip, summary  # noqa: E402
+from fixtures import admin_client, require_jobs_quiet, check, cleanup_jobs, skip, summary  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent.parent
 KEY = "cores_per_job"
@@ -126,6 +126,7 @@ print(_cap_parallelism("%pal nprocs 16 end\n! HF sto-3g").splitlines()[0])
 
 def main() -> None:
     admin = admin_client()
+    require_jobs_quiet(admin, "conf_06 cores per calculation", include_open_apps=True)
     before = admin.get("/api/admin/config").json()
     original = before.get(KEY) if before.get("cores_per_job_source") == "setting" else None
     ceiling = before.get("cores_per_job_ceiling")
