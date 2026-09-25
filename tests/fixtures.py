@@ -136,6 +136,9 @@ def admin_client() -> httpx.Client:
             file=sys.stderr,
         )
         sys.exit(1)
+    # The refusal goes on this client and not on new_client(): conf_01 and
+    # e2e_03 send purge requests as a non-admin or anonymously on purpose,
+    # to prove they are rejected, and those must still reach the server.
     c = new_client(event_hooks={"request": [_refuse_blind_purge]})
     r = c.post("/api/auth/login", json={"email_or_username": ADMIN_USER, "password": ADMIN_PASS})
     if r.status_code != 200:

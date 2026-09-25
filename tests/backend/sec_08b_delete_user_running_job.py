@@ -91,7 +91,7 @@ from app.auth.storage_quota import purge_user_data
 from app.config import JOBS_DIR
 
 m = resolve_molecule("benzene")
-spec = JobSpec(method="frequency", engine="pyscf", molecule=m.to_dict(), params={{"method": "hf", "basis": "6-31g"}})
+spec = JobSpec(task="freq", subtype="", method="hf", engine="pyscf", molecule=m.to_dict(), params={{"basis": "6-31g"}})
 job_id = get_job_manager().submit(spec)
 record_ownership("job", job_id, "{owner_user_id}")
 status_before = read_status(job_id)["status"]

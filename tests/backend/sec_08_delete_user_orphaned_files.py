@@ -42,7 +42,7 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager
 from app.auth.models import record_ownership
 
 m = resolve_molecule("water")
-spec = JobSpec(method="single_point", engine="pyscf", molecule=m.to_dict(), params={{"method": "hf", "basis": "sto-3g"}})
+spec = JobSpec(task="single_point", subtype="gs", method="hf", engine="pyscf", molecule=m.to_dict(), params={{"basis": "sto-3g"}})
 job_id = get_job_manager().submit(spec)
 for _ in range(60):
     status = get_job_manager().status(job_id)

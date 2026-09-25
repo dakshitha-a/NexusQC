@@ -69,7 +69,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_user, mint_invite, register, summary  # noqa: E402
+from fixtures import admin_client, check, cleanup_jobs, cleanup_user, mint_invite, register, summary  # noqa: E402
 
 COMPOSE_DIR = Path(__file__).resolve().parent.parent.parent
 CONTROL_DELAY_SECONDS = 2
@@ -100,8 +100,8 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager
 
 m = resolve_molecule("water")
 spec = JobSpec(
-    job_id="{job_id}", method="single_point", engine="pyscf",
-    molecule=m.to_dict(), params={{"method": "hf", "basis": "sto-3g"}},
+    job_id="{job_id}", task="single_point", subtype="gs", method="hf", engine="pyscf",
+    molecule=m.to_dict(), params={{"basis": "sto-3g"}},
 )
 get_job_manager().submit(spec)
 os._exit(0)
@@ -109,7 +109,7 @@ os._exit(0)
     _exec_api(code)
 
 
-def _submit_with_owner(job_id: str, owner_user_id: str) -> float:
+def _submit_with_owner(job_id: str, owner_user_id: str) -> tuple[float, str | None]:
     """Calls the REAL fixed JobManager.submit() signature directly --
     ownership is recorded INSIDE that call now (app/chemistry/jobs/
     base.py), the instant the job's spec/status become visible, before its
@@ -156,13 +156,14 @@ from app.chemistry.jobs.base import JobSpec, get_job_manager
 m = resolve_molecule("water")
 mgr = get_job_manager()
 
-warmup_spec = JobSpec(method="single_point", engine="pyscf", molecule=m.to_dict(), params={{"method": "hf", "basis": "sto-3g"}})
+warmup_spec = JobSpec(task="single_point", subtype="gs", method="hf", engine="pyscf", molecule=m.to_dict(), params={{"basis": "sto-3g"}})
 warmup_id = mgr.submit(warmup_spec)
 mgr.cancel(warmup_id)
+print(f"WARMUP_ID={{warmup_id}}")
 
 spec = JobSpec(
-    job_id="{job_id}", method="single_point", engine="pyscf",
-    molecule=m.to_dict(), params={{"method": "hf", "basis": "sto-3g"}},
+    job_id="{job_id}", task="single_point", subtype="gs", method="hf", engine="pyscf",
+    molecule=m.to_dict(), params={{"basis": "sto-3g"}},
 )
 t0 = time.perf_counter()
 mgr.submit(spec, owner_user_id="{owner_user_id}")
@@ -171,7 +172,8 @@ os._exit(0)
 '''
     out = _exec_api(code)
     line = next((ln for ln in out.splitlines() if ln.startswith("SUBMIT_MS=")), "SUBMIT_MS=0")
-    return float(line.split("=", 1)[1])
+    warmup = next((ln.split("=", 1)[1] for ln in out.splitlines() if ln.startswith("WARMUP_ID=")), None)
+    return float(line.split("=", 1)[1]), warmup
 
 
 def _poll_for_200(client, job_id: str, stop_event: threading.Event) -> list[int]:
@@ -229,7 +231,7 @@ def main() -> None:
     # also include the deliberate warm-up submit()+cancel() beforehand
     # (see _submit_with_owner's own docstring for why that's needed and
     # why it must be excluded from this figure to mean anything).
-    submit_ms = _submit_with_owner(fix_job_id, user_a["id"])
+    submit_ms, warmup_job_id = _submit_with_owner(fix_job_id, user_a["id"])
 
     time.sleep(POLL_BUFFER_SECONDS)
     stop_event.set()
@@ -251,6 +253,11 @@ def main() -> None:
 
     cleanup_user(admin, user_a["id"])
     cleanup_user(admin, user_b["id"])
+    # The warm-up job is submitted with no owner, so deleting user A does
+    # not take it. Its cancel usually loses the race against a water/STO-3G
+    # run that finishes in about a second, which left it behind on every run.
+    _, left = cleanup_jobs(admin, [j for j in (control_job_id, fix_job_id, warmup_job_id) if j])
+    check("the jobs this script created are gone", not left, f"still there: {left}")
     summary()
 
 

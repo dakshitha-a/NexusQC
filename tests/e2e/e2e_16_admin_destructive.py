@@ -130,8 +130,8 @@ import json
 from app.chemistry.molecule import resolve_molecule
 from app.chemistry.jobs.base import JobSpec, get_job_manager
 m = resolve_molecule("benzene").to_dict()
-j = get_job_manager().submit(JobSpec(method="frequency", engine="pyscf", molecule=m,
-    params={{"method":"hf","basis":"6-31g"}}),
+j = get_job_manager().submit(JobSpec(task="freq", subtype="", method="hf", engine="pyscf", molecule=m,
+    params={{"basis":"6-31g"}}),
     owner_user_id="{vid}")
 print("@@@" + json.dumps({{"job": j}}))
 ''', timeout=300).splitlines()
@@ -187,8 +187,8 @@ print("@@@" + json.dumps({{"job": j}}))
     from app.auth.storage_quota import purge_all_jobs
     m = resolve_molecule("benzene").to_dict()
     mgr = get_job_manager()
-    j = mgr.submit(JobSpec(method="frequency", engine="pyscf", molecule=m,
-                           params={"method": "hf", "basis": "6-31g"}))
+    j = mgr.submit(JobSpec(task="freq", subtype="", method="hf", engine="pyscf", molecule=m,
+                           params={"basis": "6-31g"}))
     before = ""
     for _ in range(60):
         before = (read_status(j) or {}).get("status")
@@ -253,6 +253,9 @@ print("@@@" + json.dumps({{"job": j}}))
     else:
         skip("D5 deleting a user with a RUNNING job cancels and purges it",
              f"the probe job was {st.get('status')!r}, not still running")
+        # D5 is the step that deletes the victim, so a skip used to leave
+        # the victim and its finished probe job on the stack every run.
+        cleanup_user(admin, vid)
 
     if not destroy:
         print("\n(stopping before reset-all; pass --destroy to run D6-D8)")
