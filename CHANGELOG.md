@@ -23,9 +23,51 @@ note saying what changed.
   each job runs on: PySCF and BAGEL threads, ORCA MPI processes. It applies
   from the next job without a restart, and each job records the width it
   ran with. `QC_AGENT_N_CORES` is now the default this overrides.
+- **Update notices.** Before an update restarts the app, everyone using it
+  sees a banner with the restart time and a countdown, on the sign-in screen
+  too. It says whether running calculations are waited for or stopped, and
+  that new ones queue until the update is done. A minute before, it turns
+  red; afterwards it says the app was updated, until dismissed. The notice
+  is 10 minutes by default (`QC_AGENT_UPDATE_NOTICE_MINUTES`,
+  `scripts/update.sh --notice-minutes`).
+- The admin console's update controls take the notice length and a note to
+  users, can cancel an announced update before anyone is locked out, and
+  offer "Stop running calculations and update", which names whose
+  calculations would stop and needs a typed confirmation.
+- An admin can give one account its own storage allowance, without changing
+  everyone's (`PUT /api/admin/users/{id}/quota-override`).
+
+### Changed
+
+- **Admins see only their own work.** An admin's conversations, jobs,
+  projects, plots, uploads and knowledge-base sources are their own, like
+  everyone's, and another user's cannot be opened even by link. Before,
+  every user's items appeared in an admin's workspace, including other
+  people's conversations as they typed. Managing accounts stays in the admin
+  console; removing one particular job or conversation is an admin API route
+  (`DELETE /api/admin/jobs/{id}`, `/api/admin/threads/{id}`).
+- Users stay signed in through an update. The lockout lasts for the restart,
+  a minute or two, and the page reloads itself when it lifts. It used to
+  sign everyone out.
+- `scripts/update.sh` warns and locks users out by default;
+  `--no-maintenance` skips both.
+- Login attempts are limited per account as well as per address, so one
+  person mistyping a password no longer locks out others who share an
+  address.
 
 ### Fixed
 
+- During an update, a browser tab that had not started it reloaded every
+  couple of seconds into the lockout. It now waits until the lockout lifts.
+- The confirm buttons on "Update this deployment" and "Roll back" said
+  "Purge". They say what they do.
+- The update impact report could miss a removed route or column on a host
+  with a non-C locale, because its sorted lists were compared in a
+  different order than they were sorted in.
+- Tests no longer touch anyone's data but their own on a shared
+  deployment: whole-stack purges, restarts and shared-setting changes refuse
+  or skip while real users are on it, and every test run checks afterwards
+  that no real user's data was lost.
 - A plot request with a setting the plotter does not know is now refused,
   naming the valid settings. Before, it was stored and ignored, so a
   request for annotations came back looking unchanged.

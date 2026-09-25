@@ -54,6 +54,8 @@ export function DeployControls({
   const runner = deployment?.runner;
   // Shares the banner's cache key, so this costs no extra request.
   const notice = useQuery({ queryKey: ["notice"], queryFn: api.getNotice, refetchInterval: 15_000 });
+  // While an update is announced, the update and rollback buttons show as
+  // busy: a second request would queue a second update behind the first.
   const cancellable = ["scheduled", "waiting_for_jobs", "imminent"].includes(notice.data?.notice?.phase ?? "");
 
   // Polled only while a run is in flight. `refetchInterval` returning false
@@ -278,7 +280,7 @@ export function DeployControls({
             "when it is done."
           }
           phrase="UPDATE"
-          pending={submit.isPending || (busy && action === "update")}
+          pending={submit.isPending || (busy && action === "update") || cancellable}
           testId="deploy-update"
           actionLabel="Update"
           pendingLabel="Updating..."
@@ -297,7 +299,7 @@ export function DeployControls({
               ". Users are warned in advance that their calculations will be stopped."
             }
             phrase="STOP AND UPDATE"
-            pending={submit.isPending || (busy && action === "update")}
+            pending={submit.isPending || (busy && action === "update") || cancellable}
             testId="deploy-update-force"
             actionLabel="Stop and update"
             pendingLabel="Updating..."
@@ -318,7 +320,7 @@ export function DeployControls({
             "restarts. Data written since then is not rolled back."
           }
           phrase="ROLLBACK"
-          pending={submit.isPending || (busy && action === "rollback")}
+          pending={submit.isPending || (busy && action === "rollback") || cancellable}
           testId="deploy-rollback"
           actionLabel="Roll back"
           pendingLabel="Rolling back..."

@@ -2704,28 +2704,59 @@ jobs, and `QC_AGENT_DRAIN_TIMEOUT` defaults to four hours because a CASSCF run
 here is not an outlier. Locking users out first means they are shut out for the
 entire drain, waiting for their own jobs to finish.
 
-So `scripts/update.sh --maintenance` does it in this order: pause admission
-(everyone stays logged in and keeps working, new jobs queue and say why), wait
-for the drain, then set `maintenance_mode` and drop every session, then rebuild
-and restart. The lockout lasts the restart rather than the wait. Both the
-pause and the maintenance flag are cleared by the same `EXIT` trap as the
-drain, so an abort, a failure or a Ctrl-C cannot leave a deployment locked with
-nothing scheduled to unlock it.
+So `scripts/update.sh` does it in this order: announce the update in the app
+with a restart time, pause admission (everyone keeps working, new jobs queue
+and say why), take the backup, wait for the drain, build the image, wait out
+whatever is left of the notice with a last minute's warning, then set
+`maintenance_mode` and restart. The lockout lasts the restart rather than the
+wait. The pause, the maintenance flag and the notice are all put right by the
+same `EXIT`, `INT` and `TERM` trap, so an abort, a failure or a Ctrl-C cannot
+leave a deployment locked, or a banner promising a restart, with nothing
+scheduled to undo it.
 
-### How every tab finds out, without a new event stream
+Admission pauses at the announcement, not only when `--drain` is given. The
+notice window is ten minutes by default, and a calculation started inside it
+would be killed by the restart it was warned about. Just before the restart
+the script checks again for anything running and waits for it unless the
+admin chose to stop running calculations (`--force`).
 
-Maintenance mode returns a 503 to non-admin requests. That is the broadcast: the
-frontend already polls -- the jobs list every four seconds, projects every
-eight, quotas every thirty -- so the first poll to come back 503 is what tells a
-tab an update has started. No app-level SSE stream was needed, and the one that
-exists (`server/sse.py`) is per-conversation and would have had to be rebuilt to
-carry this.
+Sessions are left alone. The script used to delete every session on entering
+maintenance, on the grounds that the restart would break them anyway. It does
+not: sessions live in Redis, which an api update does not recreate, so the
+only effect was that every user came back to a login screen instead of the
+app they had been using.
 
-The 503 is checked **before** the 401 branch in `frontend/src/lib/api.ts`, and
-that order is load-bearing. Every session is deliberately dropped during an
-update, so a tab that read the maintenance response as an auth failure would
-bounce the user to a login screen they cannot get past -- which looks exactly
-like the app being broken rather than being updated.
+### How every tab finds out: the update notice
+
+Before an update, the tell-tale was the lockout itself. Maintenance mode
+returns a 503 to non-admin requests, and the frontend polls -- the jobs list
+every four seconds -- so the first poll to come back 503 was how a tab learned
+an update had started. That still raises the lockout overlay, but it is a
+notice given at the moment of the lockout, which is no notice at all.
+
+So `update.sh` also keeps one `app_config` row, `update_notice`, current as it
+goes: `scheduled` with a restart time, `waiting_for_jobs` with a count,
+`imminent`, `in_progress`, and finally `done`, `failed` or `cancelled`, each
+with an expiry so a notice from a killed script cannot linger. It is the only
+writer, so an update from the console and one from a shell tell users the same
+thing. `GET /api/notice` (`app/auth/update_notice.py`) serves it to every tab,
+signed in or not, and is exempt from maintenance mode. `UpdateNoticeBanner`
+polls it every 15 seconds and on focus, and counts down on the server's clock,
+which the response carries, rather than the laptop's. The one thing the api
+writes is a cancellation, into a second row `update_cancel` naming the notice
+it cancels, which `update.sh` polls while it waits.
+
+A poll rather than a push, still: the event stream (`server/sse.py`) is
+per-conversation, and the restart would cut any stream there was.
+
+The 503 is checked **before** the 401 branch in `frontend/src/lib/api.ts`.
+That order mattered most when every session was dropped during an update, and
+it still matters: a maintenance answer is never an auth problem.
+
+The overlay reloads the page once `/api/notice` reports the lockout lifted. It
+used to reload as soon as `/api/health` answered, but health is exempt from
+maintenance and answers throughout, so a tab that had not started the update
+reloaded straight back into the lockout every couple of seconds.
 
 ### Watching an update that has taken the api away
 

@@ -853,10 +853,21 @@ update would break, and can then run the update.
 
 It matters that it does these in that order. Restarting kills every running
 calculation, and on this project a calculation is routinely tens of minutes and
-sometimes hours, so an update drains first: new jobs queue (and say why) while
-everyone stays logged in and keeps working, and only once the running jobs have
-finished is everybody logged out for the restart itself. Browsers show an
-"updating" screen and reload themselves onto the new build when it is done.
+sometimes hours, so an update warns first and drains before it restarts:
+
+- **Everyone is told in advance.** A banner in the app, and on the sign-in
+  screen, gives the restart time with a countdown, 10 minutes ahead by default,
+  plus any note the admin adds. The image is built during that time.
+- **Nothing running is lost.** New calculations queue from the announcement on
+  and start after the update. The restart waits for running ones to finish,
+  unless the admin chooses "Stop running calculations and update", which names
+  whose calculations would stop and needs a typed confirmation.
+- **The lockout is short, and nobody is signed out.** Non-admins see an
+  "updating" screen for the restart itself, a minute or two. The page reloads
+  onto the new build when it is done, with a banner saying so.
+- **It can be called off.** Until the lockout starts, the admin can cancel,
+  and the banner tells everyone nothing changed.
+
 There is a rollback button and a list of past updates in the same place.
 
 This needs one thing on the host, installed once:
@@ -881,7 +892,12 @@ scripts/update.sh --dry-run      # report the impact, change nothing
 scripts/update.sh                # fetch and update
 scripts/update.sh --drain        # wait for in-flight jobs first
 scripts/update.sh --rollback     # back to the last commit that came up healthy
+scripts/update.sh --notice-minutes 30   # warn users 30 minutes ahead (default 10)
 ```
+
+Run from the host, it warns users in the app and locks them out for the
+restart exactly as the console does; `--no-maintenance` skips both, for a
+deployment nobody else uses.
 
 `update.sh` is the only way a deployment should move forward. It refuses on a
 dirty tree, reports in advance anything an update would break or destroy,
@@ -905,7 +921,12 @@ data isolation, storage quotas, an append-only audit log, and an admin console
 behind the cogwheel in the sidebar. Invites, suspensions, deletions, storage
 usage and bug-report triage all happen there rather than through raw API calls.
 Deployment-wide purges require typing a confirmation phrase, since a second
-click is too easy to do by reflex. Every user, admin or not, can download all of
+click is too easy to do by reflex. Admins manage accounts, not other people's
+work: an admin's own sidebar, job list and projects hold only their own, like
+everyone's, and another user's conversation or project cannot be opened even
+by link. Through the admin API, not yet the console, an admin can remove one
+particular job or conversation if it has to go, and give one account a larger
+or smaller storage allowance than the default. Every user, admin or not, can download all of
 their own data as a zip and purge it themselves. The zip is genuinely
 everything the account holds: jobs and their outputs, knowledge-base sources,
 uploaded geometries, saved plots with every version of each one, project

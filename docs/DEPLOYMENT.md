@@ -623,7 +623,23 @@ scripts/update.sh --dry-run    # report what would happen, change nothing
 scripts/update.sh --drain      # wait for in-flight jobs before restarting
 scripts/update.sh --force      # accept killing in-flight jobs
 scripts/update.sh --rollback   # go back to the last commit that came up healthy
+scripts/update.sh --notice-minutes 30          # warn users 30 minutes ahead (default 10)
+scripts/update.sh --notice-message-file note   # add a note to the warning
+scripts/update.sh --no-maintenance             # no warning, no lockout
 ```
+
+**What users see.** An update that will restart the app is announced in it
+first. Everyone signed in, and anyone on the sign-in screen, sees a banner
+with the restart time and a countdown. It says whether running calculations
+are waited for or stopped, and that new ones will queue and start after the
+update: admission pauses at the announcement, so nothing starts only to be
+killed. The image is built during the notice. A minute before the restart
+the banner turns red; then non-admins get a lockout screen for the restart
+itself, about a minute and a half. They stay signed in, and the page reloads
+by itself when the lockout lifts, with a banner saying the app was updated.
+If the update fails or is cancelled, the banner says nothing changed. From
+the admin console an announced update can be cancelled until the lockout
+starts. For an urgent rollback pass `--notice-minutes 0`.
 
 It reports what the change would do to the running deployment before
 touching anything (schema changes that would be silent no-ops, new required
@@ -730,7 +746,9 @@ These are in addition to everything in
 | `QC_AGENT_JWT_SECRET` | *required once the above is set* | Signs session cookies; at least 32 bytes. The app fails fast at startup if it's missing while auth is active. |
 | `QC_AGENT_DEPLOY_SECRET` | *unset* | Signs the deployment requests the admin panel writes into `data/deploy/` for `scripts/deploy_runner.sh`. The runner refuses `update` and `rollback` without a valid signature and says why, so an unset value disables the in-app update rather than weakening it. `data/` is bind-mounted into the api container and `.env` is not, which is what makes this a boundary: something that can write a file into `data/` still cannot sign one. |
 | `QC_AGENT_REDIS_URL` | *unset* | Backs one-session-per-user enforcement and the rate limiter. Required alongside the database URL. |
-| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Per-IP login attempts per window before a 429. A backoff, not a lockout; a lockout would strand a legitimate user for the window's duration with nothing to do about it. Keyed on nginx's `X-Real-IP`, so it only means anything behind nginx. |
+| `QC_AGENT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Login attempts per account, from one address, per window before a 429. A backoff, not a lockout; a lockout would strand a legitimate user for the window's duration with nothing to do about it. Keyed on nginx's `X-Real-IP` plus the name typed, so one person's typos cannot lock out another. |
+| `QC_AGENT_LOGIN_RATE_LIMIT_IP_MAX_ATTEMPTS` | `60` | Login attempts per address across all accounts, per the same window. It stops one address working through many accounts. Where a proxy hides client addresses (Docker's userland port proxy does), every user arrives from one address and this is the whole group's shared budget, which is why it is loose. The number is a judgement, not a measurement: raise it if a group logging in at once ever sees a 429. |
+| `QC_AGENT_UPDATE_NOTICE_MINUTES` | `10` | How long `scripts/update.sh` warns users before the restart when `--notice-minutes` is not given. The admin console sends its own value, 10 unless changed. The image builds during the notice, so on a normal update the wait costs little. `0` restarts as soon as the build is done, still with a minute's warning. |
 | `QC_AGENT_REGISTER_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `10` / `60` | Same mechanism, separate budget, for registration. |
 | `QC_AGENT_SESSION_TTL_SECONDS` | `604800` (7 days) | Session cookie lifetime. |
 | `QC_AGENT_ADMIN_STORAGE_CACHE_TTL_SECONDS` | `20` | How long the admin storage readout is cached. Explicitly invalidated on every purge and config change, so a deliberate admin action never sits behind a stale value. |

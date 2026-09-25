@@ -77,23 +77,29 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: tests/fixtures.py → "with QC_AGENT_TEST_ALLOW_PURGE=1 set on this stack: a direct admin purge raised BlindPurgeRefused naming dakshitha, dma, maneesh; p1_07 skipped; e2e_16 --destroy skipped D3 and D6-D8, 6/6 other checks passed; no purge reached nginx, job list and accounts unchanged"
 - [done] P1.2: api restarts are opt-in and refuse while real users are active
   evidence: tests/fixtures.py → "conf_04 and perf_05 printed [SKIP] without the flag; with QC_AGENT_TEST_ALLOW_RESTART=1 restart_refusal answered 'real users are active: dma (0 running, 1 open)'; api StartedAt unchanged. Scripts kept in the default set since they skip themselves; e2e_13 S4 and perf_10 use the same check"
-- [in-progress] P1.3: every config change in tests restores; quota tests cannot evict others
-- [in-progress] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
+- [done] P1.3: every config change in tests restores; quota tests cannot evict others
+  evidence: tests/backend/share_04_quota_refusal.py → "9/9 on the rebuilt stack at 89e9bac: the squeeze is a per-user override on the recipient only and the deployment-wide cap stays 18 GB; p1_03 7/7 writes back the value already set, up_01 31/31 likewise; the settings tests had left behind (dma's per-user job cap 8 overwritten to 3, uploads quota below its default since 09-14) were put back through the admin API"
+- [done] P1.4: rate-limit reset scoped to test identities; real client IPs reach the app
+  evidence: tests/backend/sec_17_login_per_account.py → "4/4: account A throttled after ten wrong passwords while account B on the same address signs in at once; sec_03 4/4 unchanged. Every client reaches the app as 172.18.0.1 because Docker's userland proxy fronts nginx; fixing that is a root-owned daemon change for a person, recorded in docs/HANDOFF.md"
 - [done] P1.5: every test run checks real users' data is intact before and after
   evidence: tests/backend/integ_01_integrity_check.py → "5/5: a live snapshot (3 real accounts, 29 owned items) compared with itself passes; a removed job, a file removed from a finished job, and a removed account are each reported by name; a changed setting is a note, not a loss. run_e2e.sh e2e_03 ran wrapped: snapshot, 9/9, integrity PASS"
 - [done] P1.6: host scripts stay out of the live job folder
   evidence: scripts/validate_ensemble_orbital_reuse.py → "all checks passed against a scratch QC_AGENT_DATA_DIR; data/jobs listing identical before and after. spike_thread_caps.py carries the same header (compile-checked; it needs engines). verify_orca_functionals writes data/verified, a reference list, not user data, so it is unchanged"
 - [done] P1.7: guidance says the stack holds real data
   evidence: tests/README.md → "new section 'This stack has real users on it' tabulates all ten guards, where each lives and what it stops; CLAUDE.md, docs/TESTING.md and docs/WORKFLOW.md point at it, WORKFLOW forbids docker compose down -v; the Docker userland-proxy decision is in docs/HANDOFF.md"
-- [in-progress] P1.8: admins see only their own work (raised mid-run: an admin saw another user's live chat and his project copy)
+- [done] P1.8: admins see only their own work (raised mid-run: an admin saw another user's live chat and his project copy)
+  evidence: tests/backend/priv_01_admin_scope.py → "21/21 on the rebuilt stack: an admin's conversation, job and project lists hold only their own; the other user's conversation state, event stream, job and project are 404 to the admin, and renaming or deleting them through workspace routes is 404 and changes nothing; the admin-only delete routes work. proj_02, proj_03, kb_01, sec_09, sec_11, sec_13, purge_01 pass with their admin assertions flipped. Not looked at as dma in a browser: the session has no dma password"
 - merged:
 
 ## Phase 2: updates warn, lock out, and let back in
 
-- [in-progress] P2.1: the update notice: app_config row and GET /api/notice
+- [done] P2.1: the update notice: app_config row and GET /api/notice
+  evidence: tests/backend/notice_01_update_notice.py → "18/18: public route with server clock, maintenance-exempt, expiry hides a notice, deploy bounds 0-120 min and 500 chars, cancel with nothing announced is 409, update.sh post_notice keeps quotes and backslash, cancel_requested matches only its own id; the live done notice was saved and put back identical"
 - [in-progress] P2.2: update.sh posts the notice, waits it out, locks, restarts, posts done
-- [in-progress] P2.3: users stay logged in through an update
-- [in-progress] P2.4: the banner in the app, and the overlay text to match
+- [done] P2.3: users stay logged in through an update
+  evidence: scripts/update.sh → "first rollout (a38f690 -> 89e9bac) logged out no one: no 'logged out' line in its log, and dma's Redis session key dates from 8.6 h before, maneesh's from his password reset an hour before"
+- [done] P2.4: the banner in the app, and the overlay text to match
+  evidence: tests/frontend/notice_01_update_notice.spec.mjs → "36/36 on the deployed bundle: every phase renders its sentence, done dismisses and stays dismissed, the sign-in screen shows it, the overlay does not reload while the lockout is on and reloads once it lifts; screenshots of each phase looked at"
 - merged:
 
 ## Phase 3: update from the console

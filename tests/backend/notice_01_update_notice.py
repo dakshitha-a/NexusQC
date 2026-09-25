@@ -52,11 +52,20 @@ def _psql(sql: str) -> str:
 
 
 def main() -> None:
-    if _psql("SELECT count(*) FROM app_config WHERE key IN ('update_notice','update_cancel')") not in ("", "0"):
-        skip("the whole script", "an update notice already exists, so an update may be running; "
-                                  "this script writes the same row and will not touch it")
+    # A notice from an update in progress is not ours to touch. One from a
+    # finished update (done, failed, cancelled) is still on users' screens
+    # until it expires, so it is saved here and put back exactly afterwards.
+    existing = _psql("SELECT value FROM app_config WHERE key='update_notice'")
+    saved = json.loads(existing) if existing else None
+    if (saved and saved.get("phase") not in ("done", "failed", "cancelled")) \
+            or _psql("SELECT count(*) FROM app_config WHERE key='update_cancel'") not in ("", "0"):
+        skip("the whole script", "an update is in progress; this script writes the same row and "
+                                  "will not touch it")
         summary()
         return
+    if saved:
+        _psql("DELETE FROM app_config WHERE key='update_notice'")
+        time.sleep(2.5)  # past the notice route's 2 s cache
 
     print("== 1. the route ==")
     r = new_client().get("/api/notice")
@@ -66,6 +75,28 @@ def main() -> None:
           set(body) >= {"notice", "maintenance", "now"} and abs(body.get("now", 0) - time.time()) < 120,
           json.dumps(body)[:200])
     check("and no notice when no update is announced", body.get("notice") is None, str(body.get("notice")))
+    try:
+        _run_rest(body)
+    finally:
+        _psql("DELETE FROM app_config WHERE key IN ('update_notice','update_cancel')")
+        if saved:
+            _put_back(saved)
+    summary()
+
+
+def _put_back(saved: dict) -> None:
+    # Through a psql variable read from stdin, so the JSON is never spliced
+    # into SQL text (psql does not expand variables inside -c).
+    sql = "INSERT INTO app_config (key, value) VALUES ('update_notice', :'n'::jsonb);"
+    proc = subprocess.run(["docker", "compose", "exec", "-T", "postgres", "sh", "-c",
+                           'psql -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v n="$0"', json.dumps(saved)],
+                          cwd=str(REPO), input=sql, capture_output=True, text=True, timeout=60)
+    back = _psql("SELECT value FROM app_config WHERE key='update_notice'")
+    check("the finished update's notice users were seeing is back exactly as it was",
+          bool(back) and json.loads(back) == saved, (proc.stderr or back)[-200:])
+
+
+def _run_rest(body: dict) -> None:
     exempt = _exec_api("from app.auth.middleware import _MAINTENANCE_EXEMPT; print('/api/notice' in _MAINTENANCE_EXEMPT)")
     check("/api/notice is exempt from maintenance mode", exempt.endswith("True"), exempt)
 
@@ -135,7 +166,6 @@ print("@@@" + json.dumps({"live": live, "expired": u.current_notice()}))
         check("and yes for its own", "CANCEL3=yes" in out, out[-200:] + proc.stderr[-200:])
     finally:
         _psql("DELETE FROM app_config WHERE key IN ('update_notice','update_cancel')")
-    summary()
 
 
 if __name__ == "__main__":

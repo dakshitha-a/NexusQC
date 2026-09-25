@@ -133,7 +133,9 @@ try {
     : r.continue()));
   let reloads = 0;
   page.on("load", () => { reloads += 1; });
-  await page.reload({ waitUntil: "domcontentloaded" });
+  // Wait for this reload's own load event before counting from it, or the
+  // count starts one short and the overlay is blamed for the spec's reload.
+  await page.reload({ waitUntil: "load" });
   const before = reloads;
   await page.waitForSelector("text=NexusQC is being updated", { timeout: 30000 });
   check("a maintenance answer raises the overlay", true);
@@ -218,6 +220,8 @@ try {
   await ap.locator('[data-testid="admin-nav-deployment"]').click();
   await ap.waitForSelector('[data-testid="deploy-cancel"]', { timeout: 20000 });
   check("a cancel button shows while an update is announced", true);
+  check("and Update is held while one is announced, so a second cannot queue behind it",
+        await ap.locator('[data-testid="deploy-update"]').isDisabled());
   await ap.screenshot({ path: path.join(outDir, "console-cancel.png"), fullPage: true });
   await ap.locator('[data-testid="deploy-cancel"]').click();
   const t2 = Date.now();

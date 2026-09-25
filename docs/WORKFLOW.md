@@ -296,7 +296,17 @@ scripts/update.sh --dry-run      # report the impact, change nothing
 scripts/update.sh --drain        # wait for in-flight jobs, then update
 scripts/update.sh --force        # update now, accept losing them
 scripts/update.sh --rollback     # back to the commit before the last update
+scripts/update.sh --notice-minutes 0   # an urgent fix: build, then a minute's warning
 ```
+
+Every update that restarts the app warns the people using it first: a banner
+with the restart time, 10 minutes out by default, during which the image
+builds and new calculations queue. Then non-admins are locked out for the
+restart itself and come back signed in. The same happens from the admin
+console, which can also cancel an announced update. `--no-maintenance` skips
+the warning and the lockout, and is only for a deployment nobody else uses.
+Check `GET /api/admin/activity`, or the console's Deployment section, before
+starting one.
 
 Run from inside the deployment's own checkout. In order: refuses on a dirty
 tree; fetches `origin`; runs `scripts/check_destructive.sh` and refuses past
