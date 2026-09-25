@@ -57,8 +57,12 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const COMPOSE_DIR = path.resolve(HERE, "..", "..");
-const SHOT_DIR = process.env.QC_AGENT_SHOT_DIR || path.join(COMPOSE_DIR, "docs", "evaluation",
-  "2026-09-app-review", "evidence", "fix", "P5.3", "shots");
+// docs/e2e-artifacts is gitignored, the place machine-made screenshots go.
+// This used to default to the September review's evidence folder, so every
+// suite run rewrote two tracked evidence images; a record of what was seen
+// then should not change when the suite runs now. Point QC_AGENT_SHOT_DIR
+// there to regenerate them on purpose.
+const SHOT_DIR = process.env.QC_AGENT_SHOT_DIR || path.join(COMPOSE_DIR, "docs", "e2e-artifacts", "ui_15");
 const LABEL = "keyboard row probe, water frequencies";
 
 function execApi(code) {
