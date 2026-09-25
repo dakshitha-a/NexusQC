@@ -60,16 +60,20 @@ turn has been paying for hidden reasoning that LangChain drops.
   evidence: tests/backend/plot_07_annotations.py → "'annotation' refused naming the valid keys; plot_02..06 (103 checks), agent_02 (37) and agent_08 (15) still pass"
 - [done] P2.4: tool docstring, context summary and token budget
   evidence: tests/backend/agent_01_token_budget.py → "fixed surface 9,267 tokens (was 9,151) against the 10,000 budget; context_summary lists labels and notes; edit with null removes them"
-- merged: -
+- merged: d1336ab
 
 ## Phase 3: the wait indicator
 
-- [todo] P3.1: "Thinking..." shows elapsed seconds
-- merged: -
+- [done] P3.1: "Thinking..." shows elapsed seconds
+  evidence: tests/frontend/plots_03_annotations_live.spec.mjs → "with the message POST held 7 s the indicator read 'Thinking... 5 s' (screenshot looked at); a sub-3 s wait shows no count"
+- merged: e460e5a
 
 ## Phase 4: land it
 
-- [todo] P4.1: README and docs updated
-- [todo] P4.2: agent tests pass with reasoning off
-- [todo] P4.3: dev stack rebuilt, live turn and browser check
+- [done] P4.1: README and docs updated
+  evidence: README.md → "plot text paragraph and a slow/empty reply paragraph; ARCHITECTURE.md and MODEL_CONTEXT_BUDGET.md carry the reasoning measurement and the empty-reply rule"
+- [done] P4.2: agent tests pass with reasoning off
+  evidence: tests/backend/agent_02_draft_flow.py → "37/37 against the served model; chain_01 27, reject_01 24, submit_01 27, agent_08 15 all pass; agent_11 shows 0 reasoning chars"
+- [done] P4.3: dev stack rebuilt, live turn and browser check
+  evidence: tests/frontend/plots_03_annotations_live.spec.mjs → "stack on e460e5a; a real turn chose value_labels, the plot loaded inline (2400 px) with values on the levels; 7/7; container log shows 'agent: model call took 11.6s for a 13-message prompt'"
 - merged: -
