@@ -76,10 +76,50 @@ def _apply_categorical_xticks(ax, labels: list[str]) -> None:
     ax.set_xlim(-0.6, len(labels) - 0.4)
 
 
+def _draw_value_labels(ax, positions, series, style, fmt, st, n_series) -> None:
+    """Write each non-gap value beside its mark.
+
+    Where the label goes depends on the mark, and "levels" is the case that
+    decides it. Two states of one method can sit a quarter of an eV apart
+    (uracil's xms-CASPT2 S1 and S2, 4.93 and 5.17 eV), so a label above each
+    tick would collide with the tick above it. Beside the tick's right end,
+    vertically centred, each label stays level with the line it names. A bar's
+    label goes above the bar top, and a line or scatter point's goes just
+    above and to the right of the point.
+    """
+    for i, entry in enumerate(series):
+        color = st.color(i, entry.get("color"))
+        for p, v in zip(positions, entry["values"]):
+            if v is None or not np.isfinite(float(v)):
+                continue
+            text = format(float(v), fmt)
+            if style == "levels":
+                ax.annotate(text, xy=(p + 0.30, v), xytext=(3, 0), textcoords="offset points",
+                            ha="left", va="center", fontsize=st.size("tick_size") * 0.85, color=color)
+            elif style == "bar":
+                width = 0.8 / n_series
+                x = p + (i - (n_series - 1) / 2) * width
+                ax.annotate(text, xy=(x, v), xytext=(0, 3), textcoords="offset points",
+                            ha="center", va="bottom", fontsize=st.size("tick_size") * 0.85)
+            else:
+                ax.annotate(text, xy=(p, v), xytext=(4, 4), textcoords="offset points",
+                            ha="left", va="bottom", fontsize=st.size("tick_size") * 0.85, color=color)
+    if style == "levels":
+        # Room at the right end for the last column's labels, which would
+        # otherwise run off the axis past its half-slot margin.
+        lo, hi = ax.get_xlim()
+        ax.set_xlim(lo, hi + 0.35)
+    elif st.ylim is None and not st.log_y:
+        # Headroom for labels sitting above the highest mark.
+        bottom, top = ax.get_ylim()
+        ax.set_ylim(bottom, top + 0.06 * (top - bottom))
+
+
 def render_series_plot(
     positions: list[float], tick_labels: list[str] | None, series: list[dict],
     xlabel: str, ylabel: str, title: str, out_path: str,
     style: str = "line", log_y: bool = False, plot_style: PlotStyle = None,
+    value_labels: str | None = None,
 ) -> None:
     """The one renderer behind plot(kind="custom") and plot(kind="comparison").
     Four marks over one data shape, so a new chart the user describes is a
@@ -104,6 +144,10 @@ def render_series_plot(
     `style` is the MARK (line/scatter/bar/levels); `plot_style` is how the
     whole figure looks. Two different words because they are two different
     things and this function needs both.
+
+    `value_labels` is a format spec such as ".2f". When set, every drawn value
+    is written beside its own mark, from the same number the mark was drawn
+    at, so a label can never disagree with the mark it names.
     """
     if style not in SERIES_PLOT_STYLES:
         raise ValueError(f"unknown series plot style {style!r}")
@@ -153,6 +197,9 @@ def render_series_plot(
 
         if tick_labels is not None:
             _apply_categorical_xticks(ax, tick_labels)
+
+        if value_labels:
+            _draw_value_labels(ax, positions, series, style, value_labels, st, n_series)
 
         want_legend = (n_series > 1) if st.legend is None else bool(st.legend)
         if want_legend:

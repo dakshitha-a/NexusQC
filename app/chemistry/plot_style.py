@@ -129,6 +129,11 @@ class PlotStyle:
     # rather than over the data -- see `place_legend`.
     legend: Any = None
 
+    # Text placed on the plot at a data point, each a validated dict (see
+    # `_parse_annotations`). Drawn by `apply`, which every renderer ends
+    # with, so one implementation annotates all thirteen plot kinds.
+    annotations: tuple = ()
+
     def with_defaults(self, title=None, xlabel=None, ylabel=None) -> "PlotStyle":
         """Fill in the renderer's own text for anything the caller left unset."""
         return replace(
@@ -186,6 +191,8 @@ class PlotStyle:
             ax.set_xlim(max(lo, hi), min(lo, hi))
         if self.ylim:
             ax.set_ylim(*self.ylim)
+        if self.annotations:
+            self.draw_annotations(ax)
 
         want = legend_default if self.legend is None else bool(self.legend)
         if want and ax.get_legend_handles_labels()[0]:
@@ -227,6 +234,48 @@ class PlotStyle:
             ax.set_ylim(bottom, top * (10 ** (0.04 + 0.05 * n_entries)))
         else:
             ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_entries))
+
+    def draw_annotations(self, ax) -> None:
+        """Place each annotation at its data point.
+
+        A text `x` names a category and is looked up among the axis's tick
+        labels, by the full label or by its first line, so "CASSCF (BAGEL)"
+        still finds a label that carries a second line under it. A number is
+        a data coordinate, which on a category axis is the slot index. A text
+        `x` on a numeric axis is refused rather than guessed at, and so is a
+        category that is not on the axis, naming the ones that are.
+
+        The top of the axis is raised to fit an annotation that would sit
+        above it, unless the caller fixed `ylim`, which is theirs.
+        """
+        categories = _category_positions(ax)
+        bottom, top = ax.get_ylim()
+        highest = top
+        for note in self.annotations:
+            x = note["x"]
+            if isinstance(x, str):
+                if categories is None:
+                    raise PlotStyleError(
+                        f"annotation x {x!r} names a category, but this plot's x axis is "
+                        f"numeric. Give x as a number on that axis.")
+                position = categories.get(x.strip())
+                if position is None:
+                    raise PlotStyleError(
+                        f"annotation x {x!r} is not a column of this plot. The columns are: "
+                        f"{', '.join(repr(k) for k in _unique_first_lines(categories))}.")
+                x = position
+            arrow = bool(note.get("arrow"))
+            dx, dy = note.get("offset") or ((0.0, 26.0) if arrow else (0.0, 5.0))
+            color = note.get("color") or "#222222"
+            ax.annotate(
+                note["text"], xy=(x, note["y"]), xytext=(dx, dy), textcoords="offset points",
+                ha="center", va="bottom" if dy >= 0 else "top",
+                fontsize=note.get("size") or self.size("tick_size"), color=color,
+                arrowprops={"arrowstyle": "->", "color": color, "lw": 1.0} if arrow else None,
+            )
+            highest = max(highest, note["y"])
+        if self.ylim is None and not self.log_y and highest >= top - 0.08 * (top - bottom):
+            ax.set_ylim(bottom, highest + 0.12 * (top - bottom))
 
     def color(self, index: int, override: Optional[str] = None) -> str:
         """The colour for series `index`, in a multi-series chart."""
@@ -276,6 +325,100 @@ _PAIRS = ("figsize", "xlim", "ylim")
 STYLE_KEYS = tuple(sorted(list(_COERCE) + list(_PAIRS) + ["palette", "legend"]))
 
 
+ANNOTATION_KEYS = ("arrow", "color", "offset", "size", "text", "x", "y")
+
+
+def _parse_annotations(raw) -> tuple:
+    """Validate `spec["annotations"]` into a tuple of plain dicts.
+
+    Refuses a malformed entry by name, for the same reason an unknown style
+    key is refused: an annotation that is accepted and quietly not drawn is
+    the exact failure that made this feature necessary. On 2026-09-24 the
+    agent sent a well-formed list, the app had nowhere to put it, and the
+    plot came back unchanged while the user asked where the labels were.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise PlotStyleError("'annotations' must be a list of {\"text\", \"x\", \"y\"} objects.")
+    out = []
+    for i, entry in enumerate(raw):
+        where = f"annotation {i + 1}"
+        if not isinstance(entry, dict):
+            raise PlotStyleError(f"{where} must be an object like {{\"text\": \"5.13\", \"x\": 0, \"y\": 5.13}}.")
+        unknown = sorted(k for k in entry if k not in ANNOTATION_KEYS)
+        if unknown:
+            raise PlotStyleError(f"{where} has unknown key(s) {', '.join(unknown)}. "
+                                 f"Valid keys are: {', '.join(ANNOTATION_KEYS)}.")
+        text, x, y = entry.get("text"), entry.get("x"), entry.get("y")
+        if text is None or str(text) == "":
+            raise PlotStyleError(f"{where} needs 'text'.")
+        if isinstance(x, bool) or not isinstance(x, (int, float, str)):
+            raise PlotStyleError(f"{where} needs 'x': a number on the x axis, or a column's label.")
+        try:
+            y = float(y)
+        except (TypeError, ValueError):
+            raise PlotStyleError(f"{where} needs 'y' as a number on the y axis; got {y!r}.")
+        note = {"text": str(text), "x": x if isinstance(x, str) else float(x), "y": y,
+                "arrow": bool(entry.get("arrow", False))}
+        if entry.get("color") is not None:
+            note["color"] = str(entry["color"])
+        if entry.get("offset") is not None:
+            note["offset"] = _pair(f"{where} offset", entry["offset"])
+        if entry.get("size") is not None:
+            try:
+                note["size"] = float(entry["size"])
+            except (TypeError, ValueError):
+                raise PlotStyleError(f"{where} 'size' must be a number of points.")
+        out.append(note)
+    return tuple(out)
+
+
+def _category_positions(ax) -> Optional[dict]:
+    """{label: x position} for a category axis, or None for a numeric one.
+
+    Two ways a renderer makes a category axis: tick labels it sets itself
+    (`_apply_categorical_xticks`, and the job charts), or plotting strings
+    directly, which matplotlib turns into its own category units. The first is
+    recognised by its label text rather than its formatter class, because
+    matplotlib 3.11 implements `set_xticklabels` with a FuncFormatter, and
+    a numeric axis's labels are blank or numbers until the figure is drawn.
+    Each label is registered under its full text and under its first line.
+    """
+    pairs: list = []
+    mapping = getattr(getattr(ax.xaxis, "units", None), "_mapping", None)
+    if mapping:
+        pairs = list(mapping.items())
+    else:
+        texts = [t.get_text() for t in ax.get_xticklabels()]
+        if any(text.strip() and not _is_number(text) for text in texts):
+            pairs = list(zip(texts, ax.get_xticks()))
+    if not pairs:
+        return None
+    positions: dict = {}
+    for label, position in pairs:
+        label = str(label)
+        for key in (label.strip(), label.split("\n", 1)[0].strip()):
+            positions.setdefault(key, float(position))
+    return positions
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text.replace("\u2212", "-"))
+        return True
+    except ValueError:
+        pass
+    # A log axis labels its ticks in mathtext ("$\\mathdefault{10^{2}}$"),
+    # which is still a number, not a category.
+    return text.strip().startswith("$")
+
+
+def _unique_first_lines(categories: dict) -> list:
+    """The first-line keys, once each, for naming the columns in a refusal."""
+    return list(dict.fromkeys(k.split("\n", 1)[0] for k in categories))
+
+
 def _pair(name: str, value) -> tuple:
     try:
         lo, hi = value
@@ -305,6 +448,15 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
         raw = candidate if isinstance(candidate, dict) else {}
     if not isinstance(raw, dict):
         raise PlotStyleError("'look' must be an object of style keys, e.g. {\"title\": \"...\"}.")
+
+    # Annotations live at the top of the spec. Written inside `look` they
+    # are read from there too, rather than refused as an unknown style key:
+    # they are drawn either way, and the one outcome ruled out is a list that
+    # is accepted and not drawn.
+    raw = dict(raw)
+    annotations = _parse_annotations(
+        spec.get("annotations") if spec.get("annotations") is not None else raw.pop("annotations", None))
+    raw.pop("annotations", None)
 
     unknown = [k for k in raw if k not in STYLE_KEYS]
     if unknown:
@@ -349,7 +501,7 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
     if fmt:
         kwargs["fmt"] = fmt.lower()
 
-    return PlotStyle(**kwargs)
+    return PlotStyle(annotations=annotations, **kwargs)
 
 
 # --------------------------------------------------------------------------

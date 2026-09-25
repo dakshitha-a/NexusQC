@@ -424,6 +424,15 @@ def context_summary(owner_filter: Optional[str], plot_id: str) -> str:
     style = spec.get("style")
     if style:
         lines.append(f"Style: {style}." + (" Log y axis." if spec.get("log_y") else ""))
+    # What is written ON the plot, so the model can answer "are the labels
+    # there?" and edit them without guessing. It cannot see the image.
+    if spec.get("value_labels"):
+        lines.append("Every value is written on its mark (value_labels).")
+    notes = spec.get("annotations") or (spec.get("look") or {}).get("annotations")
+    if isinstance(notes, list) and notes:
+        lines.append("Annotations drawn: " + "; ".join(
+            f"\"{n.get('text')}\" at x={n.get('x')!r}, y={n.get('y')}"
+            for n in notes if isinstance(n, dict)) + ".")
 
     data = record.get("data") or {}
     columns = data.get("columns")

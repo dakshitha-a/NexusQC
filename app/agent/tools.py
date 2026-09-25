@@ -4550,6 +4550,23 @@ def _apply_plot_units(spec: dict, series_specs: list, labels: list, columns: lis
     return out, ylabel, None
 
 
+def _value_label_format(value) -> tuple[Optional[str], Optional[str]]:
+    """(format spec, error) for spec["value_labels"]: true means two decimals,
+    a string is a Python format spec such as ".3f", false or absent is off."""
+    if value is None or value is False:
+        return None, None
+    if value is True:
+        return ".2f", None
+    if isinstance(value, str):
+        try:
+            format(1.0, value)
+        except (ValueError, TypeError):
+            return None, (f"value_labels {value!r} is not a number format. Use true for two "
+                          f"decimals, or a format such as \".3f\".")
+        return value, None
+    return None, "value_labels must be true, false, or a number format such as \".3f\"."
+
+
 def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedState],
                  plot_id: Optional[str] = None) -> str:
     """kind="custom": one declarative chart spec, drawn in three ordered
@@ -4650,9 +4667,11 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     # jobs, where the trend along that axis is the point. Never for categories
     # (the caller's order is the meaningful one) and never for a single job's
     # own arrays (the array order already is the coordinate order).
+    ordered_job_ids = list(kept_job_ids) if rows_are_jobs else []
     if rows_are_jobs and x_field:
         order = sorted(range(len(x_values)), key=lambda i: x_values[i])
         x_values = [x_values[i] for i in order]
+        ordered_job_ids = [ordered_job_ids[i] for i in order]
         tick_labels = [tick_labels[i] for i in order]
         columns = [[column[i] for i in order] for column in columns]
 
@@ -4699,6 +4718,9 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
     columns = converted
 
     # --- marks ------------------------------------------------------------
+    value_fmt, fmt_error = _value_label_format(spec.get("value_labels"))
+    if fmt_error:
+        return fmt_error
     log_y = bool(spec.get("log_y", False))
     if log_y and any(v is not None and v <= 0 for column in columns for v in column):
         return "log_y was requested but at least one y value is <= 0, which can't be shown on a log axis."
@@ -4720,12 +4742,22 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         "columns": tick_labels if tick_labels is not None else [f"{p:g}" for p in positions],
         "series": {label: list(column) for label, column in zip(labels, columns)},
     }
+    # An annotation may name its column by job id, since that is how
+    # x_labels are keyed and so how the caller already refers to a column.
+    # Rewritten to the slot here, for drawing only; the stored spec keeps
+    # what the caller wrote.
+    render_spec = spec
+    if spec.get("annotations") and tick_labels is not None:
+        slot = {job_id: i for i, job_id in enumerate(ordered_job_ids)}
+        render_spec = dict(spec, annotations=[
+            dict(a, x=slot[a["x"]]) if isinstance(a, dict) and a.get("x") in slot else a
+            for a in spec["annotations"]])
     record, version, error = _save_plot(
         state, kind="custom", label=title, spec=dict(spec, job_ids=kept_job_ids),
         job_ids=kept_job_ids, data=cached, plot_id=plot_id,
         render=lambda path: render_series_plot(
             positions, tick_labels, series, xlabel, ylabel, title, path, style=style,
-            log_y=log_y, plot_style=_styled(spec)),
+            log_y=log_y, plot_style=_styled(render_spec), value_labels=value_fmt),
     )
     if error:
         return error
@@ -4735,6 +4767,10 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         detail += f" Left out: {'; '.join(skipped)}."
     if notes:
         detail += f" Drawn as gaps, no value found for: {'; '.join(n for n, _ in notes)}."
+    if value_fmt:
+        detail += " Every value is written on its mark."
+    if spec.get("annotations"):
+        detail += f" {len(spec['annotations'])} annotation(s) drawn."
     return (
         f"{_plot_marker(record, version)}\n"
         f"Drew a {style} plot of {', '.join(labels)} across {len(positions)} "
@@ -5023,6 +5059,18 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
     return f"Plot {plot_id} is a {kind} plot, which this app cannot redraw."
 
 
+# Every top-level key any plot kind reads, or writes into the spec it stores
+# (`kind`, `window`, `parameters`), since an edit patch may carry those back.
+# Appearance keys are not here; they live inside `look` and plot_style checks
+# them. A key added to a builder has to be added here too, or it is refused.
+PLOT_SPEC_KEYS = frozenset({
+    "annotations", "difference", "field", "fwhm", "job_ids", "kind", "labels", "log_y",
+    "look", "parameters", "series", "style", "title", "value_labels", "width", "window",
+    "x_field", "x_labels", "x_units", "x_units_from", "x_values", "xlabel", "y_reference_hartree",
+    "y_units", "y_units_from", "ylabel",
+})
+
+
 @tool
 def plot(
     kind: str,
@@ -5110,6 +5158,12 @@ def plot(
     leaves a gap and keeps that job's column; missing everywhere is refused,
     listing what is really there.
 
+    Text on the plot: "value_labels": true writes every value on its mark
+    (custom/comparison; or a format like ".3f"). "annotations" is for a note
+    at one point, on ANY kind: [{"text": "S1/S2 cross", "x": <number, column
+    label or job id>, "y": 5.2, "arrow": true}]. Never put numbers into
+    x_labels to fake either.
+
     `spec["look"]` restyles ANY kind, spectra and the distributions
     geometry_parameters draws included: title, axis labels, font sizes,
     figsize, dpi, fmt (png/svg/pdf, for the download), grid, xlim/ylim,
@@ -5140,6 +5194,17 @@ def plot(
         "look": {"ylabel": "Excitation energy (eV)"}}
     """
     spec = spec or {}
+    if not isinstance(spec, dict):
+        return "`spec` must be an object, e.g. {\"look\": {\"title\": \"...\"}}."
+    # Top-level keys, refused by name like an unknown `look` key and for the
+    # same reason. Nothing checked these before, so on 2026-09-24 an
+    # `annotations` list was accepted, stored on the plot, and never drawn,
+    # while the user asked where the labels were. For an edit `spec` is the
+    # patch, so only what the caller wrote is checked, never a stored spec.
+    unknown = sorted(k for k in spec if k not in PLOT_SPEC_KEYS)
+    if unknown:
+        return (f"Unknown plot spec key(s): {', '.join(unknown)}. Valid keys are: "
+                f"{', '.join(sorted(PLOT_SPEC_KEYS))}. Appearance keys go inside \"look\".")
     try:
         # Validate the style block once, here, so an unknown key is refused
         # by name before any data is gathered. Silently ignoring it would be

@@ -48,14 +48,18 @@ turn has been paying for hidden reasoning that LangChain drops.
   evidence: tests/backend/agent_10_empty_reply_retry.py → "8/8: empty then real = 2 calls and the real reply; empty twice = the fallback sentence; length-cut and tool-only replies not retried"
 - [done] P1.3: every model call logs how long it took
   evidence: app/agent/graph.py → "_timed_invoke logs through uvicorn.error at INFO, WARNING above 60 s; the live line is read back in P4.3"
-- merged: -
+- merged: 50f96f9
 
 ## Phase 2: annotations on every plot
 
-- [todo] P2.1: `annotations` drawn by `PlotStyle.apply` for every kind
-- [todo] P2.2: `value_labels` for custom and comparison plots
-- [todo] P2.3: unknown top-level plot spec keys are refused
-- [todo] P2.4: tool docstring, context summary and token budget
+- [done] P2.1: `annotations` drawn by `PlotStyle.apply` for every kind
+  evidence: tests/backend/plot_07_annotations.py → "a column resolves by label, first line or slot; arrows draw; a UV/Vis spectrum takes a numeric x; missing column, text x on a numeric axis and 4 malformed shapes each refused"
+- [done] P2.2: `value_labels` for custom and comparison plots
+  evidence: tests/backend/plot_07_annotations.py → "10 levels labels equal the 10 drawn uracil values at .2f, each at its tick's right end; bar gaps get none; real-job plot through the tool reads correctly (looked at)"
+- [done] P2.3: unknown top-level plot spec keys are refused
+  evidence: tests/backend/plot_07_annotations.py → "'annotation' refused naming the valid keys; plot_02..06 (103 checks), agent_02 (37) and agent_08 (15) still pass"
+- [done] P2.4: tool docstring, context summary and token budget
+  evidence: tests/backend/agent_01_token_budget.py → "fixed surface 9,267 tokens (was 9,151) against the 10,000 budget; context_summary lists labels and notes; edit with null removes them"
 - merged: -
 
 ## Phase 3: the wait indicator
