@@ -17,7 +17,7 @@ from app.chemistry.jobs import derivatives
 from app.chemistry.jobs.ci_transitions import format_dominant, leading_single_excitations, reference_configuration
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
-    CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, N_CORES,
+    CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ, CASSCF_MAX_CYCLE_MACRO, ORCA_BIN, ORCA_PLOT_BIN, cores_per_job,
     engine_thread_env, job_timeout_seconds,
 )
 
@@ -223,7 +223,7 @@ def _pal_block(basis_block: str) -> list[str]:
     branch already emits, now also splicing in a translated '%basis...end'
     block (if any) right after it -- the one place a BSE-resolved basis is
     injected per branch."""
-    lines = [f"%pal nprocs {N_CORES} end", ""]
+    lines = [f"%pal nprocs {cores_per_job()} end", ""]
     if basis_block:
         lines += [basis_block, ""]
     return lines
@@ -757,21 +757,26 @@ _PAL_KEYWORD = re.compile(r"(?im)^(!.*?\bPAL)(\d+)\b")
 
 
 def _cap_parallelism(input_text: str) -> str:
-    """Holds an ORCA input to N_CORES MPI ranks, whatever it asked for.
+    """Holds an ORCA input to the job's width in MPI ranks (cores_per_job,
+    which inside a worker is the width the job was launched at), whatever
+    the input asked for.
 
     Inputs this app builds already carry _pal_block's own '%pal nprocs
-    N_CORES end' and pass through untouched. The ones that need this are the
+    <width> end' and pass through untouched, unless the width was lowered
+    after the input was built, in which case it is lowered to match. The ones that need this are the
     inputs it did not build: a blind/custom job's model-composed text, and an
     input the user hand-edited on the approval card. Both reach ORCA verbatim,
     and either can name any number of ranks it likes -- or none at all, in
     which case ORCA runs the job on a single core and it looks simply slow.
 
     Only the rank count is touched. This is not a general input rewriter, and
-    an input asking for FEWER ranks than N_CORES keeps what it asked for: the
+    an input asking for FEWER ranks than the width keeps what it asked for: the
     number is a ceiling the machine imposes, not a target.
     """
+    cores = cores_per_job()
+
     def clamp(match):
-        return f"{match.group(1)}{min(int(match.group(2)), N_CORES)}"
+        return f"{match.group(1)}{min(int(match.group(2)), cores)}"
 
     has_pal = bool(_PAL_OPEN.search(input_text)) or bool(_PAL_KEYWORD.search(input_text))
     text = _PAL_NPROCS.sub(clamp, input_text) if has_pal else input_text
@@ -780,7 +785,7 @@ def _cap_parallelism(input_text: str) -> str:
         # Nothing in the input says anything about parallelism, so ORCA would
         # run it on one core. A '%pal' block is valid anywhere ahead of the
         # coordinate block, and the first line is always ahead of it.
-        text = f"%pal nprocs {N_CORES} end\n\n{text}"
+        text = f"%pal nprocs {cores} end\n\n{text}"
     return text
 
 
@@ -800,7 +805,7 @@ def _orca_env() -> dict:
     function called directly, outside a worker.
     """
     env = dict(os.environ)
-    env.update(engine_thread_env("orca"))
+    env.update(engine_thread_env("orca", cores_per_job()))
     # An empty PATH would leave ORCA unable to find mpirun, and a parallel run
     # dies without it. setdefault, not assignment: the inherited PATH is the
     # one that has the MPI ORCA was built against on it.

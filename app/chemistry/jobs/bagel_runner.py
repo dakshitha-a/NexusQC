@@ -26,7 +26,7 @@ from app.chemistry.jobs.orca_runner import _parse_column_block_matrix
 from app.chemistry.jobs.vibrations import summarize_frequencies
 from app.config import (
     BAGEL_BIN, BAGEL_EXTRA_LIB_DIRS, BAGEL_ONEAPI_SETVARS, CASSCF_CONV_TOL_ENERGY, CASSCF_CONV_TOL_OPT_FREQ,
-    CASSCF_MAX_CYCLE_MACRO, engine_thread_env, job_timeout_seconds,
+    CASSCF_MAX_CYCLE_MACRO, cores_per_job, engine_thread_env, job_timeout_seconds,
 )
 
 # BAGEL ships its own basis-set library (app/../share); exact matches to
@@ -688,10 +688,10 @@ def _copy_initial_orbitals_archive(job_dir: str, params: dict) -> None:
 
 
 def _thread_exports() -> str:
-    """The `export` assignments capping this BAGEL run at N_CORES threads,
+    """The `export` assignments capping this BAGEL run at the job's width in threads,
     written as one shell-safe string. Values come from engine_thread_env so
     the three engines' thread caps stay defined in one place."""
-    return " ".join(f"{k}={v}" for k, v in sorted(engine_thread_env("bagel").items()))
+    return " ".join(f"{k}={v}" for k, v in sorted(engine_thread_env("bagel", cores_per_job()).items()))
 
 
 def _run_bagel(job_dir: str, input_text: str, params: dict) -> str:

@@ -649,7 +649,9 @@ tries to be a good neighbour: every job takes four cores by default, on any of
 the three engines and enforced on the engine's own subprocess rather than left
 to it, up to twenty run at once, and a new one is admitted only when the host
 genuinely has headroom, so an idle machine gets used and a busy one gets left
-alone. All of that is tunable.
+alone. All of that is tunable. The cores each calculation gets can be changed
+from the admin console while the app runs, under **Cores per calculation**;
+jobs started after the change use the new number, and running ones keep theirs.
 See [CONFIGURATION.md](docs/CONFIGURATION.md#job-execution-and-resource-limits).
 
 [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) covers the design decisions

@@ -19,6 +19,10 @@ note saying what changed.
   at one point on any kind of plot, spectra included.
 - While the model works, "Thinking..." shows how many seconds it has been
   waiting.
+- **Cores per calculation** in the admin console. It sets how many cores
+  each job runs on: PySCF and BAGEL threads, ORCA MPI processes. It applies
+  from the next job without a restart, and each job records the width it
+  ran with. `QC_AGENT_N_CORES` is now the default this overrides.
 
 ### Fixed
 

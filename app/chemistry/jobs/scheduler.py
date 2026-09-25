@@ -58,7 +58,7 @@ from collections import deque
 from typing import Callable, Optional
 
 from app.chemistry.jobs.base import write_status
-from app.config import N_CORES
+from app.config import cores_per_job
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +308,9 @@ class JobScheduler:
             return
 
         idle_budget = n_idle
+        # Read once per tick: the admin console can change it, and every job
+        # admitted in this pass launches at this width.
+        job_width = cores_per_job()
         # The concurrency cap needs the same running-total treatment
         # `idle_budget` gets, and for a sharper reason. `block_reason`
         # counts running jobs by reading status.json off disk, and
@@ -333,7 +336,7 @@ class JobScheduler:
         for i in range(n):
             idx = (start + i) % n
             owner = owners_snapshot[idx]
-            if idle_budget < N_CORES:
+            if idle_budget < job_width:
                 continue  # out of this tick's budget, but still let later owners take their turn in rotation next time
             job_id = self._peek(owner)
             if job_id is None:
@@ -343,7 +346,7 @@ class JobScheduler:
                 write_status(job_id, "pending", reason)
                 continue
             if self._pop_if_head(owner, job_id):
-                idle_budget -= N_CORES
+                idle_budget -= job_width
                 in_flight.add(job_id)
                 # Advance the rotation ONLY on a real admission. This used
                 # to move on every attempt ("admitted or not"), which reads

@@ -692,6 +692,14 @@ export interface AdminConfig {
   // exceed, since it's also JobManager's fixed worker-pool size (see
   // server/routes/admin.py's patch_config).
   max_concurrent_jobs_pool_size: number;
+  // How many cores one calculation runs on (PySCF/BAGEL threads, ORCA MPI
+  // ranks). Editable; the default is QC_AGENT_N_CORES from .env and the
+  // ceiling is what the host can supply. See app/config.cores_per_job.
+  cores_per_job: number;
+  cores_per_job_default: number;
+  cores_per_job_ceiling: number;
+  // "setting" when the console has overridden the .env default, else "env".
+  cores_per_job_source: "setting" | "env";
   // The address other people use to reach this deployment, the base of
   // every invite and reset link; "" means "use the browser's own origin".
   // Editable (PATCH public_url; blank clears the override). The source says

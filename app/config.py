@@ -375,7 +375,58 @@ def describe_n_cores() -> tuple[str, str]:
             f"QC_AGENT_N_CORES to the number of cores one job should use "
             f"(docker-compose.yml passes it to the api service)."
         )
-    return "info", base
+    return "info", base + ". The admin console's Cores per calculation setting overrides this default"
+
+
+# The admin console's override of N_CORES, stored in app_config under this key.
+CORES_PER_JOB_CONFIG_KEY = "cores_per_job"
+
+# Set to "1" in a job worker's environment by JobManager at launch.
+JOB_WORKER_ENV = "QC_AGENT_JOB_WORKER"
+
+
+def cores_per_job_ceiling() -> int:
+    """The widest a job may be set to from the console: the cores this
+    process can actually use, capped at the sanity ceiling (or at N_CORES,
+    if an operator deliberately set a wider default in .env). A width the
+    host cannot supply would leave every job pending forever."""
+    return max(1, min(total_system_cores(), max(N_CORES_SANITY_CEILING, N_CORES)))
+
+
+def cores_per_job() -> int:
+    """How many cores a job launched NOW runs on.
+
+    The admin console's `cores_per_job` setting when one is stored, else
+    N_CORES from QC_AGENT_N_CORES, clamped to 1..cores_per_job_ceiling().
+    Called at the moment the number is used: when a worker is launched,
+    when the admission gate and the scheduler count idle cores, when an
+    ORCA input is written, and before an orbital cube is rendered.
+
+    Every module used to `from app.config import N_CORES`, which fixes the
+    value at import, and each job's worker read it again at its own import.
+    That is why changing it needed a restart. N_CORES is now only the
+    default; a worker is launched with QC_AGENT_N_CORES set to this value,
+    so its own import-time reads agree with it.
+
+    Inside a job's worker the answer is always N_CORES, which the launch set
+    to this job's width (QC_AGENT_JOB_WORKER marks that process). The worker
+    must keep the width it was launched with even if the setting changes
+    mid-run, and it has no reason to open a database pool to find out.
+
+    No database (a no-auth install), or a read that fails, falls back to
+    N_CORES rather than stopping a job from launching.
+    """
+    value = N_CORES
+    if DATABASE_URL and os.environ.get(JOB_WORKER_ENV) != "1":
+        try:
+            from app.auth import models
+
+            stored = models.get_app_config(CORES_PER_JOB_CONFIG_KEY, None)
+            if stored is not None:
+                value = int(stored)
+        except Exception:  # noqa: BLE001 -- a job must launch even if the read fails
+            value = N_CORES
+    return max(1, min(int(value), cores_per_job_ceiling()))
 
 
 # Threading environment for one job's engine subprocess.
@@ -405,12 +456,15 @@ def describe_n_cores() -> tuple[str, str]:
 # them from inside a running Python process is too late: libgomp and OpenBLAS
 # read their variables once, when the shared library loads, so an assignment
 # after `import pyscf` changes nothing at all.
-def engine_thread_env(engine: str) -> dict[str, str]:
-    """Environment variables capping one `engine` job at N_CORES cores."""
+def engine_thread_env(engine: str, cores: int) -> dict[str, str]:
+    """Environment variables capping one `engine` job at `cores` cores.
+
+    `cores` is passed in, normally cores_per_job(), rather than read from
+    N_CORES here, so no caller can pick up a value fixed at import."""
     if engine == "orca":
-        per_process = 1  # N_CORES MPI ranks, one thread each
+        per_process = 1  # `cores` MPI ranks, one thread each
     else:
-        per_process = N_CORES
+        per_process = cores
     env = {
         "OMP_NUM_THREADS": str(per_process),
         "MKL_NUM_THREADS": str(per_process),

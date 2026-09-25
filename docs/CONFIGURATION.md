@@ -64,7 +64,7 @@ below are placeholders, set them to your own install locations.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `QC_AGENT_N_CORES` | `4` | Cores a **single** job runs on, on any of the three engines (ORCA MPI ranks, PySCF/BAGEL threads), and the number of idle cores the admission gate waits for before starting one |
+| `QC_AGENT_N_CORES` | `4` | The **default** number of cores a single job runs on, on any of the three engines (ORCA MPI ranks, PySCF/BAGEL threads), and the number of idle cores the admission gate waits for before starting one. The admin console's **Cores per calculation** overrides it without a restart |
 | `QC_AGENT_MAX_CONCURRENT_JOBS` | `20` | Worker-pool size, fixed at process start. The hard ceiling the admin console's editable concurrency setting can never exceed |
 | `QC_AGENT_MAX_CPU_PERCENT` | `80` | Admission gate: hold new jobs back once the **host's** average CPU is at or above this |
 | `QC_AGENT_MAX_MEM_PERCENT` | `80` | Admission gate: hold new jobs back once the host is this full on memory |
@@ -78,12 +78,26 @@ below are placeholders, set them to your own install locations.
 > starts when the host genuinely has room for it, so an idle machine gets used
 > and a busy one is left alone.
 >
+> **Changing the width while the app runs.** The admin console's Overview
+> has **Cores per calculation**. It takes a whole number from 1 up to the cores
+> the server can use, capped at `QC_AGENT_N_CORES_SANITY_CEILING` (64), and
+> clearing it returns to `QC_AGENT_N_CORES`. The new width applies to every
+> job launched after the change, on all three engines: the app hands it to
+> each job's worker when the worker starts, and records it in the job's
+> `meta.json` as `cores`. A job already running keeps the width it started
+> with. An ORCA input carries its rank count in `%pal nprocs`, written when
+> the draft is built, so an ORCA job approved before a change runs at the
+> width in its approved input, lowered if the setting was lowered and never
+> raised.
+>
 > **`QC_AGENT_N_CORES` is per-job width, not a total.** Raise it for wide single
 > jobs on a large machine; lower it to favour many small jobs. Setting it near
 > the machine's total core count is the one genuinely dangerous choice: the gate
 > then waits for nearly every core to be simultaneously idle, which on a busy
 > host never happens, and every job sits at `pending` indefinitely with no error
 > to explain it. The app logs the resolved value at startup for this reason.
+> The same applies to the console setting, which is why it is capped at the
+> cores the server can actually use.
 >
 > Earlier versions auto-detected this by shelling out to `nproc`. That was
 > removed: `nproc` reports `OMP_NUM_THREADS` when it is set, which says nothing

@@ -172,6 +172,7 @@ actually there right now.
 |---|---|
 | `sec_01`..`sec_10` | Group A, see "What FAIL means here" above |
 | `conf_01`..`conf_04` | Group B, confirms a security boundary holds |
+| `conf_06` | Cores per calculation from the admin console reaches the job: refused values name the ceiling, a PySCF job launched after the change records the width and its worker carries it in its environment, PySCF really runs that many threads after its own import, ORCA inputs are written and capped to it, and clearing it returns to `QC_AGENT_N_CORES` |
 | `perf_01`..`perf_05` | login concurrency, admin storage latency, per-user job caps, fair round-robin scheduling, restart re-enqueue |
 | `p1_01`..`p1_06` | registration, sessions, invites, suspend/restore + lockout, password changes |
 | `p1_07` | the admin purge acts on the jobs the console lists, one definition of "terminal", and the orphan-directory sweep's age gate. **Excluded from `run_backend.sh`: it purges every job on the stack** |

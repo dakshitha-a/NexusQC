@@ -20,7 +20,7 @@ from pyscf.dft import gen_grid, numint
 from pyscf.tools import cubegen, molden
 
 from app.chemistry.cas.diffuse import diffuse_fractions as _shared_diffuse_fractions
-from app.config import N_CORES
+from app.config import cores_per_job
 
 # Same per-job core budget the engine workers run under (see engine_thread_env
 # in app/config.py), applied here because this module is the one piece of PySCF
@@ -32,7 +32,11 @@ from app.config import N_CORES
 # queued job at pending while it ran. Set here rather than through the
 # environment because this process is already running: lib.num_threads calls
 # omp_set_num_threads, which takes effect at once.
-lib.num_threads(N_CORES)
+#
+# Set at import, which caps every other piece of PySCF this process runs as
+# well, and set again at the start of each render, because the width can
+# change from the admin console while the API process keeps running.
+lib.num_threads(cores_per_job())
 
 _HARTREE_TO_EV = 27.211386245988
 
@@ -114,6 +118,7 @@ def orbital_table(molden_path: str) -> list[dict]:
 def cube_for_orbital(molden_path: str, index_1based: int, cube_path: str, spin: str | None = None) -> None:
     """Writes a cube file for one orbital, selected the same way
     orbital_table numbers it (1-based, per spin channel)."""
+    lib.num_threads(cores_per_job())
     mol, mo_energy, mo_coeff, mo_occ, _irrep, _spins = molden.load(molden_path)
     if isinstance(mo_energy, tuple):
         channel = 0 if spin == "alpha" else 1 if spin == "beta" else None

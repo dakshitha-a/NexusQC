@@ -12,24 +12,27 @@ import type { AdminConfig } from "../lib/api";
 // a byte count by hand; the conversions happen at this component's boundary
 // so the API/backend still only ever sees bytes.
 function QuotaField({
-  label, description, value, unit, onSave, disabled, max,
+  label, description, value, unit, onSave, disabled, max, testId,
 }: {
   label: string;
   description: string;
   value: number;
-  unit: "GB" | "jobs";
+  unit: "GB" | "jobs" | "cores";
   onSave: (next: number) => void;
   disabled?: boolean;
   max?: number;
+  testId?: string;
 }) {
   const displayed = unit === "GB" ? value / 1_000_000_000 : value;
   const [draft, setDraft] = useState(String(displayed));
   const draftNum = Number(draft);
   const nextValue = unit === "GB" ? Math.round(draftNum * 1_000_000_000) : draftNum;
-  const dirty = nextValue !== value && draft.trim() !== "" && !Number.isNaN(draftNum) && draftNum > 0;
+  // Jobs and cores are whole numbers; only GB takes a fraction.
+  const dirty = nextValue !== value && draft.trim() !== "" && !Number.isNaN(draftNum) && draftNum > 0
+    && (unit === "GB" || Number.isInteger(draftNum));
 
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0" data-testid={testId}>
       <div className="min-w-0">
         <div className="text-xs font-medium text-text">{label}</div>
         <div className="text-2xs text-text-muted">{description}</div>
@@ -119,6 +122,23 @@ export function OverviewSection({
               value={cfg.max_concurrent_jobs_per_user}
               unit="jobs"
               onSave={(v) => patchMutation.mutate({ key: "max_concurrent_jobs_per_user", value: v })}
+            />
+            <QuotaField
+              label="Cores per calculation"
+              description={
+                `PySCF and BAGEL run this many threads; ORCA runs this many MPI processes, one thread each. `
+                + `Applies to jobs started after the change; running jobs keep theirs. A job starts only once `
+                + `this many cores are idle. `
+                + (cfg.cores_per_job_source === "setting"
+                  ? `Set here; the .env default (QC_AGENT_N_CORES) is ${cfg.cores_per_job_default}. `
+                  : `Currently the .env default (QC_AGENT_N_CORES). `)
+                + `At most ${cfg.cores_per_job_ceiling}.`
+              }
+              value={cfg.cores_per_job}
+              unit="cores"
+              max={cfg.cores_per_job_ceiling}
+              testId="admin-cores-per-job"
+              onSave={(v) => patchMutation.mutate({ key: "cores_per_job", value: v })}
             />
           </div>
         )}

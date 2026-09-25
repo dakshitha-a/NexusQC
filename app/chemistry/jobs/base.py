@@ -29,7 +29,7 @@ import psutil
 
 from app.config import (
     CORE_IDLE_THRESHOLD_PERCENT, JOBS_DIR, MAX_CONCURRENT_JOBS, MAX_CPU_PERCENT,
-    MAX_MEM_PERCENT, N_CORES, engine_thread_env, job_timeout_seconds,
+    JOB_WORKER_ENV, MAX_MEM_PERCENT, cores_per_job, engine_thread_env, job_timeout_seconds,
 )
 from app.chemistry.jobs.facts import canonicalize
 
@@ -672,8 +672,9 @@ def _resources_available() -> tuple[bool, int, str]:
     """
     cpu, n_idle = _host_cpu_snapshot()
     mem = _mem_percent_used()
-    has_headroom = cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= N_CORES
-    message = f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{N_CORES} cores idle)"
+    cores = cores_per_job()
+    has_headroom = cpu < MAX_CPU_PERCENT and mem < MAX_MEM_PERCENT and n_idle >= cores
+    message = f"waiting for CPU/memory headroom (cpu {cpu:.0f}%, mem {mem:.0f}%, {n_idle}/{cores} cores idle)"
     return has_headroom, n_idle, message
 
 
@@ -1967,7 +1968,18 @@ class JobManager:
         log_path = job_dir / "worker.log"
         was_cancelled = False
         env = dict(os.environ)
-        # Cap the job at N_CORES cores. This is the only place it can be done
+        # The width this job runs at, read once, here, at launch: the admin
+        # console's Cores per calculation, else QC_AGENT_N_CORES. Passed to
+        # the worker as QC_AGENT_N_CORES as well as the thread variables,
+        # because the worker is a fresh interpreter that reads N_CORES at its
+        # own import (pyscf_runner's lib.num_threads, ORCA's rank cap, BAGEL's
+        # exports). Without that, a console change would reach the thread
+        # variables and then be undone by the worker resetting itself to the
+        # .env value. A running job keeps this width if the setting changes.
+        cores = cores_per_job()
+        env["QC_AGENT_N_CORES"] = str(cores)
+        env[JOB_WORKER_ENV] = "1"
+        # Cap the job at `cores` cores. This is the only place it can be done
         # for PySCF: libgomp and OpenBLAS read these variables when the shared
         # library loads, so pyscf_runner setting them at import time (which it
         # used to do, with setdefault) came too late to have any effect, and a
@@ -1975,7 +1987,7 @@ class JobManager:
         # own subprocesses and set their own, but they inherit from here, so
         # this is also what a run started outside those two paths gets.
         # engine_thread_env explains why the value differs per engine.
-        env.update(engine_thread_env(spec.engine))
+        env.update(engine_thread_env(spec.engine, cores))
         # block2 (recommend_active_space's optional DMRG entropy backend, pyscf
         # engine only) ships its own bundled MKL .so files but dlopen's a sibling
         # libmkl_def.so.1 that only exists in the conda env's own lib/ dir, not
@@ -2017,6 +2029,9 @@ class JobManager:
                     write_meta(spec.job_id, {
                         "worker_pid": proc.pid,
                         "worker_pid_create_time": psutil.Process(proc.pid).create_time(),
+                        # What this job actually ran on, since the setting
+                        # can change after it starts.
+                        "cores": cores,
                     })
                 except psutil.NoSuchProcess:
                     pass

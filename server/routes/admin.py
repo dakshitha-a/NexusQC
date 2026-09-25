@@ -6,6 +6,7 @@ keep working even when no admin account can log in at all.
 """
 from __future__ import annotations
 
+import math
 import json
 import os
 import time
@@ -31,7 +32,10 @@ from app.auth.storage_quota import (
     usage_report,
 )
 from app.auth.deploy_signing import sign_deploy_request
-from app.config import BUG_REPORTS_DIR, DEPLOY_DIR, MAX_CONCURRENT_JOBS, PUBLIC_URL
+from app.config import (
+    BUG_REPORTS_DIR, CORES_PER_JOB_CONFIG_KEY, DEPLOY_DIR, MAX_CONCURRENT_JOBS, N_CORES, PUBLIC_URL,
+    cores_per_job, cores_per_job_ceiling,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -60,6 +64,13 @@ def get_config(_admin: dict = Depends(require_admin)):
     # PUBLIC_URL for why a browser origin is the wrong base on a shared
     # tailnet node.
     cfg["public_url"], cfg["public_url_source"] = models.effective_public_url(PUBLIC_URL)
+    # How many cores one calculation runs on, live, with the .env default it
+    # overrides and the most the host allows. See app/config.cores_per_job.
+    cfg["cores_per_job"] = cores_per_job()
+    cfg["cores_per_job_default"] = N_CORES
+    cfg["cores_per_job_ceiling"] = cores_per_job_ceiling()
+    cfg["cores_per_job_source"] = (
+        "setting" if models.get_app_config(CORES_PER_JOB_CONFIG_KEY, None) is not None else "env")
     return cfg
 
 
@@ -71,6 +82,7 @@ _EDITABLE_CONFIG_KEYS = {
     "max_concurrent_jobs_total",
     "max_concurrent_jobs_per_user",
     "public_url",
+    CORES_PER_JOB_CONFIG_KEY,
 }
 
 _PUBLIC_URL_RULE = (
@@ -134,6 +146,28 @@ def patch_config(body: ConfigPatchIn, admin: dict = Depends(require_admin)):
                     f"requires setting QC_AGENT_MAX_CONCURRENT_JOBS and restarting the server."
                 ),
             )
+    if body.key == CORES_PER_JOB_CONFIG_KEY:
+        # A whole number of cores the host can actually supply. A width above
+        # that would never find enough idle cores, and every job would sit at
+        # pending with nothing to explain it, which is the failure
+        # describe_n_cores warns about for the .env value.
+        ceiling = cores_per_job_ceiling()
+        # null clears the override, so the .env default applies again.
+        if body.value is None:
+            pass
+        elif isinstance(body.value, bool) or not isinstance(body.value, (int, float)) \
+                or not math.isfinite(body.value) or int(body.value) != body.value \
+                or not 1 <= int(body.value) <= ceiling:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"cores_per_job must be a whole number from 1 to {ceiling}: the cores this "
+                    f"server can use, capped at QC_AGENT_N_CORES_SANITY_CEILING. A job waits until "
+                    f"that many cores are idle, so a larger width would leave every job pending."
+                ),
+            )
+        else:
+            body.value = int(body.value)
     if body.key in {
         "per_user_kb_quota_bytes", "per_user_uploads_quota_bytes", "per_user_jobs_and_chat_quota_bytes",
         "global_storage_quota_bytes", "max_concurrent_jobs_total", "max_concurrent_jobs_per_user",
