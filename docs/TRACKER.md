@@ -89,7 +89,7 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: tests/README.md → "new section 'This stack has real users on it' tabulates all ten guards, where each lives and what it stops; CLAUDE.md, docs/TESTING.md and docs/WORKFLOW.md point at it, WORKFLOW forbids docker compose down -v; the Docker userland-proxy decision is in docs/HANDOFF.md"
 - [done] P1.8: admins see only their own work (raised mid-run: an admin saw another user's live chat and his project copy)
   evidence: tests/backend/priv_01_admin_scope.py → "21/21 on the rebuilt stack: an admin's conversation, job and project lists hold only their own; the other user's conversation state, event stream, job and project are 404 to the admin, and renaming or deleting them through workspace routes is 404 and changes nothing; the admin-only delete routes work. proj_02, proj_03, kb_01, sec_09, sec_11, sec_13, purge_01 pass with their admin assertions flipped. Not looked at as dma in a browser: the session has no dma password"
-- merged:
+- merged: 12c7f31
 
 ## Phase 2: updates warn, lock out, and let back in
 
