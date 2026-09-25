@@ -53,7 +53,14 @@ def raw(body):
     return len(m.get("content") or ""), len(reasoning), d.get("usage", {}).get("completion_tokens")
 
 
-content, reasoning, tokens = raw(LLM_EXTRA_BODY)
+# Skipped, not failed, when no model answers: a full tests/run_backend.sh run
+# on a host whose .env names host.docker.internal reaches no model from here,
+# and a traceback there would read as a regression. Same rule as agent_01.
+try:
+    content, reasoning, tokens = raw(LLM_EXTRA_BODY)
+except httpx.HTTPError as e:
+    print(f"[SKIPPED] the model at {LLM_BASE_URL} is not reachable: {type(e).__name__}: {e}")
+    sys.exit(0)
 check("LLM_EXTRA_BODY: no hidden reasoning comes back", reasoning == 0 and content > 0,
       "%d reply chars, %d reasoning chars, %s completion tokens" % (content, reasoning, tokens))
 

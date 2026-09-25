@@ -180,6 +180,9 @@ actually there right now.
 | `issue_<n>_<slug>` | the regression test for public issue or pull request `n`, one per issue, written before the fix and shown failing; named so the number is greppable from the test, the CHANGELOG entry and the commit's `Refs:` trailer (`.claude/skills/issue/SKILL.md`) |
 | `install_01`, `install_02` | `scripts/install.sh` and the library it shares with `update.sh`. `install_01` is static: it parses, its prologue is still POSIX (a bashism there kills `curl \| sh` on every Debian-family machine), `--help` answers through a real `dash` pipe without cloning anything, every refusal names what to do instead, and README still documents the tools the script enforces. `install_02` runs the shared helpers against input built to break them. Neither installs anything |
 | `agent_01`..`agent_04` | the LangGraph agent: system-prompt token budget, the job-draft flow, context trimming, resuming an old thread |
+| `agent_10` | an empty model reply (no text, no tool call) is retried once and then answered with one fixed sentence, never ended in silence. Uses a scripted model, needs nothing running |
+| `agent_11` | the served model returns no hidden reasoning under `LLM_EXTRA_BODY`, read from the raw response where the reasoning field is visible. Needs a reachable model; run it after any Ollama or model upgrade |
+| `plot_07` | text on plots: `value_labels` equal the drawn values, annotations resolve a column by label, first line, number or job id, and every malformed or unresolvable one is refused. Draws the uracil comparison end to end when those jobs are on disk |
 | `elic_01` | draft elicitation, twenty-one scenarios, every task walked from empty to `ready` |
 | `tax_01`..`tax_02` | the v2 job taxonomy: specs and job rows read/write in the new shape |
 | `reg_01`, `reg2_01`, `reg2b_01`..`reg2b_03` | the v2 capability registry. Payload shape, and that nothing still re-decides what it already decided |
@@ -193,6 +196,7 @@ actually there right now.
 | `dz_01` | the self-service "danger zone", purge/download your own data |
 | `fail_01` | a failed job notifies the user and starts nothing (the regression test for removing auto-retry) |
 | `plots_01` | the Plots panel lists saved plots, their thumbnails really load, delete is a two-click confirm, and attaching one puts a chip in the composer |
+| `plots_03` | one real request to the served model for labelled values: the reply's plot loads inline, its spec asks for value labels, and a held message shows "Thinking..." with a running count. Needs a thread from `seed_annotation_thread.py`; deletes only what its own thread drew |
 | `ui_06` | measured layout: a long job name does not push the row's stop/delete button out of view, and the orbital/mode viewers' controls sit in the viewer's own corner |
 | `ui_07` | measured click targets: every part of a Job Manager row that is not a button opens the job's preview on the first click, and the checkbox, rename and delete buttons act on the row instead of opening it |
 | `ui_11` | the appearance panel: four themes, five accents, five text sizes, density and motion all reach the DOM, survive a reload, and are applied before the first paint. It loads the page with the JS bundle blocked to prove the last of those, which is the only observable form of the claim |
@@ -214,8 +218,8 @@ running.
     p1_*.spec.mjs                 admin console (invites) + account panel
     draft_01, fail_01, grad_02,   one script each, added alongside the
     opt_02, p7_05, p8_03, up_02,  feature they cover
-    plots_01, ui_06, ui_07,
-    ui_11..ui_14
+    plots_01, plots_03, ui_06,
+    ui_07, ui_11..ui_14
 
     brand_sheet.mjs               renders docs/brand-sheet.png
     ui_shots.mjs                  screenshot sweep, docs/e2e-artifacts/ui/

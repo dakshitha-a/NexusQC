@@ -36,7 +36,13 @@ function formatElapsed(seconds: number): string {
  * minute or more before its first token, and a spinner that shows no change
  * for that long reads as a chat that has died; on 2026-09-24 a user sat
  * through 106 s of one and then typed "hello?". The count is shown from the
- * third second, so an ordinary quick reply does not flash a number. */
+ * third second, so an ordinary quick reply does not flash a number.
+ *
+ * `thinking` is true only while no text is streaming. When a reply writes
+ * some text and then calls a tool, that text can still be on screen during
+ * the next model call, and then there is no bare spinner and no count. The
+ * silent case the count exists for, a call that streams nothing at all, is
+ * always covered. */
 export function AgentStepChips({ steps, thinking }: { steps: AgentStep[]; thinking: boolean }) {
   const waiting = thinking && steps.length === 0;
   const elapsed = useElapsedSeconds(waiting);

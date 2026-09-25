@@ -40,6 +40,7 @@ what is valid, so the full list is paid only when someone needs it.
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
@@ -264,6 +265,11 @@ class PlotStyle:
                         f"annotation x {x!r} is not a column of this plot. The columns are: "
                         f"{', '.join(repr(k) for k in _unique_first_lines(categories))}.")
                 x = position
+            elif categories is not None:
+                # A number on a category axis names the column whose label is
+                # that number when there is one ("3" among "1".."5", or 1.1 on
+                # a levels chart over a scan), and is a slot index otherwise.
+                x = _numeric_label_position(categories, x)
             arrow = bool(note.get("arrow"))
             dx, dy = note.get("offset") or ((0.0, 26.0) if arrow else (0.0, 5.0))
             color = note.get("color") or "#222222"
@@ -377,22 +383,28 @@ def _parse_annotations(raw) -> tuple:
 def _category_positions(ax) -> Optional[dict]:
     """{label: x position} for a category axis, or None for a numeric one.
 
-    Two ways a renderer makes a category axis: tick labels it sets itself
-    (`_apply_categorical_xticks`, and the job charts), or plotting strings
-    directly, which matplotlib turns into its own category units. The first is
-    recognised by its label text rather than its formatter class, because
-    matplotlib 3.11 implements `set_xticklabels` with a FuncFormatter, and
-    a numeric axis's labels are blank or numbers until the figure is drawn.
-    Each label is registered under its full text and under its first line.
+    Decided by the axis's formatter, never by what the labels say. A category
+    axis can carry labels that read as numbers: a single job's slots are
+    labelled "1".."n", and a levels chart over a scan coordinate is labelled
+    "0.90", "1.00" and so on. Judged by text, those looked numeric, so a
+    column named "3" was refused and x=2 landed on the slot labelled "3".
+
+    Two ways a renderer makes a category axis. `set_xticklabels`
+    (`_apply_categorical_xticks`, the thermochemistry chart) installs a
+    FuncFormatter in matplotlib 3.11 and a FixedFormatter before it; no
+    renderer here installs either for any other reason. Plotting strings
+    directly gives matplotlib's own category units. A numeric axis carries a
+    ScalarFormatter or one of the LogFormatters. Each label is registered
+    under its full text and under its first line.
     """
+    from matplotlib.ticker import FixedFormatter, FuncFormatter
+
     pairs: list = []
     mapping = getattr(getattr(ax.xaxis, "units", None), "_mapping", None)
     if mapping:
         pairs = list(mapping.items())
-    else:
-        texts = [t.get_text() for t in ax.get_xticklabels()]
-        if any(text.strip() and not _is_number(text) for text in texts):
-            pairs = list(zip(texts, ax.get_xticks()))
+    elif isinstance(ax.xaxis.get_major_formatter(), (FuncFormatter, FixedFormatter)):
+        pairs = list(zip([t.get_text() for t in ax.get_xticklabels()], ax.get_xticks()))
     if not pairs:
         return None
     positions: dict = {}
@@ -403,15 +415,14 @@ def _category_positions(ax) -> Optional[dict]:
     return positions
 
 
-def _is_number(text: str) -> bool:
-    try:
-        float(text.replace("\u2212", "-"))
-        return True
-    except ValueError:
-        pass
-    # A log axis labels its ticks in mathtext ("$\\mathdefault{10^{2}}$"),
-    # which is still a number, not a category.
-    return text.strip().startswith("$")
+def _numeric_label_position(categories: dict, x: float) -> float:
+    for label, position in categories.items():
+        try:
+            if abs(float(label.replace("\u2212", "-")) - x) < 1e-9:
+                return position
+        except ValueError:
+            continue
+    return x
 
 
 def _unique_first_lines(categories: dict) -> list:
@@ -531,6 +542,22 @@ def from_spec(spec: Optional[dict]) -> PlotStyle:
 _render_lock = threading.Lock()
 
 
+@contextmanager
 def figure_lock():
-    """Hold while creating and drawing a pyplot figure. See above."""
-    return _render_lock
+    """Hold while creating and drawing a pyplot figure. See above.
+
+    A render that raises closes every open figure on the way out. Before
+    annotations, a renderer raised only on a real fault; now a refused
+    annotation (a column that is not on the axis) raises from inside
+    `apply`, after the figure exists and before the renderer's own
+    `plt.close`, and the figure would stay registered in pyplot for the
+    life of the server. Closing "all" is safe only because this lock
+    serialises rendering, so the one open figure is the failing one.
+    """
+    with _render_lock:
+        try:
+            yield
+        except BaseException:
+            import matplotlib.pyplot as plt  # already imported by whichever renderer raised
+            plt.close("all")
+            raise

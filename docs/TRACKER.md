@@ -53,7 +53,7 @@ turn has been paying for hidden reasoning that LangChain drops.
 ## Phase 2: annotations on every plot
 
 - [done] P2.1: `annotations` drawn by `PlotStyle.apply` for every kind
-  evidence: tests/backend/plot_07_annotations.py → "a column resolves by label, first line or slot; arrows draw; a UV/Vis spectrum takes a numeric x; missing column, text x on a numeric axis and 4 malformed shapes each refused"
+  evidence: tests/backend/plot_07_annotations.py → "25/25: a column resolves by label, first line, number-valued label or slot; a refused note leaves no figure open (it left one before); several histogram panels get it once; the user's stored 10-note plot redraws with every note placed (looked at)"
 - [done] P2.2: `value_labels` for custom and comparison plots
   evidence: tests/backend/plot_07_annotations.py → "10 levels labels equal the 10 drawn uracil values at .2f, each at its tick's right end; bar gaps get none; real-job plot through the tool reads correctly (looked at)"
 - [done] P2.3: unknown top-level plot spec keys are refused

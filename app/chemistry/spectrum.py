@@ -482,7 +482,7 @@ def _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
                            equilibrium_by_label, st: PlotStyle) -> None:
     """One panel per parameter. Split out only so render_histogram_plot's own
     body stays a figure-level story and this stays a panel-level one."""
-    for ax, label in zip(axes, labels):
+    for panel, (ax, label) in enumerate(zip(axes, labels)):
         values = data_by_label[label]
         ax.hist(values, bins="auto", color=st.accent("#3b6fd6"), edgecolor="white")
         unit = units_by_label.get(label, "")
@@ -524,9 +524,16 @@ def _draw_histogram_panels(axes, labels, data_by_label, units_by_label,
         # beside an angle in degrees -- so one range cannot be right for both,
         # and applying it anyway silently empties every panel it does not suit.
         # A single-panel distribution keeps it, where it means what it says.
+        #
+        # Annotations go on the first panel only, for the same reason: an x
+        # position is a value of ONE panel's quantity, and stamping the note
+        # on every panel would put it at that number of degrees on an axis
+        # measured in angstrom.
         per_panel = replace(st, title=None)
         if len(labels) > 1 and st.xlim is not None:
             per_panel = replace(per_panel, xlim=None)
+        if panel > 0:
+            per_panel = replace(per_panel, annotations=())
         per_panel.apply(ax)
 
 

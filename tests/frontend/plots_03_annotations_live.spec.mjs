@@ -17,7 +17,7 @@
  * The rendered PNG and a screenshot of the chat are saved for a human look.
  * The thread and every plot it drew are deleted at the end.
  *
- *   THREAD=$(docker exec -e QC_AGENT_TEST_JOB_IDS=<ids> <api> python3 tests/frontend/seed_annotation_thread.py)
+ *   THREAD=$(docker exec -i -e QC_AGENT_TEST_JOB_IDS=<ids> <api> python3 - < tests/frontend/seed_annotation_thread.py)
  *   QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 QC_AGENT_TEST_THREAD_ID=$THREAD \
  *     node tests/frontend/plots_03_annotations_live.spec.mjs
  */

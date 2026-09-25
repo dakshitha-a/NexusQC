@@ -10,7 +10,30 @@ note saying what changed.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Plots can carry text. Ask for the values on a comparison and each number
+  is written beside its own bar or energy level, from the value the plot
+  drew. On a level diagram they sit at the right end of each level, so
+  close states stay readable. A note, with or without an arrow, can be put
+  at one point on any kind of plot, spectra included.
+- While the model works, "Thinking..." shows how many seconds it has been
+  waiting.
+
+### Fixed
+
+- A plot request with a setting the plotter does not know is now refused,
+  naming the valid settings. Before, it was stored and ignored, so a
+  request for annotations came back looking unchanged.
+- A model reply with no text and no tool call no longer ends the turn in
+  silence. The app retries it once. If the retry is also empty, the chat
+  asks you to send the message again.
+- The chat model's hidden reasoning is switched off for real. `think: false`
+  had stopped working on Ollama 0.32.13, so every reply paid for reasoning
+  nobody saw. A short table cost 258 completion tokens where it now costs
+  80 to 105. `reasoning: {"effort": "none"}` is now sent as well.
+- A plot that failed to render no longer leaves its figure open in the
+  server process.
 
 ## [1.2.0] - 2026-09-20
 

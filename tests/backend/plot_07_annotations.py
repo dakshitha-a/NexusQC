@@ -144,6 +144,46 @@ try:
 except PlotStyleError as e:
     check("a text x on a numeric axis is refused", "numeric" in str(e), str(e)[:100])
 
+# Number-like column labels. A single job's slots are "1".."n" and a levels
+# chart over a scan is labelled with the coordinate, so the axis kind must come
+# from the formatter, not the text, and a number must find the column that
+# carries it before it is read as a slot index.
+numbered = [str(i + 1) for i in range(5)]
+ax = render_with([{"text": "by text", "x": "3", "y": 6.0}, {"text": "by number", "x": 3, "y": 6.0},
+                  {"text": "between", "x": 1.5, "y": 6.0}], columns=numbered)
+where = {t.get_text(): t.xy[0] for t in texts(ax)}
+check("labels that read as numbers still make a category axis ('3' is found)", where.get("by text") == 2.0,
+      str(where))
+check("a number names the column labelled with it, not slot index 3", where.get("by number") == 2.0,
+      str(where))
+check("a number matching no label stays a slot position", where.get("between") == 1.5, str(where))
+
+# A refused annotation must not leave its figure open in a long-lived server.
+# Called directly, not through captured_axes: that helper stands in for
+# plt.close, which is exactly the call under test here.
+plt.close("all")
+try:
+    spectrum.render_series_plot(list(range(5)), COLUMNS, SERIES, "", "E", "t", str(out / "leak.png"),
+                                style="levels",
+                                plot_style=from_spec({"annotations": [{"text": "x", "x": "nope", "y": 5.0}]}))
+except PlotStyleError:
+    pass
+check("a refused annotation leaves no figure open", plt.get_fignums() == [], str(plt.get_fignums()))
+
+# Several histogram panels: the note goes on the first only.
+hist_axes = {}
+st = from_spec({"annotations": [{"text": "trans", "x": 1.0, "y": 1}]})
+real_close = plt.close
+plt.close = lambda fig=None: hist_axes.setdefault("axes", fig.axes if fig is not None and hasattr(fig, "axes") else None)
+try:
+    spectrum.render_histogram_plot({"bond(1,2)": [0.9, 1.0, 1.1], "angle(1,2,3)": [100, 104, 108]},
+                                   {"bond(1,2)": "A", "angle(1,2,3)": "deg"}, str(out / "h.png"), style=st)
+finally:
+    plt.close = real_close
+per_panel = [sum(t.get_text() == "trans" for t in a.texts) for a in hist_axes.get("axes") or []]
+check("with several histogram panels the note is drawn on the first only", per_panel == [1, 0],
+      str(per_panel))
+
 for bad, why in (([{"x": 0, "y": 1}], "needs 'text'"), ([{"text": "a", "x": 0}], "needs 'y'"),
                  ([{"text": "a", "x": 0, "y": 1, "font": 3}], "unknown key"), ("oops", "must be a list")):
     try:

@@ -8,10 +8,11 @@ completed excited-state jobs whose results carry excitation_energies_eV. They
 are attached rather than created, so nothing here runs a calculation.
 
 Run it inside the api container, so the thread lands in the stack's own
-checkpointer:
+checkpointer. The image carries app/ but not tests/, so feed the script in on
+stdin rather than naming its path:
 
-    docker exec -e QC_AGENT_TEST_JOB_IDS=a,b,c <api container> \\
-        python3 tests/frontend/seed_annotation_thread.py
+    docker exec -i -e QC_AGENT_TEST_JOB_IDS=a,b,c <api container> \\
+        python3 - < tests/frontend/seed_annotation_thread.py
 
 The spec deletes the thread and the plots it drew. This repo's standing rule
 is that a session removes the threads and jobs it created and nothing else.

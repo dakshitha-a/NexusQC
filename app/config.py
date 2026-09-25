@@ -117,7 +117,8 @@ LLM_TEMPERATURE = float(os.environ.get("QC_AGENT_LLM_TEMPERATURE", "0.1"))
 # `reasoning: {effort: none}` is what this endpoint honours: 0 reasoning
 # characters, same tool calls. `think` stays alongside it because an
 # OpenAI-compatible server other than this Ollama may honour that one instead,
-# and on this one it is inert.
+# and on this one it is inert. A strict server that rejects an unknown
+# `reasoning` key with a 400 would need it removed here; none has been seen.
 LLM_EXTRA_BODY = {"think": False, "reasoning": {"effort": "none"}}
 
 # The context window the served model actually has, in tokens.
