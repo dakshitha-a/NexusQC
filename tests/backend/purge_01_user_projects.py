@@ -69,11 +69,24 @@ print(job_id)
     return _exec_api(code).splitlines()[-1].strip()
 
 
+def all_project_ids() -> set[str]:
+    """Every project on disk, read in-container: since 2026-09-24 an admin's
+    GET /api/projects shows only the admin's own, so it cannot say whether
+    another user's project is gone."""
+    out = _exec_api('''
+import json
+from app.projects import registry
+print(json.dumps([p["project_id"] for p in registry.list_projects()]))
+''')
+    return set(json.loads(out.splitlines()[-1]))
+
+
 def ownerless_projects() -> list[str]:
     """Every project on disk with no ownership_index row. Read in-container
     rather than through a route, because no route exposes this: an admin's
-    GET /api/projects shows owned and unowned alike without distinguishing
-    them, which is exactly why the original bug was invisible."""
+    GET /api/projects used to show owned and unowned alike without
+    distinguishing them, which is exactly why the original bug was
+    invisible."""
     out = _exec_api('''
 import json
 from app.projects import registry
@@ -121,7 +134,7 @@ def main() -> None:
               f"status={r.status_code}")
 
         # --- Their archive is gone ----------------------------------------
-        all_projects = {p["project_id"] for p in admin.get("/api/projects").json()}
+        all_projects = all_project_ids()
         check("the deleted account's project is gone",
               doomed_project not in all_projects,
               fail_detail="the project row outlived its owner")

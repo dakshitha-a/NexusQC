@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, Response
 from app.agent import threads as thread_registry
 from app.projects import registry as project_registry
 from app.auth import models as auth_models
-from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter
+from app.auth.ownership import check_owner, current_user_or_none, owned_ids_filter
 from app.chemistry.jobs import molden as molden_tools
 from app.chemistry.jobs import orca_runner
 from app.chemistry.jobs.base import (
@@ -283,10 +283,9 @@ def list_all_jobs(request: Request, include_archived: bool = False,
     shows up here. Sorted newest-first by created_at.
 
     Scoped to the caller's own jobs when auth is configured for this
-    deployment and the caller isn't an admin (owned_ids_filter returns
-    None -- "don't filter" -- for an unauthenticated deployment or an
-    admin caller, matching this route's pre-auth behavior of showing
-    every job). A job with NO recorded owner (created before auth was
+    deployment, admins included (owned_ids_filter returns None -- "don't
+    filter" -- only for an unauthenticated deployment, matching this
+    route's pre-auth behavior of showing every job). A job with NO recorded owner (created before auth was
     configured) is always included -- see ownership.py's module
     docstring for the same legacy/unowned-resource reasoning. Uses one
     bulk all_owners() query rather than one get_owner() call per row, since
@@ -376,7 +375,7 @@ def get_scan_children(job_id: str, request: Request, offset: int = 0, limit: int
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     if not is_master_spec(spec):
         raise HTTPException(
             status_code=400,
@@ -411,7 +410,7 @@ def get_wigner_transitions(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     if spec.get("task") != "wigner_spectra":
         raise HTTPException(
             status_code=400,
@@ -425,7 +424,7 @@ def list_jobs(thread_id: str, request: Request):
     entry = thread_registry.get_thread(thread_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
-    check_owner_or_admin("thread", thread_id, current_user_or_none(request))
+    check_owner("thread", thread_id, current_user_or_none(request))
     job_ids = entry.get("active_job_ids", [])
     return [_job_list_row(job_id) for job_id in reversed(job_ids)]
 
@@ -435,7 +434,7 @@ def get_job(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     return _job_row(job_id)
 
 
@@ -443,7 +442,7 @@ def get_job(job_id: str, request: Request):
 def rename_job(job_id: str, body: RenameJobIn, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     write_meta(job_id, {"label": body.label})
     return _job_row(job_id)
 
@@ -452,7 +451,7 @@ def rename_job(job_id: str, body: RenameJobIn, request: Request):
 def remove_job(job_id: str, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     status = get_job_manager().status(job_id)
     if status["status"] in _NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail="Cancel the job before deleting it.")
@@ -466,7 +465,7 @@ def remove_job(job_id: str, request: Request):
 def cancel_job(job_id: str, request: Request):
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     cancelled = get_job_manager().cancel(job_id)
     return {"cancelled": cancelled, **_job_row(job_id)}
 
@@ -521,7 +520,7 @@ def download_job(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
 
     # Named after the job rather than its id: a downloads folder full of
     # "78a32a61bab7.zip" says nothing about which calculation produced what.
@@ -572,7 +571,7 @@ def get_job_raw_input(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     filename = _ENGINE_INPUT_FILES.get(spec.get("engine"))
     if filename is None:
         raise HTTPException(status_code=404, detail="This engine has no literal input file")
@@ -603,7 +602,7 @@ def render_plot(job_id: str, body: RenderPlotIn, request: Request):
     endpoint above. Rendered into a system temp file, never under
     JOBS_DIR/data -- /data is already close to full (see CLAUDE.md's known
     limitations) and this PNG isn't a job artifact worth keeping around."""
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
@@ -707,7 +706,7 @@ def get_job_log(job_id: str, request: Request, lines: int = 20):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     n = max(1, min(lines, 200))
     job_dir = JOBS_DIR / job_id
     worker_log = job_dir / "worker.log"
@@ -781,7 +780,7 @@ def get_orbital_cube(job_id: str, index: int, request: Request, spin: str | None
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")
@@ -893,7 +892,7 @@ def get_neb_frames_live(job_id: str, request: Request):
     spec = read_spec(job_id)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     if spec.get("task") != "neb_ts":
         return Response(content="", media_type="text/plain")
 
@@ -958,7 +957,7 @@ def get_job_artifact(job_id: str, key: str, request: Request):
     confirms the resolved path is actually under JOBS_DIR before serving
     it, in case an artifact path was ever malformed.
 
-    check_owner_or_admin call added here -- this was the one resource-
+    check_owner call added here -- this was the one resource-
     scoped route in this file that never got one, confirmed by reading
     every other handler here (all of which call it) and live-testing this
     one specifically: it served any job's artifacts to any caller,
@@ -968,7 +967,7 @@ def get_job_artifact(job_id: str, key: str, request: Request):
     built for (UvVisPanel, MoCubeViewer, etc.) -- the session cookie is
     httpOnly+SameSite=Lax, which browsers still attach to same-origin
     subresource requests like these, not just fetch()/XHR calls."""
-    check_owner_or_admin("job", job_id, current_user_or_none(request))
+    check_owner("job", job_id, current_user_or_none(request))
     result = get_job_manager().result(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No result for job: {job_id}")

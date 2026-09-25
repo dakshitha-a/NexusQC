@@ -152,7 +152,7 @@ def register(body: RegisterIn, request: Request, response: Response):
 
 @router.post("/login")
 def login(body: LoginIn, request: Request, response: Response):
-    enforce_login(request)
+    enforce_login(request, body.email_or_username)
     user = models.verify_login(body.email_or_username, body.password)
     if user is None:
         raise HTTPException(status_code=401, detail="invalid credentials")

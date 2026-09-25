@@ -56,8 +56,8 @@ def _snapshot_pre_existing_jobs() -> None:
     so it must never take the bootstrap down with it.
     """
     try:
-        from fixtures import admin_client, list_job_ids
-        ids = list_job_ids(admin_client())
+        from fixtures import all_job_owners
+        ids = set(all_job_owners())
         PRE_EXISTING_JOBS_FILE.write_text("\n".join(sorted(ids)))
         print(f"Recorded {len(ids)} pre-existing job(s) in {PRE_EXISTING_JOBS_FILE.name}; "
               f"zz_99_job_cleanup.py removes anything this run adds beyond them.")
@@ -82,8 +82,8 @@ def _snapshot_pre_existing_threads() -> None:
     Best-effort: a failure here costs the run its cleanup, not its result.
     """
     try:
-        from fixtures import admin_client, list_thread_ids
-        ids = list_thread_ids(admin_client())
+        from fixtures import all_thread_owners
+        ids = set(all_thread_owners())
         PRE_EXISTING_THREADS_FILE.write_text("\n".join(sorted(ids)))
         print(f"Recorded {len(ids)} pre-existing conversation(s) in "
               f"{PRE_EXISTING_THREADS_FILE.name}; zz_98_thread_cleanup.py removes "

@@ -2298,6 +2298,34 @@ Setting `QC_AGENT_DATABASE_URL` activates the auth layer: accounts, sessions,
 ownership isolation, admin actions and storage quotas. Without it the app runs in
 its original single-user local mode and the auth layer is inert.
 
+### Admins see only their own work
+
+Admins are held to the same ownership boundary as every other user.
+`owned_ids_filter` and `check_owner` in `app/auth/ownership.py` make no
+exception for them, and the knowledge-base, plot and upload routes' own
+`_owner_filter` helpers follow suit. An admin's sidebar, job list and project
+list show the admin's own items, and another user's conversation, job,
+project, plot, upload or source answers 404, link or no link. Items with no
+recorded owner stay visible to everyone, as before.
+
+It used to be the other way round, on the reasoning that admins are trusted
+operators. That reasoning did not survive contact with a real group. On
+2026-09-24 an admin who had shared a project with a colleague found the
+colleague's conversation in their own sidebar, streaming live as he typed,
+alongside his private copy of the project. Nothing had leaked into the
+admin's account; the list routes simply showed an admin everything. A
+person's chat is theirs.
+
+What admins legitimately need across accounts lives under `/api/admin/*`,
+behind `require_admin`, and never reads content: usage and activity,
+suspending and deleting accounts, the purges, and removing one particular job
+or conversation (`DELETE /api/admin/jobs/{id}`, `DELETE
+/api/admin/threads/{id}`, both audit-logged). The admin console only ever
+called those routes, so nothing in it depended on the old exemption. One
+admin power survives in a workspace route by design: deleting a knowledge-base
+source that exists only in the pre-seeded shared corpus, which belongs to no
+user. `tests/backend/priv_01_admin_scope.py` checks the boundary end to end.
+
 ### Storage quotas have two regimes
 
 **No auth:** job artifacts capped at a flat total, KB storage capped separately,
@@ -2429,7 +2457,7 @@ index. Each of those is a decision rather than an omission.
   should not share a budget. Reaching the byte ceiling means asking an admin
   to archive or delete old reports, which is the intended answer: an account
   with 100MB of screenshots outstanding is not a reporting pattern.
-- **Served by an explicitly admin-only handler, never `check_owner_or_admin`.**
+- **Served by an explicitly admin-only handler, never `check_owner`.**
   This is the subtle one. Under that helper a resource with *no* ownership row is
   readable by **everyone**, not by no-one, the same shape as the orphaned-job
   finding above. These attachments will never have such a row, so routing them
@@ -2850,10 +2878,12 @@ only when an admin filed it there, is left alone by the same owner filter.
 
 The per-user "delete all my projects" in the account danger zone is scoped off
 `models.list_owned("project", user_id)` and never off what
-`GET /api/projects` returns. `owned_ids_filter` returns `None` for an admin,
-meaning "do not filter", so that route shows an admin every project on the
-deployment; an admin typing the confirmation phrase into a control labelled
-"delete all of *my* projects" must not wipe everybody else's.
+`GET /api/projects` returns. When this was written `owned_ids_filter`
+returned `None` for an admin, meaning "do not filter", so that route showed an
+admin every project on the deployment, and an admin typing the confirmation
+phrase into a control labelled "delete all of *my* projects" must not wipe
+everybody else's. Admins are scoped like everyone now (see "Admins see only
+their own work"), and the explicit scoping stays as the belt to that brace.
 
 ### The global job list hides archived jobs; the per-conversation one does not
 
@@ -2916,7 +2946,7 @@ one-hour age gate. There is no rollback code because none is needed.
 
 Ownership is recorded immediately **before** that final write rather than
 after. A job that is visible with no ownership row is visible to *every* user:
-`check_owner_or_admin` treats an unowned resource as legacy and public, and
+`check_owner` treats an unowned resource as legacy and public, and
 the job list has an explicit `not in owners` clause saying so. The window
 would have been microseconds, but it is the exact shape of F-022 and SEC-06,
 and closing it costs nothing.

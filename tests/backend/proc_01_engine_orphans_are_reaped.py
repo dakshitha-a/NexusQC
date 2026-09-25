@@ -167,7 +167,7 @@ print(json.dumps({{"ids": ids, "states": states, "ran": ran}}))
 
     for jid in ran["ids"]:
         try:
-            admin.delete(f"/api/jobs/{jid}")
+            admin.delete(f"/api/admin/jobs/{jid}", timeout=60)
         except Exception:  # noqa: BLE001
             pass
 

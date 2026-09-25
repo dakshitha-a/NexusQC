@@ -191,6 +191,40 @@ _usage_report_cache_at: float = 0.0
 _usage_report_cache_lock = threading.Lock()
 
 
+# Per-user overrides of the three per-user caps. The global values above are
+# what every account gets; an override replaces one of them for one account.
+# Stored as one app_config row, {user_id: {cap_key: bytes}}, so a deployment
+# that never uses it has no row at all and behaves exactly as before.
+#
+# Why it exists: the only other way to put ONE account over its quota was to
+# lower the cap for EVERYONE, which is what share_04 did, to 1 byte. While a
+# per-user cap is that low, every job submission and every job_watcher tick
+# runs enforce_all_quotas(), which evicts every user's oldest finished jobs
+# and conversations until they are under it. On a deployment a research
+# group uses, that is their work. An admin giving one person more room, or a
+# test squeezing only its own account, now touches nobody else.
+QUOTA_OVERRIDES_KEY = "per_user_quota_overrides"
+OVERRIDABLE_QUOTA_KEYS = (
+    "per_user_kb_quota_bytes",
+    "per_user_jobs_and_chat_quota_bytes",
+    "per_user_uploads_quota_bytes",
+)
+
+
+def get_quota_overrides() -> dict:
+    raw = models.get_app_config(QUOTA_OVERRIDES_KEY, {}) or {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def user_cap(cfg: dict, overrides: dict, user_id, key: str) -> int:
+    """One account's cap for `key`: its override if it has one, else the
+    deployment-wide value."""
+    v = (overrides.get(str(user_id)) or {}).get(key)
+    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+        return v
+    return int(cfg[key])
+
+
 def invalidate_usage_report_cache() -> None:
     """Forces the next usage_report() call to recompute from disk/Postgres
     instead of serving a cached value. Called from every mutation path
@@ -237,6 +271,7 @@ def usage_report() -> dict:
 
 def _compute_usage_report() -> dict:
     cfg = get_quota_config()
+    overrides = get_quota_overrides()
     kb_by_owner, kb_shared = _kb_usage_by_owner()
     upload_by_owner, upload_unowned = _upload_usage_by_owner()
     job_by_owner, job_unowned = _job_usage_by_owner()
@@ -254,13 +289,14 @@ def _compute_usage_report() -> dict:
             "username": u["username"],
             "email": u["email"],
             "kb_bytes": kb,
-            "kb_quota_bytes": cfg["per_user_kb_quota_bytes"],
+            "kb_quota_bytes": user_cap(cfg, overrides, uid, "per_user_kb_quota_bytes"),
             "upload_bytes": upload,
-            "upload_quota_bytes": cfg["per_user_uploads_quota_bytes"],
+            "upload_quota_bytes": user_cap(cfg, overrides, uid, "per_user_uploads_quota_bytes"),
             "job_bytes": job,
             "chat_bytes": chat,
             "jobs_and_chat_bytes": job + chat,
-            "jobs_and_chat_quota_bytes": cfg["per_user_jobs_and_chat_quota_bytes"],
+            "jobs_and_chat_quota_bytes": user_cap(cfg, overrides, uid, "per_user_jobs_and_chat_quota_bytes"),
+            "quota_overrides": dict(overrides.get(uid) or {}),
             "total_bytes": kb + upload + job + chat,
         })
     per_user.sort(key=lambda r: r["total_bytes"], reverse=True)
@@ -313,7 +349,8 @@ def headroom_for_user(user_id: str) -> dict:
     cfg = report["quota_config"]
     mine = next((r for r in report["per_user"] if r["user_id"] == str(user_id)), None)
     used = mine["jobs_and_chat_bytes"] if mine else 0
-    quota = cfg["per_user_jobs_and_chat_quota_bytes"]
+    quota = (mine["jobs_and_chat_quota_bytes"] if mine
+             else user_cap(cfg, get_quota_overrides(), user_id, "per_user_jobs_and_chat_quota_bytes"))
     g = report["global"]
     return {
         "jobs_and_chat_bytes": used,
@@ -325,7 +362,8 @@ def headroom_for_user(user_id: str) -> dict:
     }
 
 
-def single_item_can_ever_fit(category: str, incoming_bytes: int) -> tuple[bool, str]:
+def single_item_can_ever_fit(category: str, incoming_bytes: int,
+                             user_id: Optional[str] = None) -> tuple[bool, str]:
     """(ok, reason) for one incoming upload or knowledge-base source.
 
     Not headroom: the CAP. An item larger than the whole per-user allowance
@@ -345,7 +383,8 @@ def single_item_can_ever_fit(category: str, incoming_bytes: int) -> tuple[bool, 
     `category` is "uploads" or "kb".
     """
     key = {"uploads": "per_user_uploads_quota_bytes", "kb": "per_user_kb_quota_bytes"}[category]
-    cap = int(get_quota_config()[key])
+    cap = user_cap(get_quota_config(), get_quota_overrides(), user_id, key) if user_id \
+        else int(get_quota_config()[key])
     if cap <= 0 or incoming_bytes <= cap:
         return True, ""
     what = "upload" if category == "uploads" else "knowledge-base source"
@@ -713,13 +752,15 @@ def enforce_all_quotas() -> dict:
     # taken away, which is correct. The difference is that everything they DO
     # have evictable now goes, instead of nothing.
     usage_by_user = {r["user_id"]: r for r in usage_report()["per_user"]}
+    overrides = get_quota_overrides()
 
     for u in models.list_users():
         uid = str(u["id"])
         kb_candidates = _kb_candidates(owner_filter=uid)
         current = (usage_by_user.get(uid) or {}).get(
             "kb_bytes", sum(c["size"] for c in kb_candidates))
-        _evict_oldest_first(kb_candidates, cfg["per_user_kb_quota_bytes"], current, evicted)
+        _evict_oldest_first(kb_candidates, user_cap(cfg, overrides, uid, "per_user_kb_quota_bytes"),
+                            current, evicted)
 
     for u in models.list_users():
         uid = str(u["id"])
@@ -727,7 +768,8 @@ def enforce_all_quotas() -> dict:
         current = (usage_by_user.get(uid) or {}).get(
             "upload_bytes", sum(c["size"] for c in upload_candidates))
         _evict_oldest_first(
-            upload_candidates, cfg["per_user_uploads_quota_bytes"], current, evicted
+            upload_candidates, user_cap(cfg, overrides, uid, "per_user_uploads_quota_bytes"),
+            current, evicted
         )
 
     for u in models.list_users():
@@ -736,7 +778,8 @@ def enforce_all_quotas() -> dict:
         current = (usage_by_user.get(uid) or {}).get(
             "jobs_and_chat_bytes", sum(c["size"] for c in combined))
         _evict_oldest_first(
-            combined, cfg["per_user_jobs_and_chat_quota_bytes"], current, evicted
+            combined, user_cap(cfg, overrides, uid, "per_user_jobs_and_chat_quota_bytes"),
+            current, evicted
         )
 
     # The global pass below re-reads usage_report(). That is a fresh
@@ -873,7 +916,7 @@ def purge_user_data(user_id: str) -> dict:
     cascade on ownership_index still fired, but nothing removed the
     underlying files -- so every job/KB source they'd ever created
     survived on disk with no recorded owner, and app/auth/ownership.py's
-    check_owner_or_admin treats an unowned resource as accessible to
+    check_owner treats an unowned resource as accessible to
     EVERYONE, not to no one. Confirmed empirically: a deleted user's
     completed job stayed fully readable by a totally unrelated user
     afterward.

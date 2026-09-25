@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fixtures import (  # noqa: E402
-    admin_client, check, cleanup_threads, list_thread_ids, skip, summary,
+    admin_client, all_thread_owners, check, cleanup_threads, made_by_tests, skip, summary,
 )
 
 BASELINE_FILE = Path(__file__).resolve().parent.parent / ".threads_before_run"
@@ -46,8 +46,17 @@ def main() -> None:
 
     baseline = {line.strip() for line in BASELINE_FILE.read_text().splitlines() if line.strip()}
     admin = admin_client()
-    now = list_thread_ids(admin)
-    created = now - baseline
+    owners = all_thread_owners()
+    now = set(owners)
+    new = now - baseline
+    # Only what a test made. The stack is also a research group's
+    # deployment, and anything a real user created while the run was going
+    # is theirs, not this run's to sweep up. See fixtures.made_by_tests.
+    created = {i for i in new if made_by_tests(owners[i])}
+    theirs = sorted(new - created)
+    if theirs:
+        print(f"  left alone: {len(theirs)} conversation(s) real users created during the run: "
+              f"{', '.join(f'{i} ({owners[i]})' for i in theirs[:10])}")
     print(f"  {len(baseline)} conversation(s) pre-existed, {len(now)} present now, "
           f"{len(created)} created by this run")
     if not created:
@@ -60,8 +69,8 @@ def main() -> None:
           not remaining,
           f"deleted {deleted}/{len(created)}; still present: {remaining}")
 
-    final = list_thread_ids(admin)
-    leftover = final - baseline
+    final = set(all_thread_owners())
+    leftover = (final - baseline) - set(theirs)
     check("the conversation list is back to what it held before the run",
           not leftover, f"unexpected leftovers: {sorted(leftover)}")
 

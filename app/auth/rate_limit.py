@@ -30,6 +30,7 @@ from fastapi import HTTPException, Request
 
 from app.auth.redis_session import get_client
 from app.config import (
+    LOGIN_RATE_LIMIT_IP_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     REGISTER_RATE_LIMIT_MAX_ATTEMPTS,
@@ -114,8 +115,23 @@ def enforce_for_key(bucket: str, key_part: str, max_attempts: int, window_second
         )
 
 
-def enforce_login(request: Request) -> None:
-    enforce("login", request, LOGIN_RATE_LIMIT_MAX_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+def enforce_login(request: Request, identifier: str = "") -> None:
+    """Two budgets. The tight one, 10 a minute by default, is per account
+    per address: it is what stops a password being guessed, and it is
+    per account so one person's typos cannot lock anyone else out. The
+    loose one is per address across all accounts, and stops the same
+    address working through many accounts.
+
+    It used to be one budget per address. That is right when addresses are
+    people, and it was not the case on the deployment a research group
+    shares: Docker's userland port proxy delivers every connection to nginx
+    from the bridge gateway, so X-Real-IP is the same for everyone, and ten
+    logins a minute was the whole group's allowance. A person mistyping a
+    password locked out their colleagues."""
+    ip = _client_ip(request)
+    who = (identifier or "").strip().lower()[:128]
+    enforce_for_key("login_ip", ip, LOGIN_RATE_LIMIT_IP_MAX_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+    enforce_for_key("login", f"{ip}:{who}", LOGIN_RATE_LIMIT_MAX_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
 
 
 def enforce_register(request: Request) -> None:

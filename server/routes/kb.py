@@ -26,7 +26,7 @@ from app.rag.ingest import ALLOWED_FILE_EXTENSIONS, ingest_file, ingest_text
 from app.rag.quota import QUOTA_BYTES as KB_QUOTA_BYTES
 from app.rag.quota import current_usage_bytes as kb_storage_usage_bytes
 from app.rag.quota import enforce_quota
-from app.rag.store import delete_source, delete_upload_file, list_sources
+from app.rag.store import SHARED_OWNER, delete_source, delete_upload_file, list_sources
 from app.rag.web_scrape import ScrapeError, fetch_page, robots_disallows
 
 from server.routes._paging import paged
@@ -47,20 +47,18 @@ def _owner_key(request: Request) -> str | None:
     configured for this deployment. Deliberately NOT None for an admin:
     an admin's own upload is still scoped to them specifically, not
     silently shared with every other user just because they're an admin.
-    Use _owner_filter (below) for list/delete instead, where "no filter"
-    IS the right behavior for an admin."""
+    Use _owner_filter (below) for list/delete instead."""
     user = current_user_or_none(request)
     return str(user["id"]) if user is not None else None
 
 
 def _owner_filter(request: Request) -> str | None:
     """The owner_filter to READ/DELETE with -- None means "no filter, see/
-    touch everything" for both an unauthenticated deployment and an admin
-    caller (matching app/auth/ownership.py's owned_ids_filter convention
-    for jobs/threads), otherwise the caller's own id (shared content plus
-    their own)."""
+    touch everything" on an unauthenticated deployment, otherwise the
+    caller's own id (shared content plus their own). Admins included,
+    matching app/auth/ownership.py's owned_ids_filter."""
     user = current_user_or_none(request)
-    if user is None or user["role"] == "admin":
+    if user is None:
         return None
     return str(user["id"])
 
@@ -85,7 +83,7 @@ def _refuse_if_oversized(owner: str | None, incoming_bytes: int) -> None:
     if owner is None or incoming_bytes <= 0:
         return
     from app.auth.storage_quota import single_item_can_ever_fit
-    ok, reason = single_item_can_ever_fit("kb", incoming_bytes)
+    ok, reason = single_item_can_ever_fit("kb", incoming_bytes, owner)
     if not ok:
         raise HTTPException(status_code=413, detail=reason)
 
@@ -417,13 +415,14 @@ def remove_source(source: str, request: Request, owner: str | None = None):
     """SEC-09 fix: an admin's delete used to be scoped by source NAME
     only, with no owner disambiguator -- if two different users happened
     to have uploaded identically-named sources, deleting one via this
-    route silently deleted both. A regular user's own delete never hit
-    this (their owner_filter is always their own id, so it only ever
-    touches their own chunks -- see delete_source's docstring), so this
-    only changes admin (or no-auth) behavior. `owner` is an optional query
-    param (?owner=<user_id>, or the literal string app.rag.store.
-    SHARED_OWNER for the pre-seeded/shared corpus) an admin caller can
-    pass to name exactly whose copy to delete. When omitted: if only one
+    route silently deleted both. A signed-in caller's delete never hits
+    this: their owner_filter is always their own id, so it only ever
+    touches their own chunks (see delete_source's docstring), and since
+    2026-09-24 that includes admins, who may additionally remove a source
+    that exists only in the shared corpus. What follows is the no-auth
+    branch. `owner` is an optional query param (?owner=<owner>, or the
+    literal string app.rag.store.SHARED_OWNER for the pre-seeded/shared
+    corpus) naming exactly whose copy to delete. When omitted: if only one
     owner has a source by this name (the common case, and the only case
     on a no-auth deployment, where everything ingests under SHARED_OWNER),
     behavior is unchanged -- delete it. If MORE than one owner has an
@@ -434,10 +433,22 @@ def remove_source(source: str, request: Request, owner: str | None = None):
     disambiguation (see CLAUDE.md)."""
     caller_filter = _owner_filter(request)
     if caller_filter is not None:
-        # Ordinary (non-admin) caller: owner is irrelevant here, always
-        # scoped to their own uploads only.
+        # A signed-in caller, admin or not: scoped to their own uploads, and
+        # `owner` cannot name anyone else's. Admins used to take the branch
+        # below and could delete any user's source; they no longer reach
+        # other users' content through workspace routes (app/auth/ownership).
         n_deleted = delete_source(source, owner_filter=caller_filter)
         if n_deleted == 0:
+            # The one thing an admin may still remove here is a source from
+            # the pre-seeded shared corpus, which belongs to no user. Only
+            # when the name exists there alone: never a user's copy.
+            user = current_user_or_none(request)
+            if user is not None and user["role"] == "admin":
+                owners = {s["owner"] for s in list_sources() if s["source"] == source}
+                if owners == {SHARED_OWNER}:
+                    n_shared = delete_source(source, owner_filter=SHARED_OWNER)
+                    delete_upload_file(source, SHARED_OWNER)
+                    return {"deleted_chunks": n_shared}
             raise HTTPException(status_code=404, detail=f"No such source: {source}")
         # F-001: the original uploaded file has to go with the chunks. It
         # is resolved BEFORE nothing else -- delete_source has already run
@@ -447,7 +458,7 @@ def remove_source(source: str, request: Request, owner: str | None = None):
         delete_upload_file(source, caller_filter)
         return {"deleted_chunks": n_deleted}
 
-    # Admin / no-auth branch. Resolve the owning set BEFORE deleting, since
+    # No-auth branch. Resolve the owning set BEFORE deleting, since
     # list_sources reads Chroma and delete_source is about to empty it --
     # without this the file could no longer be located to unlink.
     owners = {s["owner"] for s in list_sources() if s["source"] == source}

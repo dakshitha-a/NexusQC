@@ -17,6 +17,7 @@ Environment:
 """
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import string
@@ -460,13 +461,70 @@ def list_job_ids(client: httpx.Client) -> set[str]:
     return {row["job_id"] for row in r.json()}
 
 
-def cleanup_jobs(admin: httpx.Client, job_ids) -> tuple[int, list[str]]:
-    """Deletes each of `job_ids`, cancelling first where needed.
+def _owner_map(kind: str) -> dict[str, str | None]:
+    """{id: owner username or None} for every top-level job, or every
+    conversation, on the stack. Ids and owners only, read inside the api
+    container: admins no longer see other users' items through the app's
+    routes (app/auth/ownership.py), and the end-of-run sweeps still need to
+    tell what this run created from what a real user made meanwhile."""
+    code = (
+        "import json\n"
+        "from app.auth import models\n"
+        "from app.auth.db import get_pool\n"
+        "names = {str(u['id']): u['username'] for u in models.list_users()}\n"
+        "with get_pool().connection() as c:\n"
+        f"    own = {{r['resource_id']: names.get(str(r['owner_user_id'])) for r in c.execute(\"SELECT resource_id, owner_user_id FROM ownership_index WHERE kind = '{kind}'\").fetchall()}}\n"
+    )
+    if kind == "job":
+        code += (
+            "from app.config import JOBS_DIR\n"
+            "ids = []\n"
+            "for d in JOBS_DIR.iterdir():\n"
+            "    p = d / 'spec.json'\n"
+            "    if d.is_dir() and p.exists():\n"
+            "        try:\n"
+            "            if json.loads(p.read_text()).get('parent_job_id'): continue\n"
+            "        except Exception: continue\n"
+            "        ids.append(d.name)\n"
+        )
+    else:
+        code += (
+            "from app.agent import threads as t\n"
+            "ids = [x['thread_id'] for x in t.list_threads()]\n"
+        )
+    code += "print('@@@' + json.dumps({i: own.get(i) for i in ids}))\n"
+    proc = subprocess.run(["docker", "compose", "exec", "-T", "api", "python", "-c", code],
+                          cwd=str(_COMPOSE_DIR), capture_output=True, text=True, timeout=120)
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("@@@")), None)
+    if line is None:
+        raise RuntimeError(f"could not list {kind} owners: {proc.stderr[-400:]}")
+    return json.loads(line[3:])
 
-    Returns (n_deleted, still_there). A job is cancelled before deletion
-    because DELETE /api/jobs/{id} answers 409 for anything non-terminal --
-    correctly, since removing a running job's directory out from under its
-    worker is how you get a half-written result nobody can explain.
+
+def all_job_owners() -> dict[str, str | None]:
+    return _owner_map("job")
+
+
+def all_thread_owners() -> dict[str, str | None]:
+    return _owner_map("thread")
+
+
+def made_by_tests(owner: str | None) -> bool:
+    """Whether a run may clean an item up: owned by a test account, or by
+    nobody. The app gives everything a signed-in person creates an owner, so
+    an ownerless item came from a test working in-process. Anything a real
+    user made, including while the run was going, is not ours to delete."""
+    return owner is None or owner.startswith(QATEST_PREFIX)
+
+
+def cleanup_jobs(admin: httpx.Client, job_ids) -> tuple[int, list[str]]:
+    """Deletes each of `job_ids` through the admin-only route, which cancels
+    a running job and waits for it to stop before removing it.
+
+    Returns (n_deleted, still_there). It used to use DELETE /api/jobs/{id}
+    as the admin. Admins no longer reach other users' jobs through that
+    route and get a 404, which this function counts as "already gone", so
+    a test user's job would have been silently left behind.
 
     Deleting a master cascades to its sub-jobs (delete_job_dir), so a
     caller that passes a scan master does not also need to pass its
@@ -475,16 +533,14 @@ def cleanup_jobs(admin: httpx.Client, job_ids) -> tuple[int, list[str]]:
     """
     deleted, remaining = 0, []
     for job_id in list(job_ids):
-        admin.post(f"/api/jobs/{job_id}/cancel")
-        r = admin.delete(f"/api/jobs/{job_id}")
+        r = admin.delete(f"/api/admin/jobs/{job_id}", timeout=60)
         if r.status_code in (200, 404):
             deleted += 1
             continue
-        # One retry: cancellation is not instantaneous, and a job that was
-        # mid-spawn when cancelled needs a moment to reach a terminal
-        # status before its directory may be removed.
+        # One retry: the route waits a while for a cancelled job to stop,
+        # and one that was mid-spawn can take longer.
         time.sleep(3)
-        r = admin.delete(f"/api/jobs/{job_id}")
+        r = admin.delete(f"/api/admin/jobs/{job_id}", timeout=60)
         if r.status_code in (200, 404):
             deleted += 1
         else:
@@ -658,14 +714,9 @@ def shell_awk_program(marker: str, path: Path = UPDATE_SH) -> str:
 
 
 def list_thread_ids(client: httpx.Client) -> set[str]:
-    """Every conversation id the caller can see.
-
-    Called with an admin client this is every conversation on the
-    deployment: `owned_ids_filter` returns None for an admin, so
-    GET /api/threads does not filter. That is what makes an end-of-run sweep
-    able to see conversations a test opened in-process through
-    `thread_registry.create_thread`, which records no owner at all.
-    """
+    """Every conversation id the caller can see: their own. An admin is no
+    different; for every conversation on the stack, with owners, use
+    all_thread_owners()."""
     r = client.get("/api/threads")
     r.raise_for_status()
     return {row["thread_id"] for row in r.json()}
@@ -681,7 +732,7 @@ def cleanup_threads(admin: httpx.Client, thread_ids) -> tuple[int, list[str]]:
     """
     deleted, remaining = 0, []
     for thread_id in list(thread_ids):
-        r = admin.delete(f"/api/threads/{thread_id}")
+        r = admin.delete(f"/api/admin/threads/{thread_id}")
         if r.status_code in (200, 204, 404):
             deleted += 1
         else:

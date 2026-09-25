@@ -28,7 +28,7 @@ is no rollback code here because none is needed.
 
 Ownership is recorded before that final write rather than after, because a
 job that is visible with no ownership row is visible to EVERY user --
-check_owner_or_admin treats an unowned resource as legacy and public, and
+check_owner treats an unowned resource as legacy and public, and
 jobs.py's list filter has an explicit `not in owners` clause saying so. The
 window would be microseconds, but it is the exact shape of F-022 and
 SEC-06, and closing it costs nothing.

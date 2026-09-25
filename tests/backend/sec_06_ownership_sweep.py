@@ -1,5 +1,5 @@
 """SEC-06: the ownership sweep. app/auth/ownership.py's enforcement is 100%
-route-handler-explicit (a call to check_owner_or_admin/owned_ids_filter at
+route-handler-explicit (a call to check_owner/owned_ids_filter at
 the top of each handler), not middleware -- so the main systemic risk is a
 resource-scoped route that simply forgot the call. This script does two
 things:
@@ -12,7 +12,7 @@ things:
 
 2. LIVE-PROVES the one UNGUARDED route found this way:
    GET /api/jobs/{job_id}/artifacts/{key:path} (server/routes/jobs.py:601)
-   has NO check_owner_or_admin call, and doesn't even require a login at
+   has NO check_owner call, and doesn't even require a login at
    all (no current_user_or_none()/get_current_user() call anywhere in its
    body) -- confirmed by reading the full function. This is a real,
    unauthenticated cross-user (and cross-EVERYONE) data leak: any job's
@@ -54,7 +54,7 @@ ROUTE_TABLE = [
     ("GET /api/jobs/{job_id}/log", "jobs.py:448", "GUARDED"),
     ("POST /api/jobs/{job_id}/orbitals/{index}/cube", "jobs.py:505", "GUARDED"),
     ("GET /api/jobs/{job_id}/neb_frames_live", "jobs.py:585", "GUARDED"),
-    ("GET /api/jobs/{job_id}/artifacts/{key:path}", "jobs.py:601-627, NO check_owner_or_admin AND no auth call at all", "**UNGUARDED -- LIVE-PROVEN BELOW**"),
+    ("GET /api/jobs/{job_id}/artifacts/{key:path}", "jobs.py:601-627, NO check_owner AND no auth call at all", "**UNGUARDED -- LIVE-PROVEN BELOW**"),
     ("GET /api/threads", "list route, owned_ids_filter", "GUARDED"),
     ("POST /api/threads", "records ownership on create", "GUARDED (by construction)"),
     ("PATCH /api/threads/{thread_id}", "threads.py:45", "GUARDED"),

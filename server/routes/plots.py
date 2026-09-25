@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.auth.ownership import check_owner_or_admin, current_user_or_none
+from app.auth.ownership import check_owner, current_user_or_none
 from app.chemistry.jobs.naming import job_download_name, slugify_label
 from app.plots import store as plot_store
 
@@ -43,10 +43,10 @@ def _owner_key(request: Request) -> str | None:
 
 
 def _owner_filter(request: Request) -> str | None:
-    """The filter to READ/DELETE with: None for admin or no-auth (see
-    everything), else the caller's own id. Mirrors uploads.py exactly."""
+    """The filter to READ/DELETE with: None with no auth (see everything),
+    else the caller's own id, admins included. Mirrors uploads.py exactly."""
     user = current_user_or_none(request)
-    if user is None or user["role"] == "admin":
+    if user is None:
         return None
     return str(user["id"])
 
@@ -72,7 +72,7 @@ def get_plot(plot_id: str, request: Request):
     record = plot_store.get_plot(_owner_filter(request), plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
+    check_owner("plot", plot_id, current_user_or_none(request))
     return record
 
 
@@ -85,7 +85,7 @@ def get_plot_image(plot_id: str, version: str, request: Request):
     record = plot_store.get_plot(owner_filter, plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
+    check_owner("plot", plot_id, current_user_or_none(request))
     path = plot_store.version_path(owner_filter, plot_id, version)
     if path is None:
         raise HTTPException(status_code=404, detail="No such plot version")
@@ -102,7 +102,7 @@ def download_plot(plot_id: str, request: Request):
     record = plot_store.get_plot(owner_filter, plot_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
+    check_owner("plot", plot_id, current_user_or_none(request))
     version = plot_store.latest_version(record)
     # The vector companion when this version has one, the PNG otherwise. The
     # display route above stays PNG-only on purpose: a browser cannot show a
@@ -132,7 +132,7 @@ def rename_plot(plot_id: str, body: RenamePlotIn, request: Request):
     owner_filter = _owner_filter(request)
     if plot_store.get_plot(owner_filter, plot_id) is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
+    check_owner("plot", plot_id, current_user_or_none(request))
     record = plot_store.update_plot(_plot_owner_dir(owner_filter, plot_id), plot_id, label=body.label)
     return _row(record) if record else {}
 
@@ -142,14 +142,15 @@ def remove_plot(plot_id: str, request: Request):
     owner_filter = _owner_filter(request)
     if plot_store.get_plot(owner_filter, plot_id) is None:
         raise HTTPException(status_code=404, detail="No such plot")
-    check_owner_or_admin("plot", plot_id, current_user_or_none(request))
+    check_owner("plot", plot_id, current_user_or_none(request))
     plot_store.delete_plot(owner_filter, plot_id)
     return {"deleted": plot_id}
 
 
 def _plot_owner_dir(owner_filter: str | None, plot_id: str) -> str | None:
-    """The owner a plot actually lives under. An admin reads with
-    owner_filter=None but must still write into the owning user's directory,
-    so the record's own `owner` is the authority, not the caller's identity."""
+    """The owner a plot actually lives under. With no auth configured the
+    caller reads with owner_filter=None but must still write into the
+    directory the plot is stored under, so the record's own `owner` is the
+    authority, not the caller's identity."""
     record = plot_store.get_plot(owner_filter, plot_id)
     return record.get("owner") if record else owner_filter

@@ -13,10 +13,10 @@ deleting all of them; passing ?owner=<id> deletes exactly that owner's
 copy. The single-owner case (the common one, and the only one possible on
 a no-auth deployment) is unaffected.
 
-Proof: users A and B each upload a file with the SAME filename (different
-content) -- an unscoped admin delete must now be REFUSED (409) with both
-sources still present afterward, and a delete scoped to A's own id via
-?owner= must remove only A's copy, leaving B's untouched.
+Proof, since 2026-09-24 when admins stopped reaching other users' content:
+users A and B each upload a file with the SAME filename (different content).
+An admin's delete by that name, with or without ?owner=, touches neither
+copy. A's own delete removes only A's copy, leaving B's untouched.
 """
 from __future__ import annotations
 
@@ -55,50 +55,29 @@ def main() -> None:
     check("user A sees their own uploaded source", _has_source(client_a))
     check("user B sees their own uploaded source", _has_source(client_b))
 
-    # An UNSCOPED admin delete against a colliding filename must now be
-    # refused, not silently touch both users' data.
-    r_unscoped = admin.delete(f"/api/kb/sources/{SHARED_FILENAME}")
-    check(
-        "FIX VERIFIED: an unscoped delete against a colliding filename is refused (409), not applied",
-        r_unscoped.status_code == 409,
-        f"status={r_unscoped.status_code} body={r_unscoped.text[:200]}",
-    )
-    print(f"unscoped delete response: {r_unscoped.status_code} {r_unscoped.text[:200]}")
-    check(
-        "FIX VERIFIED: user A's source still exists after the refused unscoped delete",
-        _has_source(client_a),
-    )
-    check(
-        "FIX VERIFIED: user B's source still exists after the refused unscoped delete",
-        _has_source(client_b),
-    )
+    # An admin's delete by that name. It used to reach every user's copy,
+    # which is the bug this script was written for. Since 2026-09-24 an
+    # admin is scoped to their own sources like anyone else, and this admin
+    # has none by this name, so nothing is touched at all.
+    r_admin = admin.delete(f"/api/kb/sources/{SHARED_FILENAME}")
+    check("an admin's delete by that name touches no user's copy (404)",
+          r_admin.status_code == 404, f"status={r_admin.status_code} body={r_admin.text[:200]}")
+    r_admin = admin.delete(f"/api/kb/sources/{SHARED_FILENAME}", params={"owner": user_a["id"]})
+    check("and ?owner= cannot point an admin at someone else's copy (404)",
+          r_admin.status_code == 404, f"status={r_admin.status_code} body={r_admin.text[:200]}")
+    check("user A's source still exists", _has_source(client_a))
+    check("user B's source still exists", _has_source(client_b))
 
-    # A delete scoped to A's own id via ?owner= must remove ONLY A's copy.
-    r_scoped = admin.delete(f"/api/kb/sources/{SHARED_FILENAME}", params={"owner": user_a["id"]})
-    check(
-        "FIX VERIFIED: an admin delete scoped to a specific owner via ?owner= succeeds",
-        r_scoped.status_code == 200,
-        f"{r_scoped.status_code} {r_scoped.text[:200]}",
-    )
-    print(f"owner-scoped delete response: {r_scoped.json() if r_scoped.status_code == 200 else r_scoped.text}")
-
-    a_gone = not _has_source(client_a)
-    b_still_here = _has_source(client_b)
-    check("FIX VERIFIED: user A's source was removed by the owner-scoped delete", a_gone)
-    check(
-        "FIX VERIFIED: user B's UNRELATED, identically-named source survived the owner-scoped delete",
-        b_still_here,
-        fail_detail="user B's source was also deleted -- the owner scoping isn't actually isolating the two",
-    )
-
-    # Cleanup: only B's copy remains now, so an unscoped delete is
-    # unambiguous again (single owner) and should succeed normally.
-    r_cleanup = admin.delete(f"/api/kb/sources/{SHARED_FILENAME}")
-    check(
-        "an unscoped delete succeeds again once only one owner remains (no longer ambiguous)",
-        r_cleanup.status_code == 200,
-        f"{r_cleanup.status_code} {r_cleanup.text[:200]}",
-    )
+    # Each owner's own delete removes only their own copy.
+    r_a_del = client_a.delete(f"/api/kb/sources/{SHARED_FILENAME}")
+    check("user A deletes their own copy", r_a_del.status_code == 200,
+          f"{r_a_del.status_code} {r_a_del.text[:200]}")
+    check("user A's source is gone", not _has_source(client_a))
+    check("user B's identically named source survived", _has_source(client_b),
+          fail_detail="user B's source was also deleted -- identically named sources are not isolated")
+    r_b_del = client_b.delete(f"/api/kb/sources/{SHARED_FILENAME}")
+    check("user B deletes their own copy", r_b_del.status_code == 200,
+          f"{r_b_del.status_code} {r_b_del.text[:200]}")
 
     cleanup_user(admin, user_a["id"])
     cleanup_user(admin, user_b["id"])

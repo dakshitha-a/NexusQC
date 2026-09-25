@@ -9,7 +9,7 @@ Boundary checks worth naming, because each is a way the feature could have
 shipped wrong:
 
   * A third party gets 404 (not 403) on every route, so share ids cannot
-    be probed, matching check_owner_or_admin's own convention.
+    be probed, matching check_owner's own convention.
   * Only the recipient may accept or decline; only the sender may withdraw.
   * A second PENDING offer of the same thing to the same person is refused
     by resource_shares_pending_idx, but re-offering after a decline is

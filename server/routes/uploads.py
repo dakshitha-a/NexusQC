@@ -20,7 +20,7 @@ import io
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.auth.ownership import check_owner_or_admin, current_user_or_none, record as record_ownership
+from app.auth.ownership import check_owner, current_user_or_none, record as record_ownership
 from app.uploads.quota import QUOTA_BYTES as UPLOADS_QUOTA_BYTES
 from app.uploads.quota import current_usage_bytes as uploads_storage_usage_bytes
 from app.uploads.quota import enforce_quota
@@ -39,10 +39,10 @@ def _owner_key(request: Request) -> str | None:
 
 
 def _owner_filter(request: Request) -> str | None:
-    """The filter to READ/DELETE with -- None for admin or no-auth (see/
-    touch everything), else the caller's own id."""
+    """The filter to READ/DELETE with -- None with no auth (see/touch
+    everything), else the caller's own id, admins included."""
     user = current_user_or_none(request)
-    if user is None or user["role"] == "admin":
+    if user is None:
         return None
     return str(user["id"])
 
@@ -83,7 +83,7 @@ def upload_file(request: Request, file: UploadFile = File(...)):
     # caller an id that 404s and a shorter history than they started with.
     if owner is not None and content:
         from app.auth.storage_quota import single_item_can_ever_fit
-        fits, reason = single_item_can_ever_fit("uploads", len(content))
+        fits, reason = single_item_can_ever_fit("uploads", len(content), owner)
         if not fits:
             raise HTTPException(status_code=413, detail=reason)
     try:
@@ -108,12 +108,12 @@ def upload_file(request: Request, file: UploadFile = File(...)):
 
 @router.delete("/api/uploads/{upload_id}")
 def remove_upload(upload_id: str, request: Request):
-    check_owner_or_admin("upload", upload_id, current_user_or_none(request))
+    check_owner("upload", upload_id, current_user_or_none(request))
     owner_filter = _owner_filter(request)
-    # A non-admin caller's owner_filter is their own id; get_upload(owner,
+    # A signed-in caller's owner_filter is their own id; get_upload(owner,
     # id) only finds a record actually stored under that owner's own
     # directory, so this can never delete another user's upload even
-    # though check_owner_or_admin above is the primary gate.
+    # though check_owner above is the primary gate.
     record = get_upload(owner_filter, upload_id) if owner_filter is not None else _find_any_owner(upload_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"No such upload: {upload_id}")
@@ -122,7 +122,7 @@ def remove_upload(upload_id: str, request: Request):
 
 
 def _find_any_owner(upload_id: str) -> dict | None:
-    """Admin/no-auth delete: the id alone doesn't say which owner's
+    """No-auth delete: the id alone doesn't say which owner's
     directory it lives under, so resolve it from the full listing first."""
     return next((r for r in list_uploads(owner_filter=None) if r["id"] == upload_id), None)
 
@@ -141,7 +141,7 @@ def clear_all_uploads(request: Request):
 
 @router.get("/api/uploads/{upload_id}/content")
 def get_upload_content(upload_id: str, request: Request):
-    check_owner_or_admin("upload", upload_id, current_user_or_none(request))
+    check_owner("upload", upload_id, current_user_or_none(request))
     owner_filter = _owner_filter(request)
     record = get_upload(owner_filter, upload_id) if owner_filter is not None else _find_any_owner(upload_id)
     if record is None:

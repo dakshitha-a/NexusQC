@@ -126,9 +126,15 @@ def main() -> None:
         check("another user's project list does not contain it", project_id not in listed,
               f"listed: {sorted(listed)}")
 
-        print("\n== an admin CAN, which is the documented override ==")
-        check("an admin can read any project", admin.get(f"/api/projects/{project_id}").status_code == 200)
-        check("and download it", admin.get(f"/api/projects/{project_id}/download").status_code == 200)
+        # Admins used to be able to, as a documented override. Since
+        # 2026-09-24 they are held to the same boundary: a person's work is
+        # theirs, and managing accounts is what /api/admin/* is for.
+        print("\n== an admin cannot either ==")
+        check("an admin cannot read another user's project",
+              admin.get(f"/api/projects/{project_id}").status_code == 404)
+        check("or download it", admin.get(f"/api/projects/{project_id}/download").status_code == 404)
+        check("and it is absent from the admin's list",
+              project_id not in {p["project_id"] for p in admin.get("/api/projects").json()})
 
         print("\n== a job cannot be filed away by someone who cannot see it ==")
         r = other_client.post("/api/projects", json={"name": "qatest thief"})

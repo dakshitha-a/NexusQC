@@ -66,12 +66,11 @@ print(job_id)
 
 def main() -> None:
     admin = admin_client()
-    # PATCH /api/admin/config takes {key, value}, one setting per call --
-    # not a partial map of the config object. Worth stating because the
-    # obvious {KEY: value} spelling is accepted as valid JSON and then
-    # rejected as 422, which reads like an auth problem rather than a shape
-    # one.
-    original_quota = admin.get("/api/admin/config").json().get(QUOTA_KEY)
+    # The squeeze is an override on the RECIPIENT's account only. This used
+    # to lower the deployment-wide cap to 1 byte, and while it was that low
+    # every submission and job_watcher tick evicted every user's oldest
+    # finished jobs and conversations. See storage_quota.user_cap.
+    override_url = None
     alice_c, alice = register(mint_invite(admin))
     bob_c, bob = register(mint_invite(admin))
     created: list[str] = []
@@ -94,9 +93,13 @@ def main() -> None:
         # --- Squeeze the cap below what the share needs --------------------
         # 1 byte, so no real job can ever fit. The point is the refusal path,
         # not a particular threshold.
-        r = admin.patch("/api/admin/config", json={"key": QUOTA_KEY, "value": 1})
-        check("per-user jobs-and-chat quota lowered for the test",
-              r.status_code == 200, f"status={r.status_code}")
+        override_url = f"/api/admin/users/{bob['id']}/quota-override"
+        r = admin.put(override_url, json={"key": QUOTA_KEY, "value": 1})
+        check("the recipient's own jobs-and-chat quota lowered for the test, nobody else's",
+              r.status_code == 200 and r.json()["overrides"].get(QUOTA_KEY) == 1,
+              f"status={r.status_code} {r.text[:120]}")
+        cfg = admin.get("/api/admin/config").json()
+        check("the deployment-wide quota is untouched", cfg.get(QUOTA_KEY, 0) > 1, str(cfg.get(QUOTA_KEY)))
 
         r = bob_c.post(f"/api/shares/{share['share_id']}/accept")
         check("an accept that would not fit is refused", r.status_code == 409,
@@ -124,7 +127,7 @@ def main() -> None:
               fail_detail="the recipient must be able to retry after freeing space")
 
         # --- And succeeds once there is room --------------------------------
-        admin.patch("/api/admin/config", json={"key": QUOTA_KEY, "value": original_quota})
+        admin.put(override_url, json={"key": QUOTA_KEY, "value": None})
         r = bob_c.post(f"/api/shares/{share['share_id']}/accept")
         check("the same share accepts once the quota is restored",
               r.status_code == 200, f"status={r.status_code} {r.text[:140]}")
@@ -134,8 +137,8 @@ def main() -> None:
                 created.append(copy_id)
 
     finally:
-        if original_quota is not None:
-            admin.patch("/api/admin/config", json={"key": QUOTA_KEY, "value": original_quota})
+        if override_url:
+            admin.put(override_url, json={"key": QUOTA_KEY, "value": None})
         alice_c.close()
         bob_c.close()
         cleanup_jobs(admin, created)

@@ -195,12 +195,12 @@ def main() -> None:
         theirs = r.json()["project_id"]
         created_projects.append(theirs)
 
-        # The admin's own list shows every project on the deployment, which
-        # is exactly the trap: purge-mine must not be scoped off it.
+        # The admin's list used to show every project on the deployment,
+        # which was the trap: purge-mine must not be scoped off it. Admins
+        # see only their own now, and purge-mine must still spare others.
         admin_sees = {p["project_id"] for p in admin.get("/api/projects").json()}
-        check("an admin's project list does show other users' projects",
-              mine in admin_sees and theirs in admin_sees,
-              "if this fails the next check proves nothing, since there would be nothing to wrongly delete")
+        check("an admin's project list does not show other users' projects",
+              mine not in admin_sees and theirs not in admin_sees, str(sorted(admin_sees))[:200])
         r = admin.post("/api/projects/purge-mine")
         check("an admin can run purge-mine", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
         check("and it left the OTHER users' projects alone",

@@ -302,6 +302,54 @@ def list_users(_admin: dict = Depends(require_admin)):
     ]
 
 
+# Removing one specific item that belongs to someone else. Admins no longer
+# reach other users' conversations or jobs through the ordinary routes (see
+# app/auth/ownership.py), so the one legitimate need that left behind, taking
+# out a particular item, has its own admin-only, audit-logged route. Nothing
+# here lists or reads another user's content.
+_ADMIN_DELETE_CANCEL_WAIT_SECONDS = 15.0
+
+
+@router.delete("/jobs/{job_id}")
+def admin_delete_job(job_id: str, admin: dict = Depends(require_admin)):
+    """Deletes one job, and its children, whoever owns it. A running or
+    queued job is cancelled first and waited on briefly, because removing a
+    running job's directory from under its worker leaves a half-written
+    result nobody can explain."""
+    from app.chemistry.jobs.base import delete_job_dir, get_job_manager, job_is_terminal, read_spec
+    if read_spec(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
+    owner = models.get_owner("job", job_id)
+    if not job_is_terminal(job_id):
+        get_job_manager().cancel(job_id)
+        deadline = time.time() + _ADMIN_DELETE_CANCEL_WAIT_SECONDS
+        while not job_is_terminal(job_id) and time.time() < deadline:
+            time.sleep(0.5)
+        if not job_is_terminal(job_id):
+            raise HTTPException(status_code=409, detail="The job was cancelled but has not stopped yet; try again.")
+    delete_job_dir(job_id)
+    models.forget_ownership("job", job_id)
+    invalidate_usage_report_cache()
+    models.audit(str(admin["id"]), "admin_delete_job", target=job_id, details={"owner": owner})
+    return {"deleted": True}
+
+
+@router.delete("/threads/{thread_id}")
+def admin_delete_thread(thread_id: str, admin: dict = Depends(require_admin)):
+    """Deletes one conversation, whoever owns it, with its chat history.
+    Same steps as DELETE /api/threads/{id}, without reading anything."""
+    from app.agent import threads as thread_registry
+    from app.agent.graph import delete_thread_checkpoints
+    owner = models.get_owner("thread", thread_id)
+    if not thread_registry.delete_thread(thread_id):
+        raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
+    delete_thread_checkpoints(thread_id)
+    models.forget_ownership("thread", thread_id)
+    invalidate_usage_report_cache()
+    models.audit(str(admin["id"]), "admin_delete_thread", target=thread_id, details={"owner": owner})
+    return {"deleted": True}
+
+
 @router.delete("/users/{user_id}")
 def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     if user_id == str(admin["id"]):
@@ -315,7 +363,7 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     # (sessions/ownership_index cascade via FK, but nothing ever reached
     # data/jobs/ or data/uploads/), leaving every file they'd ever created
     # as a permanently "unowned" orphan that app/auth/ownership.py's
-    # check_owner_or_admin treats as accessible to EVERYONE, not to no
+    # check_owner treats as accessible to EVERYONE, not to no
     # one -- confirmed empirically: a deleted user's completed job stayed
     # fully readable by a totally unrelated user. purge_user_data() also
     # cancels (and waits for) any of this user's still-pending/running
@@ -323,6 +371,7 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     # mid-flight at delete time -- see its own docstring.
     purged = purge_user_data(user_id)
     models.delete_user(user_id)
+    models.clear_quota_overrides(user_id)
     models.audit(str(admin["id"]), "delete_user", target=user_id, details={
         "username": target["username"],
         "purged_jobs": len(purged["job_ids"]), "purged_kb_sources": len(purged["kb_sources"]),
@@ -334,6 +383,37 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
         "purged_kb_sources": len(purged["kb_sources"]),
         "purged_threads": len(purged["thread_ids"]),
     }
+
+
+class QuotaOverrideIn(BaseModel):
+    key: str
+    # None clears the override, so the account goes back to the
+    # deployment-wide value.
+    value: Optional[int] = None
+
+
+@router.put("/users/{user_id}/quota-override")
+def set_quota_override(user_id: str, body: QuotaOverrideIn, admin: dict = Depends(require_admin)):
+    """Gives one account its own value for one per-user storage cap.
+
+    The deployment-wide caps apply to everybody, so before this the only way
+    to change one person's allowance was to change everyone's. Lowering a
+    cap for everyone is not harmless: every submission and every
+    job_watcher tick evicts each user's oldest finished work until they are
+    under it. See storage_quota.user_cap for how the override is read."""
+    from app.auth.storage_quota import OVERRIDABLE_QUOTA_KEYS
+    if body.key not in OVERRIDABLE_QUOTA_KEYS:
+        raise HTTPException(status_code=400,
+                            detail=f"key must be one of {', '.join(OVERRIDABLE_QUOTA_KEYS)}")
+    if body.value is not None and (isinstance(body.value, bool) or body.value <= 0):
+        raise HTTPException(status_code=400, detail="value must be a positive number of bytes, or null to clear")
+    if models.get_user_by_id(user_id) is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    mine = models.set_quota_override(user_id, body.key, body.value)
+    models.audit(str(admin["id"]), "quota_override", target=user_id,
+                 details={"key": body.key, "value": body.value})
+    invalidate_usage_report_cache()
+    return {"user_id": user_id, "overrides": mine}
 
 
 class UserActiveIn(BaseModel):
@@ -581,7 +661,7 @@ def get_bug_report_attachment(attachment_id: str, admin: dict = Depends(require_
     Admin-only and checked explicitly, via require_admin on this handler,
     rather than through the generic ownership helper. That is deliberate: a
     resource with no row in ownership_index is readable by EVERYONE under
-    check_owner_or_admin, not by no-one -- exactly the shape of a bug this
+    check_owner, not by no-one -- exactly the shape of a bug this
     codebase has already been bitten by once (see purge_user_data's docstring
     and the delete_user route's comment). Bug-report attachments have no
     ownership_index row and are never going to, so they must never be routed

@@ -1,7 +1,7 @@
 """SEC-07 (fix regression test): chat.py's approve_job used to record
 ownership via app/auth/ownership.record() only AFTER resume_turn()
 returned -- i.e. the job existed and was servable for a real window
-before it had an owner at all. app/auth/ownership.py's check_owner_or_admin
+before it had an owner at all. app/auth/ownership.py's check_owner
 treats "no recorded owner" as accessible to EVERYONE (the documented
 legacy/unowned policy), so during that window any other user could read a
 just-created job.
@@ -54,7 +54,7 @@ Two parts:
      through the whole submit call. GET /api/jobs/{job_id} only ever
      returns 200 to a non-owner while the job exists AND has no recorded
      owner (the exact SEC-07 window) -- both "doesn't exist yet" and
-     "exists, owned by someone else" come back 404 (check_owner_or_admin's
+     "exists, owned by someone else" come back 404 (check_owner's
      deliberate not-found-vs-forbidden design, see its own docstring), so
      "was a 200 ever observed" is an unambiguous yes/no signal for
      whether the window was hit.

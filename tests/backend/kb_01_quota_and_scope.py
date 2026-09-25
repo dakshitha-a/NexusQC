@@ -87,7 +87,7 @@ for fn in ("add_source", "add_text_source", "add_url_source"):
           "the bytes stay on disk, counted by no quota, listed by no route, "
           "reclaimed by no eviction")
 
-print("\nR-049: an admin can preview a per-user file")
+print("\nR-049: a per-user file previews for its owner, and not for an admin")
 dsrc = inspect.getsource(kb_route._content_search_dirs)
 check("the admin branch searches each per-user directory",
       "UPLOADS_DIR.iterdir()" in dsrc, "",
@@ -103,13 +103,13 @@ r = user.post("/api/kb/sources/text",
 check("a user can add a text source", r.status_code == 201, f"HTTP {r.status_code}")
 if r.status_code == 201:
     source = (r.json() or {}).get("source") or name
-    got = admin.get(f"/api/kb/sources/{source}/content")
-    check("and an admin can read it back", got.status_code == 200,
-          f"HTTP {got.status_code}",
-          f"HTTP {got.status_code}: the admin lists every user's sources and "
-          f"can preview none of them")
+    got = user.get(f"/api/kb/sources/{source}/content")
+    check("and its owner can read it back", got.status_code == 200, f"HTTP {got.status_code}")
     if got.status_code == 200:
         check("with the content the user wrote", "KB01 marker" in got.text, got.text[:80])
+    # An admin is held to the same boundary as anyone since 2026-09-24.
+    got = admin.get(f"/api/kb/sources/{source}/content")
+    check("an admin cannot read another user's source", got.status_code == 404, f"HTTP {got.status_code}")
     user.delete(f"/api/kb/sources/{source}")
 user.post("/api/auth/logout")
 admin.delete(f"/api/admin/users/{pub['id']}")

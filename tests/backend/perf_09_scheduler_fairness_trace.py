@@ -356,7 +356,7 @@ def main() -> None:
         restore_config(admin, "max_concurrent_jobs_total", original_cap, 1)
         for jid in created_job_ids:
             try:
-                admin.delete(f"/api/jobs/{jid}")
+                admin.delete(f"/api/admin/jobs/{jid}", timeout=60)
             except Exception:  # noqa: BLE001
                 pass
         cleanup_user(admin, user_a["id"])

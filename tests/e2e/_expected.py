@@ -74,7 +74,7 @@ EXPECTED_NEGATIVES = {
         "converged geometry."
     ),
     "XN-09": "neb_ts target_state (excited-state) path is unverified; record observations only.",
-    "XN-10": "check_owner_or_admin returns 404, not 403, for another user's resource (enumeration-resistant).",
+    "XN-10": "check_owner returns 404, not 403, for another user's resource (enumeration-resistant).",
     "XN-11": "An unowned resource is readable by everyone -- documented ownership policy.",
     "XN-12": "ExpandablePanel overlays are not Radix dialogs, so Escape does nothing on them.",
     "XN-13": "SearchableText swallows the first Escape to clear its find box; a second Escape closes the flyout.",

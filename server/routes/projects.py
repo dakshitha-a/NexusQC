@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import models as auth_models
-from app.auth.ownership import check_owner_or_admin, current_user_or_none, owned_ids_filter, record
+from app.auth.ownership import check_owner, current_user_or_none, owned_ids_filter, record
 from app.chemistry.jobs.base import (
     NON_TERMINAL_STATUSES as _NON_TERMINAL_STATUSES,
     delete_job_dir,
@@ -57,13 +57,13 @@ def _row(project: dict, size_bytes: int) -> dict:
 
 def _require(project_id: str, request: Request) -> dict:
     """404 for a project that does not exist, and the identical 404 for one
-    owned by somebody else -- check_owner_or_admin deliberately does not
+    owned by somebody else -- check_owner deliberately does not
     distinguish the two, so this route cannot be used to probe which
     project ids exist on a deployment."""
     project = registry.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"No such project: {project_id}")
-    check_owner_or_admin("project", project_id, current_user_or_none(request))
+    check_owner("project", project_id, current_user_or_none(request))
     return project
 
 
@@ -78,12 +78,13 @@ def purge_my_projects(request: Request):
 
     Scoped off list_owned() rather than off this module's own list route,
     and the distinction is load-bearing rather than stylistic.
-    owned_ids_filter() returns None -- meaning "do not filter" -- for an
-    admin, so GET /api/projects shows an admin every project on the
-    deployment. An admin typing the confirmation phrase into a control
-    labelled "delete all of MY projects" must not wipe everybody else's,
-    so ownership is resolved explicitly here and never inherited from what
-    the list route happens to show. Same shape as the artifact-route leak
+    owned_ids_filter() used to return None -- meaning "do not filter" -- for
+    an admin, so GET /api/projects showed an admin every project on the
+    deployment, and an admin typing the confirmation phrase into a control
+    labelled "delete all of MY projects" must not wipe everybody else's.
+    Admins are scoped like everyone now, but ownership is still resolved
+    explicitly here and never inherited from what the list route happens
+    to show. Same shape as the artifact-route leak
     recorded in server/routes/jobs.py's get_job_artifact docstring.
 
     A deployment with no auth configured has no "me" to scope to, so this
@@ -106,8 +107,8 @@ def purge_my_projects(request: Request):
 
 @router.get("/api/projects")
 def list_projects(request: Request):
-    """Scoped to the caller's own projects when auth is configured and the
-    caller is not an admin, matching GET /api/jobs exactly. A project with
+    """Scoped to the caller's own projects when auth is configured, admins
+    included, matching GET /api/jobs exactly. A project with
     no recorded owner stays visible to everyone, for the same reason an
     unowned job does: it was created before auth, or outside it, and
     hiding it from everybody would make it unreachable rather than
@@ -157,7 +158,7 @@ def get_project(project_id: str, request: Request):
         if spec is None:
             continue
         try:
-            check_owner_or_admin("job", job_id, user)
+            check_owner("job", job_id, user)
         except HTTPException:
             continue
         jobs.append(_job_list_row(job_id, spec))
@@ -184,7 +185,7 @@ def _check_jobs(job_ids: list[str], request: Request) -> None:
     for job_id in job_ids:
         if read_spec(job_id) is None:
             raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-        check_owner_or_admin("job", job_id, user)
+        check_owner("job", job_id, user)
 
 
 @router.post("/api/projects/{project_id}/jobs")
@@ -336,7 +337,7 @@ def download_project(project_id: str, request: Request):
             skipped.append(job_id)
             continue
         try:
-            check_owner_or_admin("job", job_id, user)
+            check_owner("job", job_id, user)
         except HTTPException:
             skipped.append(job_id)
             continue

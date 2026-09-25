@@ -85,6 +85,7 @@ The full plan is in `.claude/plans/witty-painting-lantern.md` (not tracked).
   evidence: scripts/validate_ensemble_orbital_reuse.py → "all checks passed against a scratch QC_AGENT_DATA_DIR; data/jobs listing identical before and after. spike_thread_caps.py carries the same header (compile-checked; it needs engines). verify_orca_functionals writes data/verified, a reference list, not user data, so it is unchanged"
 - [done] P1.7: guidance says the stack holds real data
   evidence: tests/README.md → "new section 'This stack has real users on it' tabulates all ten guards, where each lives and what it stops; CLAUDE.md, docs/TESTING.md and docs/WORKFLOW.md point at it, WORKFLOW forbids docker compose down -v; the Docker userland-proxy decision is in docs/HANDOFF.md"
+- [in-progress] P1.8: admins see only their own work (raised mid-run: an admin saw another user's live chat and his project copy)
 - merged:
 
 ## Phase 2: updates warn, lock out, and let back in

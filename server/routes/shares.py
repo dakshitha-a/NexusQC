@@ -28,7 +28,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg import errors as pg_errors
 
 from app.auth import models as auth_models, storage_quota
-from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
+from app.auth.ownership import check_owner, current_user_or_none, record
 from app.chemistry.jobs.base import job_is_terminal, read_meta, read_spec
 from app.chemistry.jobs.copy import copy_job, job_family_size_bytes
 from app.chemistry.jobs.naming import resolve_job_label
@@ -119,7 +119,7 @@ def _require_shareable_job(job_id: str, user: dict) -> None:
     """
     if read_spec(job_id) is None:
         raise HTTPException(status_code=404, detail=f"No such job: {job_id}")
-    check_owner_or_admin("job", job_id, user)
+    check_owner("job", job_id, user)
     if not job_is_terminal(job_id):
         raise HTTPException(
             status_code=409,
@@ -139,7 +139,7 @@ def create_share(body: CreateShareIn, request: Request):
 
     recipient = _lookup_user(body.to_user_id)
     if recipient is None or not recipient["is_active"]:
-        # 404 rather than 403, matching check_owner_or_admin: a share dialog
+        # 404 rather than 403, matching check_owner: a share dialog
         # must not become a way to test which user ids exist.
         raise HTTPException(status_code=404, detail="No such user")
 
@@ -151,7 +151,7 @@ def create_share(body: CreateShareIn, request: Request):
         project = project_registry.get_project(body.resource_id)
         if project is None:
             raise HTTPException(status_code=404, detail=f"No such project: {body.resource_id}")
-        check_owner_or_admin("project", body.resource_id, user)
+        check_owner("project", body.resource_id, user)
         for job_id in project["job_ids"]:
             _require_shareable_job(job_id, user)
         label = project["name"]

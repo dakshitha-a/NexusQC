@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fixtures import admin_client, check, cleanup_jobs, list_job_ids, skip, summary  # noqa: E402
+from fixtures import admin_client, all_job_owners, check, cleanup_jobs, made_by_tests, skip, summary  # noqa: E402
 
 BASELINE_FILE = Path(__file__).resolve().parent.parent / ".jobs_before_run"
 
@@ -54,8 +54,17 @@ def main() -> None:
     # rather than used as a context manager -- the convention every other
     # script in this directory follows.
     admin = admin_client()
-    now = list_job_ids(admin)
-    created = now - baseline
+    owners = all_job_owners()
+    now = set(owners)
+    new = now - baseline
+    # Only what a test made. The stack is also a research group's
+    # deployment, and anything a real user created while the run was going
+    # is theirs, not this run's to sweep up. See fixtures.made_by_tests.
+    created = {i for i in new if made_by_tests(owners[i])}
+    theirs = sorted(new - created)
+    if theirs:
+        print(f"  left alone: {len(theirs)} job(s) real users created during the run: "
+              f"{', '.join(f'{i} ({owners[i]})' for i in theirs[:10])}")
     print(f"  {len(baseline)} job(s) pre-existed, {len(now)} present now, "
           f"{len(created)} created by this run")
     if not created:
@@ -70,8 +79,8 @@ def main() -> None:
 
     # Prove it against the route the user actually looks at, rather than
     # trusting the delete responses.
-    final = list_job_ids(admin)
-    leftover = final - baseline
+    final = set(all_job_owners())
+    leftover = (final - baseline) - set(theirs)
     check("the job list is back to what it held before the run",
           not leftover, f"unexpected leftovers: {sorted(leftover)}")
 

@@ -52,7 +52,7 @@ def effective_owner(kind: str, resource_id: str) -> Optional[str]:
     children are submitted with `owner_user_id=None`, deliberately: only
     the master was ever meant to be individually reachable. But
     `GET /api/jobs/{id}` reaches any job id, so a child was individually
-    reachable and had no owner, and `check_owner_or_admin` treats an
+    reachable and had no owner, and `check_owner` treats an
     absent owner as legacy-unowned and lets it through. On the live
     deployment that meant a user who owned nothing was refused a master
     with 404 and handed its child with 200, one request apart, including
@@ -105,21 +105,31 @@ def effective_owner(kind: str, resource_id: str) -> Optional[str]:
 _MAX_PARENT_HOPS = 4
 
 
-def check_owner_or_admin(kind: str, resource_id: str, user: Optional[dict]) -> None:
+# Admins are held to the same boundary as everyone else, in both functions
+# below. They used to be exempt, on the reasoning that admins are trusted
+# operators, and every workspace list therefore showed an admin every user's
+# conversations, jobs and projects mixed in with their own. On 2026-09-24,
+# on the research group's deployment, an admin found another member's
+# conversation in their own sidebar, streaming live as he typed, and his
+# private copy of a project they had shared with him. A person's chat is
+# theirs. Managing other people's accounts is what /api/admin/* is for, and
+# nothing in the admin console ever relied on the exemption.
+
+
+def check_owner(kind: str, resource_id: str, user: Optional[dict]) -> None:
     """No-ops if user is None (auth not configured -- today's single-user
-    behavior, unrestricted) or the caller is an admin. Raises 404 (not
-    403) if the resource has an effective owner that isn't this user --
-    404 rather than 403 so a probing request can't distinguish "exists but
-    belongs to someone else" from "doesn't exist" for another user's
-    private resource. A resource with NO owner anywhere in its parent
-    chain (created before auth was configured on this deployment) is left
-    accessible, treated as legacy/unowned rather than inaccessible to
-    everyone.
+    behavior, unrestricted). Raises 404 (not 403) if the resource has an
+    effective owner that isn't this user, admin or not -- 404 rather than
+    403 so a probing request can't distinguish "exists but belongs to
+    someone else" from "doesn't exist" for another user's private resource.
+    A resource with NO owner anywhere in its parent chain (created before
+    auth was configured on this deployment) is left accessible, treated as
+    legacy/unowned rather than inaccessible to everyone.
 
     "Effective" rather than "recorded" is R-001's fix; see
     `effective_owner` for what a child job's chain looks like and why the
     distinction let one user download another's results."""
-    if user is None or user["role"] == "admin":
+    if user is None:
         return
     owner = effective_owner(kind, resource_id)
     if owner is not None and owner != str(user["id"]):
@@ -128,15 +138,9 @@ def check_owner_or_admin(kind: str, resource_id: str, user: Optional[dict]) -> N
 
 def owned_ids_filter(kind: str, user: Optional[dict]) -> Optional[set[str]]:
     """Returns the caller's own resource ids as a set (for list-route
-    filtering), or None meaning "don't filter, return everything" -- when
-    auth isn't configured, or the caller is an admin (admins see every
-    user's resources in the global/cross-user views, e.g. GET /api/admin/
-    jobs; ordinary per-user list routes should still call this and treat
-    an admin's None as "show me my own view unfiltered too", which for an
-    admin's OWN thread/job list is the same resources plus everyone
-    else's -- acceptable since admins are trusted operators, and the
-    dedicated admin-only cross-user routes are the deliberate place to
-    browse other users' resources, not a side effect of this filter)."""
-    if user is None or user["role"] == "admin":
+    filtering), or None meaning "don't filter, return everything" when auth
+    isn't configured. An admin gets their own ids like anyone else; the
+    cross-user views are the /api/admin/* routes, not this filter."""
+    if user is None:
         return None
     return set(models.list_owned(kind, str(user["id"])))

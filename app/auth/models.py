@@ -1019,6 +1019,49 @@ def get_app_config(key: str, default=None):
     return row["value"] if row else default
 
 
+def set_quota_override(user_id: str, key: str, value: Optional[int]) -> dict:
+    """Sets (value > 0) or clears (value None) one account's override of one
+    per-user cap, in a single statement so two admins editing different
+    accounts at once cannot lose each other's change to a read-modify-write.
+    Returns that account's overrides afterwards."""
+    uid = str(user_id)
+    with get_pool().connection() as conn:
+        if value is None:
+            conn.execute(
+                """UPDATE app_config SET value = CASE
+                       WHEN (value -> %(uid)s) - %(key)s = '{}'::jsonb THEN value - %(uid)s
+                       ELSE jsonb_set(value, ARRAY[%(uid)s], (value -> %(uid)s) - %(key)s)
+                   END, updated_at = now()
+                   WHERE key = 'per_user_quota_overrides' AND value ? %(uid)s""",
+                {"uid": uid, "key": key},
+            )
+        else:
+            conn.execute(
+                """INSERT INTO app_config (key, value)
+                   VALUES ('per_user_quota_overrides', jsonb_build_object(%(uid)s::text, jsonb_build_object(%(key)s::text, %(value)s::bigint)))
+                   ON CONFLICT (key) DO UPDATE SET value = app_config.value || jsonb_build_object(
+                       %(uid)s::text,
+                       COALESCE(app_config.value -> %(uid)s, '{}'::jsonb) || jsonb_build_object(%(key)s::text, %(value)s::bigint)
+                   ), updated_at = now()""",
+                {"uid": uid, "key": key, "value": int(value)},
+            )
+        row = conn.execute(
+            "SELECT value -> %s AS mine FROM app_config WHERE key = 'per_user_quota_overrides'", (uid,)
+        ).fetchone()
+    return (row["mine"] if row and row["mine"] else {}) or {}
+
+
+def clear_quota_overrides(user_id: str) -> None:
+    """Drops every override an account has. Called when the account is
+    deleted, so a stale entry cannot outlive the account it named."""
+    with get_pool().connection() as conn:
+        conn.execute(
+            """UPDATE app_config SET value = value - %s, updated_at = now()
+               WHERE key = 'per_user_quota_overrides' AND value ? %s""",
+            (str(user_id), str(user_id)),
+        )
+
+
 def effective_public_url(env_value: str) -> tuple[str, str]:
     """The deployment's public address and where it came from.
 

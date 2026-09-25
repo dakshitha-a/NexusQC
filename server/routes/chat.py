@@ -24,7 +24,7 @@ from app.agent.graph import (
     pending_approval, read_state, remove_frame, remove_messages, set_active_frame, stream_resume_tokens,
     stream_turn_tokens,
 )
-from app.auth.ownership import check_owner_or_admin, current_user_or_none, record
+from app.auth.ownership import check_owner, current_user_or_none, record
 from app.agent.serialize import serialize_message, serialize_state
 from app.agent.troubleshoot import compose_troubleshoot_message
 from app.agent.state import JOB_ATTACH_MARKER, JOB_ATTACH_PREFIX
@@ -115,7 +115,7 @@ def _derive_title(text: str, state: dict) -> str:
 def _require_thread(thread_id: str, request: Request) -> None:
     if thread_registry.get_thread(thread_id) is None:
         raise HTTPException(status_code=404, detail=f"No such conversation: {thread_id}")
-    check_owner_or_admin("thread", thread_id, current_user_or_none(request))
+    check_owner("thread", thread_id, current_user_or_none(request))
 
 
 def _require_attachments(request: Request, job_ids=None, plot_ids=None) -> None:
@@ -131,7 +131,7 @@ def _require_attachments(request: Request, job_ids=None, plot_ids=None) -> None:
     place that needed a job check.
 
     `tag_job_frame`, three hundred lines above in this same file, has
-    always called `check_owner_or_admin("job", ...)` on the id in its
+    always called `check_owner("job", ...)` on the id in its
     body. That is the shape; it was applied to one of the three routes
     that take a job id (R-005 again).
 
@@ -143,9 +143,9 @@ def _require_attachments(request: Request, job_ids=None, plot_ids=None) -> None:
     for jid in job_ids or []:
         if read_spec(jid) is None:
             raise HTTPException(status_code=404, detail=f"No such job: {jid}")
-        check_owner_or_admin("job", jid, user)
+        check_owner("job", jid, user)
     for pid in plot_ids or []:
-        check_owner_or_admin("plot", pid, user)
+        check_owner("plot", pid, user)
 
 
 @router.get("/api/threads/{thread_id}/state")
@@ -272,8 +272,8 @@ def attach_upload(thread_id: str, body: AttachUploadIn, request: Request):
         later turn without the user re-pasting the file by hand.
 
     Ownership: `get_upload` is called with the CALLER's own id (never
-    `_owner_filter`'s admin-sees-everything None) -- deliberately tighter
-    than the generic check_owner_or_admin pattern used elsewhere, because
+    `_owner_filter`'s no-auth None) -- deliberately tighter
+    than the generic check_owner pattern used elsewhere, because
     this route's action is "use MY OWN upload in MY OWN conversation," not
     a cross-user browsing/admin action; an admin attaching a stranger's
     uploaded geometry into their own chat isn't a case this needs to serve.
@@ -345,7 +345,7 @@ def tag_job_frame(thread_id: str, body: TagJobFrameIn, request: Request):
     for anything a user sees -- converted to a 0-based list index here,
     at the boundary, and nowhere else."""
     _require_thread(thread_id, request)
-    check_owner_or_admin("job", body.job_id, current_user_or_none(request))
+    check_owner("job", body.job_id, current_user_or_none(request))
 
     result = get_job_manager().result(body.job_id)
     if result is None:

@@ -15,7 +15,7 @@ of that job's numeric tables. The troubleshoot route did the same for a failed
 job's engine output, which is composed mechanically from the job's own files.
 
 The shape of the fix was already in the same file. `tag_job_frame`, three
-hundred lines above, calls `check_owner_or_admin("job", ...)` on the id in its
+hundred lines above, calls `check_owner("job", ...)` on the id in its
 own body. It was applied to one of the three routes that take a job id, which
 is the habit R-005 is about. `_require_attachments` is now the one place all
 three ask, and it covers `plot_ids` too, since those ride in on the same
@@ -40,7 +40,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO))
 
-from tests.fixtures import admin_client, check, mint_invite, register, skip, summary  # noqa: E402
+from tests.fixtures import admin_client, all_job_owners, check, mint_invite, register, skip, summary  # noqa: E402
 
 print("R-003: a job id in a chat request is checked like a job id anywhere else\n")
 
@@ -53,20 +53,19 @@ for fn in ("post_message", "troubleshoot_job"):
           "it still checks only that the caller owns the conversation")
 
 helper = inspect.getsource(chat_route._require_attachments)
-check("_require_attachments checks jobs", 'check_owner_or_admin("job"' in helper)
-check("and plots, which ride in on the same request", 'check_owner_or_admin("plot"' in helper)
+check("_require_attachments checks jobs", 'check_owner("job"' in helper)
+check("and plots, which ride in on the same request", 'check_owner("plot"' in helper)
 check("and 404s an id that names no job at all", "No such job" in helper)
 
 print("\n2. the boundary, live")
 admin = admin_client()
 
-# Someone else's job: any job the deployment already holds that has an owner.
-owned_job = None
-for row in admin.get("/api/jobs").json():
-    r = admin.get(f"/api/jobs/{row['job_id']}")
-    if r.status_code == 200:
-        owned_job = row["job_id"]
-        break
+# Someone else's job: one the deployment already holds that a TEST account
+# owns. Found through fixtures.all_job_owners rather than the admin's job
+# list, which since 2026-09-24 shows an admin only their own. A real user's
+# job is never used, so a regression here could not pull someone's results
+# into a test conversation.
+owned_job = next((j for j, o in all_job_owners().items() if o and o.startswith("qatest_")), None)
 
 if owned_job is None:
     skip("the live probe", "this deployment holds no job to attach")

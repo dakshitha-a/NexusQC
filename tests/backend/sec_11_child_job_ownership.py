@@ -13,7 +13,7 @@ serves any job id, so the reasoning was wrong. Measured on the live
 deployment during the review: a user who owned nothing asked for the master
 `186fe458ec9e` and got 404, asked for its child `0d87ea39ec68` and got 200,
 one request apart, with the 17 KB job record and a 16 KB artifact download
-attached. `check_owner_or_admin` treats an absent owner as legacy-unowned and
+attached. `check_owner` treats an absent owner as legacy-unowned and
 lets it through, which is correct for a job created before auth existed and
 wrong for a child created five seconds ago by an owned parent.
 
@@ -57,7 +57,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO))
 
-from tests.fixtures import BASE_URL, admin_client, check, mint_invite, register, skip, summary  # noqa: E402
+from tests.fixtures import BASE_URL, admin_client, all_job_owners, check, mint_invite, register, skip, summary  # noqa: E402
 
 def _restore_label(job_id: str, previous: str | None) -> None:
     """Undo a successful write probe. `write_meta` only ever adds keys, so
@@ -127,21 +127,24 @@ admin = admin_client()
 # Whether the master is owned is settled below, by asking as a stranger,
 # rather than read from an admin route: that is the same question the finding
 # is about and the answer that matters.
+#
+# Only a master a TEST account owns. The probe below tries a write, and on a
+# stack a research group uses, a real user's job is not something a test
+# gets to write to, even to put it back afterwards. Masters are found
+# through fixtures.all_job_owners, since an admin's own job list has shown
+# only the admin's jobs since 2026-09-24.
 target = None
-for row in admin.get("/api/jobs").json():
-    jid = row["job_id"]
-    kids = admin.get(f"/api/jobs/{jid}/children")
-    if kids.status_code != 200:
+for jid, owner in sorted(all_job_owners().items()):
+    if not (owner or "").startswith("qatest_"):
         continue
-    items = kids.json().get("items") or []
-    if not items:
-        continue
-    target = (jid, [k["job_id"] for k in items])
-    break
+    kids = jobs_base.sub_job_ids_of(jid)
+    if kids:
+        target = (jid, list(kids))
+        break
 
 if not target:
-    print("  [SKIP] this deployment holds no master with children, so there is nothing")
-    print("         to prove the boundary against. Seed a batch job and re-run.")
+    print("  [SKIP] this deployment holds no test-owned master with children, so there is")
+    print("         nothing to prove the boundary against. Seed a batch job and re-run.")
 else:
     master_id, child_ids = target
     print(f"  master {master_id} with {len(child_ids)} child(ren)")
@@ -176,16 +179,16 @@ else:
             # leave its evidence written into someone's job list. The
             # rename route stores an override in meta.json; clearing the
             # key restores the label the app derives from the spec.
-            before = admin.get(f"/api/jobs/{cid}").json().get("label")
+            before = jobs_base.read_meta(cid).get("label")
             r = b_client.patch(f"/api/jobs/{cid}", json={"label": "R-001 write probe"})
             check("and cannot rename it", r.status_code == 404, f"HTTP {r.status_code}")
             if r.status_code == 200:
                 _restore_label(cid, before)
 
-    # the admin, who is not the owner either, must still see everything
+    # The admin is not the owner either, and since 2026-09-24 is refused
+    # like anyone else.
     r = admin.get(f"/api/jobs/{child_ids[0]}")
-    check("an admin still reads the child (admins are trusted operators)",
-          r.status_code == 200, f"HTTP {r.status_code}")
+    check("an admin is refused the child as well", r.status_code == 404, f"HTTP {r.status_code}")
 
     # The probe account owns nothing by design, so deleting it removes
     # exactly itself. Tests clean up what they create.
@@ -198,8 +201,8 @@ import inspect  # noqa: E402
 from server.routes import projects as projects_route  # noqa: E402
 
 src = inspect.getsource(projects_route.get_project)
-check("get_project calls check_owner_or_admin per member job",
-      "check_owner_or_admin" in src, "",
+check("get_project calls check_owner per member job",
+      "check_owner" in src, "",
       "it still renders every member row unconditionally, unlike _check_jobs "
       "and the zip download beside it")
 

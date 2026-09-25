@@ -128,7 +128,7 @@ def create_plot(
             # Losing the ownership row must not lose the plot. Access is
             # gated primarily by the owner DIRECTORY -- list_plots and
             # get_plot are both scoped to it, so another user can neither see
-            # nor fetch this plot regardless -- and check_owner_or_admin is
+            # nor fetch this plot regardless -- and check_owner is
             # defense in depth on top of that. Failing the whole render
             # because the index write hiccuped would trade a real result for
             # a redundant one.
