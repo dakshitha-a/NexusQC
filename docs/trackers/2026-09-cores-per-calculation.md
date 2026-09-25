@@ -1,7 +1,11 @@
-# Tracker: cores per calculation, set from the admin console
+<!-- artifact: https://claude.ai/artifact/PaSPgMq8ureJYWF8BXgvbh -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
+# Closed Tracker: cores per calculation, set from the admin console
+
+**Closed 2026-09-24. Four steps in one phase, all done.**
+No tracker is active until the next plan begins.
 
 **Opened 2026-09-24.** One phase. The tracker this replaces is
-[`2026-09-plot-text-and-silent-turns.md`](trackers/2026-09-plot-text-and-silent-turns.md),
+[`2026-09-plot-text-and-silent-turns.md`](2026-09-plot-text-and-silent-turns.md),
 which closed the same day. **Exactly one tracker is active at a time.**
 
 ## Rules (enforced by `scripts/check_tracker.py`)
@@ -42,4 +46,4 @@ there was no single place a live setting could have gone.
   evidence: docs/CONFIGURATION.md → "QC_AGENT_N_CORES is the default the console overrides, with what applies when; README, CHANGELOG Unreleased and tests/README.md updated"
 - [done] P1.4: stack rebuilt, backend and browser checks pass
   evidence: tests/backend/perf_04_fair_scheduling.py → "stack on a383154 healthy; perf_03 7/7, perf_04 6/6, p1_03 10/10, perf_05 19/19, sched_01 6/6; no job or thread left behind"
-- merged: -
+- merged: 05d08d2
