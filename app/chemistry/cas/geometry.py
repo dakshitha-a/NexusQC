@@ -338,7 +338,7 @@ def local_pi_normal(i: int, coords, neighbours: list) -> Optional[np.ndarray]:
 
 
 def perpendicular_pair(axis, normal=None) -> tuple:
-    """Two unit vectors spanning the plane perpendicular to `axis`.
+    r"""Two unit vectors spanning the plane perpendicular to `axis`.
 
     Used for terminal and linear centres, where what is wanted is a pair of
     directions rather than a single one -- N2 and acetylene both need this or
@@ -398,7 +398,7 @@ def perpendicular_pair(axis, normal=None) -> tuple:
 
 def _orient_outward(direction, i: int, partner: int, coords,
                     neighbours) -> np.ndarray:
-    """Point an in-plane lone-pair direction away from the rest of the molecule.
+    r"""Point an in-plane lone-pair direction away from the rest of the molecule.
 
     The direction itself is already covariant; its **sign** is not, and for
     these targets the sign is not cosmetic. A lone-pair target is an oriented

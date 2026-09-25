@@ -79,7 +79,7 @@ def random_rotation(rng):
 
 
 def axes_in_molecular_frame(syms, co, R, *, keep_sign=False):
-    """Perceived pi and lone-pair directions, rotated back to the input frame.
+    r"""Perceived pi and lone-pair directions, rotated back to the input frame.
 
     `keep_sign` decides whether a direction and its negation count as the same
     answer, and the two kinds of target need different answers.
