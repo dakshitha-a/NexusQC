@@ -36,7 +36,7 @@
  *     node tests/frontend/orbital_08_diffuse_column.spec.mjs
  */
 import { chromium } from "playwright";
-import { BASE_URL, ADMIN_USER, adminPassword, LOGGED_IN } from "./_helpers.mjs";
+import { BASE_URL, ADMIN_USER, adminPassword, LOGGED_IN, ensureAdminJob } from "./_helpers.mjs";
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1600, height: 1000 } });
@@ -58,6 +58,12 @@ if (authed) {
   await page.click('button[type="submit"]');
   await page.waitForSelector(LOGGED_IN, { timeout: 15000 });
 }
+
+// A row of the admin's own to open: the admin no longer sees other users'
+// jobs, and the stub below needs one job it can dress up. Seeded only if the
+// admin owns none, and removed on exit.
+const seeded = ensureAdminJob();
+if (seeded) await page.reload({ waitUntil: "domcontentloaded" });
 
 let stubbed = false;
 let subject = await page.evaluate(async () => {

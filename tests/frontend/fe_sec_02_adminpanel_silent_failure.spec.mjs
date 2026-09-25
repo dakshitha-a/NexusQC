@@ -41,7 +41,28 @@ async function main() {
     route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "forced failure for FE-SEC-02" }) }),
   );
 
-  const toggleButton = page.locator('button:has-text("Purge"), button:has-text("purge")').first();
+  // The deployment-wide purges live in the Danger zone behind a typed
+  // phrase now, not behind a first-visible "Purge" button. The request is
+  // still answered by the route above with a forced 500, so no purge ever
+  // reaches the server even though the button is armed.
+  // Prove the interception holds BEFORE arming a button that would purge
+  // every user's jobs on a shared deployment: a purge sent from this page
+  // must come back as the forced 500, or the spec stops here.
+  const probe = await page.evaluate(async () => {
+    // PUT, which the server has no route for: if the interception were not
+    // in place this probe would get a harmless 405, never a real purge.
+    const r = await fetch("/api/admin/purge/jobs", { method: "PUT" });
+    return { status: r.status, body: await r.text() };
+  });
+  if (probe.status !== 500 || !probe.body.includes("forced failure for FE-SEC-02")) {
+    console.error(`the purge interception is not in place (${probe.status}); refusing to arm the button`);
+    await browser.close();
+    process.exit(1);
+  }
+  await page.locator('[data-testid="admin-nav-danger"]').click();
+  await page.waitForSelector('[data-testid="admin-purge-jobs-phrase"]', { timeout: 10000 });
+  await page.locator('[data-testid="admin-purge-jobs-phrase"]').fill("PURGE ALL JOBS");
+  const toggleButton = page.locator('[data-testid="admin-purge-jobs"]');
   const beforeText = await toggleButton.textContent();
   // Snapshot BEFORE the click so the error check below can look for NEW
   // error-ish content in the delta, not static always-present page text

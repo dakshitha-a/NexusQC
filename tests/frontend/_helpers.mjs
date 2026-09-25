@@ -16,6 +16,7 @@ export const BASE_URL = process.env.QC_AGENT_TEST_BASE_URL || "https://127.0.0.1
 export const ADMIN_USER = process.env.QC_AGENT_TEST_ADMIN_USER || "qatest_admin";
 
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -97,6 +98,87 @@ export async function realUsersActive(adminContext) {
     .map((u) => `${u.username} (${u.running_jobs} running, ${u.pending_jobs} queued, ${u.open_streams} open)`);
   if (body.unowned.running_jobs || body.unowned.pending_jobs) busy.push("jobs with no owner in flight");
   return busy.length ? busy.join("; ") : null;
+}
+
+// A finished job the test admin owns, for specs that need a row to open.
+// Those specs used to open whatever job the deployment held, which meant
+// real users' work; since 2026-09-24 an admin sees only their own, so the
+// spec brings its own. Seeds a water HF/STO-3G single point (about a second)
+// only when the admin owns no job, and removes it on exit -- synchronously,
+// so the specs' early process.exit() paths clean up too. Needs the docker
+// stack on this host, like every other in-container shortcut in tests/.
+const COMPOSE_DIR = process.env.QC_AGENT_COMPOSE_DIR
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function inApi(code, timeout = 180000) {
+  return execFileSync("docker", ["compose", "exec", "-T", "api", "python", "-c", code],
+    { cwd: COMPOSE_DIR, encoding: "utf8", timeout }).trim().split("\n").pop();
+}
+
+export function ensureAdminJob() {
+  const out = inApi(`
+import time
+from app.auth import models
+from app.chemistry.jobs.base import JobSpec, get_job_manager, read_spec
+from app.chemistry.molecule import resolve_molecule
+uid = next(str(u["id"]) for u in models.list_users() if u["username"] == ${JSON.stringify(ADMIN_USER)})
+# An ownership row can outlive its job, so ask whether the job is there.
+if any(read_spec(j) for j in models.list_owned("job", uid)):
+    print("existing")
+else:
+    spec = JobSpec(task="single_point", subtype="gs", method="hf", engine="pyscf",
+                   molecule=resolve_molecule("water").to_dict(), params={"basis": "sto-3g"},
+                   label="qatest spec subject")
+    jid = get_job_manager().submit(spec, owner_user_id=uid)
+    for _ in range(120):
+        if get_job_manager().status(jid)["status"] in ("completed", "failed", "cancelled"):
+            break
+        time.sleep(1)
+    print(jid)
+`);
+  if (out === "existing") return null;
+  process.on("exit", () => {
+    try {
+      inApi(`
+from app.auth import models
+from app.chemistry.jobs.base import delete_job_dir
+delete_job_dir(${JSON.stringify(out)})
+models.forget_ownership("job", ${JSON.stringify(out)})
+print("removed")`, 60000);
+    } catch { /* the end-of-run sweep catches what this misses */ }
+  });
+  return out;
+}
+
+// A conversation the test admin owns with a molecule in it, for specs that
+// need a molecule viewer on screen. Same reasoning as ensureAdminJob: these
+// used to open whichever conversation the account could see. Built through
+// the molecule-builder route the app itself uses, from a molfile RDKit
+// writes in-container; removed on exit.
+export async function seedMoleculeThread(context) {
+  const origin = { headers: { Origin: BASE_URL } };
+  const t = await (await context.request.post(`${BASE_URL}/api/threads`,
+    { ...origin, data: { label: "qatest molecule subject" } })).json();
+  const molblock = JSON.parse(inApi(`
+import json
+from rdkit import Chem
+print(json.dumps(Chem.MolToMolBlock(Chem.MolFromSmiles("O"))))`, 60000));
+  const r = await context.request.post(`${BASE_URL}/api/threads/${t.thread_id}/molecule/build`,
+    { ...origin, data: { molblock, charge: 0, multiplicity: 1 } });
+  if (!r.ok()) throw new Error(`could not build the molecule: ${r.status()} ${await r.text()}`);
+  process.on("exit", () => {
+    try {
+      inApi(`
+from app.agent import threads as t
+from app.agent.graph import delete_thread_checkpoints
+from app.auth import models
+t.delete_thread(${JSON.stringify(t.thread_id)})
+delete_thread_checkpoints(${JSON.stringify(t.thread_id)})
+models.forget_ownership("thread", ${JSON.stringify(t.thread_id)})
+print("removed")`, 60000);
+    } catch { /* the end-of-run sweep catches what this misses */ }
+  });
+  return t.thread_id;
 }
 
 export function randSuffix(n = 8) {

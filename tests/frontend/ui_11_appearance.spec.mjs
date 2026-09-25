@@ -29,6 +29,7 @@ import {
   newBrowser,
   newContext,
   LOGGED_IN,
+  seedMoleculeThread,
   check,
   summary,
 } from "./_helpers.mjs";
@@ -101,6 +102,11 @@ await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
 await page.fill('input[placeholder="Username or email"]', ADMIN_USER);
 await page.fill('input[type="password"]', adminPassword());
 await page.click('[data-testid="auth-submit"]');
+await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
+// The admin's own conversation with a molecule in it: the admin no longer
+// sees other users' conversations, which is where this used to find one.
+await seedMoleculeThread(ctx);
+await page.reload({ waitUntil: "networkidle" });
 await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
 
 check(

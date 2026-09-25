@@ -202,8 +202,18 @@ export function registerAuthErrorHandler(handler: () => void): void {
 // every open tab an update has started. There is no app-level event stream to
 // build: the polling that already exists is the notification.
 let onMaintenance: ((message: string) => void) | null = null;
+// A signal that arrives before anything is listening is kept and replayed.
+// The update banner sits outside AuthGate and mounts first, so on a tab
+// opened during a lockout it announces maintenance before MaintenanceGate,
+// inside AuthGate, has registered: without the replay the overlay never came.
+let pendingMaintenance: string | null = null;
 export function registerMaintenanceHandler(handler: (message: string) => void): void {
   onMaintenance = handler;
+  if (pendingMaintenance !== null) {
+    const m = pendingMaintenance;
+    pendingMaintenance = null;
+    handler(m);
+  }
 }
 
 // For the update notice, which knows the lockout has begun before any request
@@ -211,7 +221,8 @@ export function registerMaintenanceHandler(handler: (message: string) => void): 
 // with gateway errors instead, so waiting for the 503 left tabs showing
 // "Couldn't load jobs" for the first twenty seconds of every update.
 export function announceMaintenance(message = "NexusQC is being updated and will be back shortly."): void {
-  onMaintenance?.(message);
+  if (onMaintenance) onMaintenance(message);
+  else pendingMaintenance = message;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

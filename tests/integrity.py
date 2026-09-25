@@ -97,7 +97,15 @@ for r in rows:
 unowned_jobs = {}
 if JOBS_DIR.is_dir():
     for d in JOBS_DIR.iterdir():
+        # A scan's or ensemble's sub-jobs carry no row of their own and go
+        # with their master, so they are the master's, not ownerless jobs;
+        # counting them made a test deleting its own scan look like a loss.
         if d.is_dir() and not d.name.startswith("_") and d.name not in all_owned_jobs and (d / "spec.json").exists():
+            try:
+                if json.loads((d / "spec.json").read_text()).get("parent_job_id"):
+                    continue
+            except Exception:
+                pass
             st = (read_status(d.name) or {}).get("status")
             unowned_jobs[d.name] = {"status": st, "files": manifest(d) if st in TERMINAL else None}
 
