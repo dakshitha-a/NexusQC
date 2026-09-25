@@ -69,6 +69,12 @@
 # 2 = could not run the checks (bad arguments, unresolvable ref). Note that 1
 # does not mean "do not deploy" -- it means "do not deploy without deciding".
 set -euo pipefail
+# Every set comparison below is sort -u into comm, and comm needs its input
+# in the collation it compares with. Under a UTF-8 locale sort and Python's
+# sorted() (list_routes.py) disagree about '_', '/' and case, comm then works
+# on input it considers unsorted, and a removed route or column can go
+# unreported. One fixed byte order for the whole script.
+export LC_ALL=C
 
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
 
