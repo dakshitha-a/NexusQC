@@ -42,6 +42,14 @@ from pathlib import Path
 
 import numpy as np
 
+# PySCF reads its global memory budget once, at import, from this variable.
+# The CSF solver's spin-coupling transformer is built with that global
+# default whatever the solver's own `max_memory` says, and compares it with
+# the process's whole resident size: at the default 4000 MB an aug-cc-pVTZ
+# allyl job asks for 0.004 MB and is refused with "-481 MB remaining". Set
+# before any PySCF import, which in this module are all inside functions.
+os.environ.setdefault("PYSCF_MAX_MEMORY", os.environ.get("QUEST_MAX_MEMORY_MB", "16000"))
+
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -479,6 +487,11 @@ def make_solvers(mol, states, nel_tot):
         s.nroots = n
         s.spin = smult - 1
         s.nelec = nelec_for(nel_tot, ss)
+        # The CSF solver keeps its own 4000 MB budget and compares it with
+        # the process's whole resident size, so an aug-cc-pVTZ job that is
+        # already past 4 GB fails building even a tiny spin-coupling matrix
+        # (allyl: 0.004 MB asked, "-481 MB remaining").
+        s.max_memory = mol.max_memory
         solvers.append((s, idx))
     return solvers
 

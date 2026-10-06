@@ -63,12 +63,14 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 ## Phase 2: the harness
 
-- [todo] P2.1: quest_bench.py runs APC-2, engine-native and engine-capped through one SA-CASSCF / NEVPT2 / MC-PDFT path
+- [done] P2.1: quest_bench.py runs APC-2, engine-native and engine-capped through one SA-CASSCF / NEVPT2 / MC-PDFT path
+  evidence: scripts/casbench/quest_bench.py → "water-x1 and formaldehyde-x1 run in all three modes; APC-2 picks King's exact space on 435/540 rows (quest_apc_sizes.py)"
 - [todo] P2.2: the APC-2 control is within about 0.1 eV of King's Aug(12,12) rows on 10 stratified excitations
 
 ## Phase 3: a runner that survives a Claude restart (raised mid-run by the user)
 
-- [todo] P3.1: quest_ctl.sh start/status/stop/resume; detached runner, pidfile, heartbeat, one subprocess per calculation
+- [done] P3.1: quest_ctl.sh start/status/stop/resume; detached runner, pidfile, heartbeat, one subprocess per calculation
+  evidence: scripts/casbench/quest_ctl.sh → "runner killed with -9 mid-run: 7 workers kept computing; resume adopted the 6 still alive and relaunched none (calib run, 2026-10-06 19:22)"
 - [todo] P3.2: restart test — kill a worker and the runner mid-run; resume loses and duplicates no rows
 
 ## Phase 4: calibration and the full run
