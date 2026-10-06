@@ -146,3 +146,7 @@ rsc_digital_discovery/
 active_space_spec.json
 orbitals.molden
 orbital_ranking.png
+
+# QUESTDB benchmark inputs and run state (scripts/casbench/quest_*). Kept out of
+# data/ so the deployment backup does not copy a 7 GB third-party archive.
+.cache/casbench_quest/
