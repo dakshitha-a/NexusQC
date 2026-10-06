@@ -91,36 +91,47 @@ def reference_scf(mol, row, cache=True, log=print):
     """One conventional RHF/ROHF per molecule, symmetry on, stabilised.
 
     Shared by every selector and every excitation of the molecule, so a
-    selector cannot win by starting from a different mean field. No density
-    fitting: King ran without it, Phase 0 reproduced him without it, and
-    PySCF has no JK fitting basis for beryllium, which three QUESTDB radicals
-    contain. The converged orbitals are cached per molecule and basis.
+    selector cannot win by starting from a different mean field. The final
+    mean field has no density fitting: King ran without it, Phase 0
+    reproduced him without it.
+
+    Stability is analysed on a density-fitted copy first and the
+    conventional SCF is then converged from that stabilised density. On
+    pyrazine in aug-cc-pVTZ the stability analysis costs 398 s with full
+    integrals and the whole route below about a minute and a half, for the
+    same converged energy. Beryllium has no JK fitting basis in PySCF, so
+    the fitting basis is generated (`make_auxbasis`) rather than looked up.
+    The converged orbitals are cached per molecule and basis.
     """
-    from pyscf import scf
+    from pyscf import df, scf
     from app.chemistry.cas.reference import stabilise
-    key = f"{row['molecule']}_{row['charge']}_{row['spin']}_{mol.basis if isinstance(mol.basis, str) else 'custom'}"
+    bname = mol.basis if isinstance(mol.basis, str) else "custom"
+    key = f"{row['molecule']}_{row['charge']}_{row['spin']}_{bname}"
     chk = CACHE / "scf" / f"{key}.npz"
-    mf = scf.RHF(mol) if mol.spin == 0 else scf.ROHF(mol)
+    mk = (lambda: scf.RHF(mol)) if mol.spin == 0 else (lambda: scf.ROHF(mol))
+    mf = mk()
     mf.verbose = 0
     mf.conv_tol = 1e-10
     if cache and chk.exists():
         z = np.load(chk)
-        dm = mf.make_rdm1(z["mo_coeff"], z["mo_occ"])
-        mf.kernel(dm0=dm)
+        mf.kernel(dm0=mf.make_rdm1(z["mo_coeff"], z["mo_occ"]))
         return mf, {"cached": True, "energy": float(mf.e_tot),
                     "stabilised_shift_eh": float(z["shift"])}
     t0 = time.time()
-    mf.kernel()
-    e0 = float(mf.e_tot)
-    stabilise(mf, check_external=False)
-    shift = float(mf.e_tot) - e0
-    info = {"cached": False, "energy": float(mf.e_tot), "stabilised_shift_eh": shift,
-            "seconds": round(time.time() - t0, 1)}
+    mfd = mk().density_fit(auxbasis=df.make_auxbasis(mol))
+    mfd.verbose = 0
+    mfd.kernel()
+    e0 = float(mfd.e_tot)
+    stabilise(mfd, check_external=False)
+    shift = float(mfd.e_tot) - e0
+    mf.kernel(dm0=mfd.make_rdm1())
+    info = {"cached": False, "energy": float(mf.e_tot), "converged": bool(mf.converged),
+            "stabilised_shift_eh": shift, "seconds": round(time.time() - t0, 1)}
     log(f"  SCF {mol.nao} AO  E={mf.e_tot:.8f}  stabilise moved it {shift:+.2e} Eh  "
         f"{info['seconds']}s")
     if cache:
         chk.parent.mkdir(parents=True, exist_ok=True)
-        tmp = chk.with_suffix(".tmp.npz")
+        tmp = chk.with_name(chk.stem + f".tmp{os.getpid()}.npz")
         np.savez(tmp, mo_coeff=mf.mo_coeff, mo_occ=mf.mo_occ, shift=shift)
         os.replace(tmp, chk)
     return mf, info
@@ -203,6 +214,16 @@ def select_apc2(mf, mol, max_size=(12, 12), log=print):
     occ_all = np.concatenate([np.full(len(rest_occ), 2.0), occ, np.zeros(len(rest_virt))])
     ent_all = np.concatenate([np.full(len(rest_occ), floor), ent,
                               np.full(len(rest_virt), floor)])
+    # An aug-cc-pVTZ SCF on a linear molecule can drop a near-linearly
+    # dependent AO combination (diacetylene: 230 AOs, 229 MOs), and the
+    # chooser asserts a square orbital matrix. It only ever reads the matrix
+    # to return columns, so the missing columns are padded with zeros that
+    # carry the floor entropy and no electrons, and are always dropped.
+    pad = orbs.shape[0] - orbs.shape[1]
+    if pad > 0:
+        orbs = np.hstack([orbs, np.zeros((orbs.shape[0], pad))])
+        occ_all = np.concatenate([occ_all, np.zeros(pad)])
+        ent_all = np.concatenate([ent_all, np.full(pad, floor)])
     ncas, nelecas, casorbs, active_idx = Chooser(
         orbs, occ_all, ent_all, max_size, verbose=0).kernel()
     nel = int(round(np.sum(nelecas))) if hasattr(nelecas, "__len__") else int(nelecas)
@@ -211,6 +232,115 @@ def select_apc2(mf, mol, max_size=(12, 12), log=print):
     # the active columns are the ones the chooser kept.
     return orbs[:, list(active_idx)], nel, {"n_candidates": int(Cc.shape[1]),
                           "entropies": [float(x) for x in ent]}
+
+
+def ncsf(nel: int, norb: int) -> int:
+    """King's eq 4: CSFs at the lowest Ms, the count his size cap is set in."""
+    from math import comb
+    a, b = nel // 2 + nel % 2, nel // 2
+    return comb(norb, a) * comb(norb, b) - (comb(norb, a + 1) * comb(norb, b - 1) if b >= 1 else 0)
+
+
+def cap_by_entropy(occ, ent, max_csf=MAX_CSF):
+    """Drop the lowest-entropy orbital until the space fits, King's rule.
+
+    Same loop as PySCF's `apc.Chooser`: at each step the lowest-entropy
+    orbital whose removal leaves a reasonable space goes, where reasonable
+    means some active electrons, not completely full, and no fewer orbitals
+    than there are singly occupied ones. Returns the kept indices.
+    """
+    keep = list(range(len(occ)))
+    n_so = int(sum(1 for o in occ if o == 1))
+    while ncsf(int(sum(occ[k] for k in keep)), len(keep)) > max_csf:
+        for k in sorted(keep, key=lambda k: ent[k]):
+            trial = [x for x in keep if x != k]
+            nel = sum(occ[x] for x in trial)
+            if nel > 0 and nel < 2 * len(trial) and len(trial) >= n_so:
+                keep = trial
+                break
+        else:
+            raise RuntimeError("no reasonable space under the cap")
+    return keep
+
+
+def _occupancy(mol, mf, C):
+    """Each orbital's occupation in the reference: 2, 1 or 0 for a pure one."""
+    S = mol.intor_symmetric("int1e_ovlp")
+    occ = np.asarray(mf.mo_occ)
+    D = mf.mo_coeff[:, occ == 2]
+    Sg = mf.mo_coeff[:, occ == 1]
+    w2 = np.sum((D.T @ S @ C) ** 2, axis=0) if D.size else np.zeros(C.shape[1])
+    w1 = np.sum((Sg.T @ S @ C) ** 2, axis=0) if Sg.size else np.zeros(C.shape[1])
+    return 2 * w2 + w1
+
+
+def select_engine(mf, mol, row, capped=False, log=print):
+    """The NexusQC engine's space for this row's target state.
+
+    Mirrors `pyscf_runner.run_cas_recommendation` for a request of the
+    target state: recommend on the shared reference, a CAM-B3LYP TDA for the
+    states, the engine's own `analyse` and `add_state_narrowed_tier`. Two
+    things go beyond what the product can be asked, and the ledger says so.
+    The TDA is restricted to the target's irrep (`wfnsym`), so its lowest
+    `target_rank` roots are exactly the states of that irrep King's average
+    contains. And for a triplet target the TDA is a triplet one: the product
+    only ever runs singlet linear response.
+    """
+    from pyscf import df, dft, tdscf
+    from app.chemistry.cas.diffuse import rydberg_representable
+    from app.chemistry.cas.excited import analyse
+    from app.chemistry.cas.geometry import perceive
+    from app.chemistry.cas.narrow import add_state_narrowed_tier
+    from app.chemistry.cas.recommend import recommend
+    t0 = time.time()
+    syms = [mol.atom_symbol(i) for i in range(mol.natm)]
+    coords = mol.atom_coords(unit="Angstrom")
+    rank = int(row["target_rank"])
+    n_states = rank + 1
+    rec = recommend(mf, syms, coords, spin_2s=mol.spin, n_states=n_states)
+    pool_space = list(rec.space)
+    ks = dft.RKS(mol) if mol.spin == 0 else dft.ROKS(mol)
+    ks.xc = "camb3lyp"
+    ks = ks.density_fit(auxbasis=df.make_auxbasis(mol))
+    ks.verbose = 0
+    ks.kernel()
+    td = tdscf.TDA(ks)
+    td.wfnsym = row["target_irrep"]
+    if abs(row["target_ss"] - 2.0) < 0.1 and mol.spin == 0:
+        td.singlet = False
+    td.nstates = max(6, 2 * rank + 2)
+    td.verbose = 0
+    td.kernel()
+    per = perceive(syms, coords, include_sigma=False)
+    an = analyse(ks, td, per.targets, n_states=rank,
+                 rydberg_detectable=bool(rydberg_representable(ks)))
+    narrowed = add_state_narrowed_tier(rec, mol, an, n_states, per.targets,
+                                       perception=per, spin_2s=mol.spin)
+    tier = rec.tiers[rec.recommended]
+    idx = list(tier.orbital_indices)
+    C = rec.mo_coeff[:, idx]
+    nel = int(tier.n_electrons)
+    info = {"pool_space": pool_space, "tier": rec.recommended, "narrowed": bool(narrowed),
+            "native_space": [nel, len(idx)], "native_ncsf": ncsf(nel, len(idx)),
+            "tda_states": [{"index": s.index, "ev": round(float(s.energy_ev), 3),
+                            "character": s.character} for s in an.states[:rank]],
+            "rydberg_detectable": bool(rydberg_representable(ks))}
+    if capped:
+        occ = [int(round(x)) for x in _occupancy(mol, mf, C)]
+        ent = [float(rec.entropies[i - rec.ncore]) for i in idx]
+        if ncsf(nel, len(idx)) > MAX_CSF:
+            keep = cap_by_entropy(occ, ent)
+            C = C[:, keep]
+            nel = int(sum(occ[k] for k in keep))
+            info["capped"] = True
+        else:
+            info["capped"] = False
+        info["capped_space"] = [nel, C.shape[1]]
+    info["seconds"] = round(time.time() - t0, 1)
+    log(f"  engine pool {pool_space} -> {rec.recommended} {info['native_space']}"
+        + (f" -> capped {info['capped_space']}" if capped else "")
+        + f"  TDA: " + ", ".join(f"{s['ev']} {s['character']}" for s in info["tda_states"]))
+    return C, nel, info
 
 
 def symmetrise_active(mol, mf, C_act):
@@ -272,11 +402,22 @@ def symmetrise_active(mol, mf, C_act):
         else:
             nc, Q = 0, np.zeros((mol.nao, 0))
         n_act_el += 2 * (D.shape[1] - nc) + Sg.shape[1]
-        # SOMOs must be active for an open shell to make sense
-        Csym = np.hstack([so])
-        rest = Csym - (A @ A.T @ S @ Csym if A.size else 0) - Q @ Q.T @ S @ Csym
+        # How integral that count really is: twice the docc weight inside the
+        # active span plus the SOMO weight, against the integer used.
+        if A.size:
+            frac_el.append((2 * float(np.trace(D.T @ S @ P @ D)) if D.size else 0.0)
+                           + (float(np.trace(Sg.T @ S @ P @ Sg)) if Sg.size else 0.0))
+            somo_out += (Sg.shape[1] - float(np.trace(Sg.T @ S @ P @ Sg))) if Sg.size else 0.0
+        else:
+            somo_out += Sg.shape[1]
+        # The virtual space is built inside this irrep's MOs rather than its
+        # symmetry orbitals: an SCF that removed a near-linear dependency
+        # (diacetylene in aug-cc-pVTZ keeps 229 of 230) has fewer MOs than
+        # AOs, and the dropped direction must not come back as a virtual.
+        M_ir = mf.mo_coeff[:, mo_ir]
+        rest = M_ir - (P @ M_ir if A.size else 0) - Q @ Q.T @ S @ M_ir
         u, sv, _ = np.linalg.svd(rest.T @ S @ rest)
-        nv = so.shape[1] - nc - A.shape[1]
+        nv = len(mo_ir) - nc - A.shape[1]
         V = rest @ u[:, :nv] @ np.diag(sv[:nv] ** -0.5) if nv > 0 else np.zeros((mol.nao, 0))
         core.append(Q)
         act.append(A)
@@ -372,7 +513,7 @@ def sa_casscf(mf, mol, mo, ncore, ncas, nel_tot, states, solver=None, log=print)
         mc.ah_level_shift = float(solver["ah_level_shift"])
     if solver.get("max_stepsize"):
         mc.max_stepsize = float(solver["max_stepsize"])
-    mc.verbose = 0
+    mc.verbose = int(os.environ.get("QUEST_MC_VERBOSE", "0"))
     t0 = time.time()
     mc.kernel(mo)
     log(f"  SA-CASSCF({sum(mc.nelecas)},{ncas}) {nst} states converged={mc.converged} "
@@ -466,6 +607,128 @@ def downstream(mf, mc, per, grid_level=3, otfnal="tPBE", do_nevpt2=True, log=pri
     return per
 
 
+# ------------------------------------------------------------ representable
+
+def _string_irreps(norb, nel, orbsym):
+    """Histogram of the irreps of all occupation strings (XOR of orbital ids)."""
+    from itertools import combinations
+    from collections import Counter
+    c = Counter()
+    for occ in combinations(range(norb), nel):
+        ir = 0
+        for k in occ:
+            ir ^= int(orbsym[k])
+        c[ir] += 1
+    return c
+
+
+def n_csf_irrep(norb, nel, two_s, irrep, orbsym):
+    """CSFs of total spin S = two_s/2 and spatial irrep `irrep` in the space.
+
+    D(Ms) counts determinants of the irrep at Ms; the spin-S CSFs number
+    D(Ms=S) - D(Ms=S+1), since the lowering operator maps the second onto
+    the first without changing spatial symmetry. Irrep ids are PySCF's,
+    whose direct product in D2h and its subgroups is XOR.
+    """
+    def dets(two_ms):
+        na = (nel + two_ms) // 2
+        nb = nel - na
+        if na > norb or nb < 0 or (nel + two_ms) % 2:
+            return 0
+        ca = _string_irreps(norb, na, orbsym)
+        cb = _string_irreps(norb, nb, orbsym)
+        return sum(ca[a] * cb[b] for a in ca for b in cb if (a ^ b) == irrep)
+    return dets(two_s) - dets(two_s + 2)
+
+
+def representable(mol, mo, ncore, ncas, nel_act, states):
+    """Can this space hold every state of the average at all?
+
+    BeH's engine space (1,1) holds one configuration and no excited state;
+    CH's (1,2) has no A1 excited configuration. A state average asked for
+    something the space cannot contain fails in the CI solver or, worse,
+    returns the wrong state, so it is checked before any CASSCF and recorded
+    as its own failure class.
+    """
+    from pyscf import symm
+    orbsym = symm.label_orb_symm(mol, mol.irrep_id, mol.symm_orb,
+                                 mo[:, ncore:ncore + ncas], check=False)
+    need = {}
+    for irrep, ss, n, _ in groups(states):
+        need[(irrep, ss)] = n
+    have = {}
+    for (irrep, ss), n in need.items():
+        two_s = SS_TO_SMULT[round(float(ss), 2)] - 1
+        ir = symm.irrep_name2id(mol.groupname, irrep)
+        have[f"{irrep}/{ss}"] = n_csf_irrep(ncas, nel_act, two_s, ir, orbsym)
+    ok = all(have[f"{irrep}/{ss}"] >= n for (irrep, ss), n in need.items())
+    return ok, have
+
+
+# ---------------------------------------------------------------- one row
+
+NATIVE_MAX_CSF = 1_000_000   # harness feasibility bound for native spaces
+
+
+def run_row(row, mode, log=print):
+    from pyscf import lib
+    t_all = time.time()
+    out = {"name": row["name"], "mode": mode, "tbe_ev": row["tbe_ev"],
+           "threads": lib.num_threads(), "host_load": os.getloadavg()[0]}
+    mol = build_mol(row)
+    out["nao"] = mol.nao
+    mf, out["scf"] = reference_scf(mol, row, log=log)
+    t0 = time.time()
+    if mode == "apc2":
+        C, nel_sel, out["selection"] = select_apc2(mf, mol, log=log)
+        out["selection"].pop("entropies", None)
+    else:
+        C, nel_sel, out["selection"] = select_engine(mf, mol, row,
+                                                     capped=(mode == "engine_capped"), log=log)
+    out["seconds_selection"] = round(time.time() - t0, 1)
+    out["selected_space"] = [nel_sel, C.shape[1]]
+    mo, ncore, nel_act, srep = symmetrise_active(mol, mf, C)
+    ncas = C.shape[1]
+    out["symmetrisation"] = srep
+    out["space"] = [nel_act, ncas]
+    out["ncsf"] = ncsf(nel_act, ncas)
+    out["electron_count_changed"] = nel_act != nel_sel
+    if nel_act + 2 * ncore != mol.nelectron or srep["somo_weight_outside_active"] > 0.5:
+        out["status"] = "inconsistent_space"
+        return out
+    if out["ncsf"] > NATIVE_MAX_CSF:
+        out["status"] = "too_large"
+        return out
+    ok, have = representable(mol, mo, ncore, ncas, nel_act, row["states"])
+    out["csf_per_group"] = have
+    if not ok:
+        out["status"] = "unrepresentable"
+        return out
+    states = row["states"]
+    solver = row.get("solver") or {}
+    t0 = time.time()
+    mc, per = sa_casscf(mf, mol, mo, ncore, ncas, nel_act, states, solver=solver, log=log)
+    out["converged"] = bool(mc.converged)
+    out["seconds_casscf"] = round(time.time() - t0, 1)
+    t0 = time.time()
+    per = downstream(mf, mc, per, grid_level=int(solver.get("grid_level") or 3),
+                     otfnal=solver.get("otfnal") or "tPBE", log=log)
+    out["seconds_downstream"] = round(time.time() - t0, 1)
+    gs, tg = per[0], per[row["target_index"]]
+    out["states"] = [{k: (v if not isinstance(v, np.generic) else v.item())
+                      for k, v in p.items() if k not in ("ci", "solver")} for p in per]
+    ex = {}
+    for m in ("casscf", "tpbe", "tpbe0", "nevpt2"):
+        ex[m] = round((tg[f"e_{m}"] - gs[f"e_{m}"]) * HARTREE_TO_EV, 4)
+    out["excitation_ev"] = ex
+    out["error_ev"] = {m: round(v - row["tbe_ev"], 4) for m, v in ex.items()}
+    out["m_max"] = round(max(gs["m_diag"], tg["m_diag"]), 4)
+    out["good_space"] = abs(out["error_ev"]["casscf"]) < GOOD_SPACE_EV
+    out["status"] = "ok" if out["converged"] else "not_converged"
+    out["seconds_total"] = round(time.time() - t_all, 1)
+    return out
+
+
 # --------------------------------------------------------------------- CLI
 
 def load_manifest():
@@ -485,9 +748,21 @@ def main(argv=None) -> int:
     one = sub.add_parser("one")
     one.add_argument("name")
     one.add_argument("mode", choices=["apc2", "engine", "engine_capped"])
-    one.add_argument("--out")
+    one.add_argument("--out", help="append the JSON result line to this file")
     a = ap.parse_args(argv)
-    raise SystemExit("not wired yet")
+    row = row_by_name(a.name)
+    try:
+        res = run_row(row, a.mode, log=lambda m: print(m, file=sys.stderr, flush=True))
+    except Exception as exc:                                    # noqa: BLE001
+        res = {"name": a.name, "mode": a.mode, "status": "error",
+               "error": f"{type(exc).__name__}: {exc}",
+               "traceback": traceback.format_exc()[-3000:]}
+    line = json.dumps(res, default=float)
+    print(line, flush=True)
+    if a.out:
+        with open(a.out, "a") as fh:
+            fh.write(line + "\n")
+    return 0
 
 
 if __name__ == "__main__":
