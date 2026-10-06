@@ -58,7 +58,8 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 ## Phase 1: inputs
 
-- [todo] P1.1: quest_fetch.py builds a 542-row manifest in a gitignored cache, every row with a geometry and an irrep that resolves in PySCF
+- [done] P1.1: quest_fetch.py builds a 542-row manifest in a gitignored cache, every row with a geometry and an irrep that resolves in PySCF
+  evidence: scripts/casbench/quest_fetch.py → "manifest: 542 rows; 0 problem(s). 94 targets (17%) carry a different irrep label under PySCF 2.14 than King's 2.0 labels; re-derived from King's own CI vectors"
 
 ## Phase 2: the harness
 
