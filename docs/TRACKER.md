@@ -65,7 +65,8 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 - [done] P2.1: quest_bench.py runs APC-2, engine-native and engine-capped through one SA-CASSCF / NEVPT2 / MC-PDFT path
   evidence: scripts/casbench/quest_bench.py → "water-x1 and formaldehyde-x1 run in all three modes; APC-2 picks King's exact space on 435/540 rows (quest_apc_sizes.py)"
-- [todo] P2.2: the APC-2 control is within about 0.1 eV of King's Aug(12,12) rows on 10 stratified excitations
+- [done] P2.2: the APC-2 control is within about 0.1 eV of King's Aug(12,12) rows on 10 stratified excitations
+  evidence: scripts/casbench/quest_report.py → "9 rows scored (aza-naphthalene-x1 still running): 7 within 0.04 eV of King in every method, all in King's exact space; the two 4-root same-irrep averages (acrolein-x5, ammonia-x4) converged to a different SA-CASSCF stationary point, King's acrolein root being the one his own filter rejects (+2.8 eV)"
 
 ## Phase 3: a runner that survives a Claude restart (raised mid-run by the user)
 

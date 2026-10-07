@@ -56,6 +56,8 @@ def load(run):
             continue
         if r.get("status") in (None, "error"):
             continue
+        if r.get("states") and "scoring" not in r:
+            r = rescore(r, man[r["name"]])
         res[(r["name"], r["mode"])] = r
     # resolve aliases
     for (n, m), r in list(res.items()):
@@ -64,6 +66,30 @@ def load(run):
             if base:
                 res[(n, m)] = {**base, "mode": m, "alias_of": r["alias_of"]}
     return man, res
+
+
+def rescore(r, row):
+    """Apply King's state choice to a row written before the harness used it.
+
+    Rows from the first calibration batch picked the target as the last root
+    of its group in CASSCF order. The stored per-state energies are enough to
+    redo it by King's rule (highest tPBE of the target group, lowest tPBE of
+    the ground group), so those rows are re-scored here rather than rerun.
+    """
+    per = r["states"]
+    H = 27.211386245988
+    gk = (per[0]["sym"], per[0]["ss"])
+    ti = row["target_index"]
+    tk = (per[ti]["sym"], per[ti]["ss"])
+    gi = [i for i, p in enumerate(per) if (p["sym"], p["ss"]) == gk]
+    g = min(gi, key=lambda i: per[i]["e_tpbe"])
+    t = max((i for i, p in enumerate(per) if (p["sym"], p["ss"]) == tk and i != g),
+            key=lambda i: per[i]["e_tpbe"])
+    ex = {m: (per[t][f"e_{m}"] - per[g][f"e_{m}"]) * H for m in METHODS}
+    err = {m: v - row["tbe_ev"] for m, v in ex.items()}
+    return {**r, "excitation_ev": ex, "error_ev": err,
+            "good_space": abs(err["casscf"]) < GOOD,
+            "scoring": {"ground_index": g, "target_index": t, "rescored": True}}
 
 
 def stats(errs):

@@ -678,6 +678,34 @@ def representable(mol, mo, ncore, ncas, nel_act, states):
     return ok, have
 
 
+# ---------------------------------------------------------------- scoring
+
+def pick_states(per, row):
+    """Ground and scored state, by King's rule.
+
+    King et al. compare "the state highest in energy as judged by tPBE" of
+    the target's irrep and spin with the TBE, and their shipped example takes
+    the lowest-tPBE state of the ground state's group as the ground state.
+    Within a group the CI solver returns roots in CASSCF order, which is not
+    always tPBE order: acrolein's four-state A' average has its highest
+    CASSCF root (8.38 eV) at the lowest tPBE (5.94 eV). So the states are
+    chosen by tPBE, and the CASSCF-order choice is recorded beside it.
+    """
+    gs_key = (per[0]["sym"], per[0]["ss"])
+    tg_key = (per[row["target_index"]]["sym"], per[row["target_index"]]["ss"])
+    gs_idx = [i for i, p in enumerate(per) if (p["sym"], p["ss"]) == gs_key]
+    tg_idx = [i for i, p in enumerate(per) if (p["sym"], p["ss"]) == tg_key]
+    if gs_key == tg_key:
+        g = min(gs_idx, key=lambda i: per[i]["e_tpbe"])
+        t = max((i for i in tg_idx if i != g), key=lambda i: per[i]["e_tpbe"])
+    else:
+        g = min(gs_idx, key=lambda i: per[i]["e_tpbe"])
+        t = max(tg_idx, key=lambda i: per[i]["e_tpbe"])
+    return per[g], per[t], {"ground_index": g, "target_index": t,
+                            "casscf_order_target_index": row["target_index"],
+                            "rule": "King: highest tPBE of the target group"}
+
+
 # ---------------------------------------------------------------- one row
 
 NATIVE_MAX_CSF = 1_000_000   # harness feasibility bound for native spaces
@@ -727,7 +755,7 @@ def run_row(row, mode, log=print):
     per = downstream(mf, mc, per, grid_level=int(solver.get("grid_level") or 3),
                      otfnal=solver.get("otfnal") or "tPBE", log=log)
     out["seconds_downstream"] = round(time.time() - t0, 1)
-    gs, tg = per[0], per[row["target_index"]]
+    gs, tg, out["scoring"] = pick_states(per, row)
     out["states"] = [{k: (v if not isinstance(v, np.generic) else v.item())
                       for k, v in p.items() if k not in ("ci", "solver")} for p in per]
     ex = {}

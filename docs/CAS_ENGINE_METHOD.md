@@ -147,6 +147,22 @@ ammonia and $\approx 0.577$ for a tetrahedral one. Without this test the
 singular value decomposition returns a confident direction of least variance for
 an $sp^3$ carbon and every saturated centre acquires a spurious $\pi$ orbital.
 
+**Linear centres.** An atom is a linear centre if it has two neighbours whose
+bonds are collinear, $\hat{\mathbf{v}}_1 \cdot \hat{\mathbf{v}}_2 < -0.98$
+($168.5^\circ$ or wider), or if it is terminal and its neighbour has no plane.
+The test is applied *before* the plane fit, because two nearly antiparallel
+bond vectors still yield a fitted "normal": at $178^\circ$, as propynal's $sp$
+carbons are, that normal is a numerical accident and would give a triple bond
+one $\pi$ target where it has two. A linear centre's $\pi$ system is a
+degenerate pair, so both directions perpendicular to the bond axis are emitted.
+Where the molecule has a planar centre elsewhere, the pair is seeded with the
+plane normal of the nearest one by bond count, so that in ketene or
+diazomethane one member is the out-of-plane $\pi$ continuing the CH$_2$ group's
+and the other the in-plane one; the span is the same either way, but the labels
+a character analysis reads are not. A terminal atom inherits its neighbour's
+plane only when that neighbour is not itself a linear centre, which is what
+gives cyanoacetylene's nitrogen both $\pi$ directions of its C$\equiv$N bond.
+
 **Lone pairs.** From the coordination geometry: for two neighbours, the
 direction opposing their bisector and the normal to their plane; for three, the
 direction opposing their sum, *provided the centre is pyramidal*. The pyramidal
@@ -241,8 +257,15 @@ $n_{\text{frozen}}$ is the frozen core the caller supplied, which the projection
 never sees, and $n_{\text{occ,dropped}}$ is the number of occupied orbitals the
 projection itself sent back to the core by leaving them below threshold.
 
-Open shells are handled rather than refused: a singly occupied orbital is
-treated on the $\alpha$ side, following AVAS's `openshell_option=2` [1].
+Open shells are handled rather than refused, following AVAS's
+`openshell_option=2` [1]: $\mathbf{A}$ is diagonalised in three blocks, doubly
+occupied, singly occupied and virtual, and every singly occupied orbital enters
+the pool as it is, whatever its weight. Diagonalising the doubly and singly
+occupied orbitals as one block would rotate the SOMO together with doubly
+occupied orbitals, and the eigenvectors left below threshold would then carry
+part of the unpaired electron into a core that is by definition closed. The
+pool is laid out doubly occupied, singly occupied, virtual, and every later
+stage that subsets it reads each orbital's occupation from that layout.
 
 ### 2.5 Ranking by approximate pair-coefficient entropy
 
@@ -378,8 +401,16 @@ is larger: water's second pool orbital carries $\pi$ weight of order $10^{-26}$
 against lone-pair weight of order $10^{-28}$, and the comparison decides its
 membership.
 
+Every singly occupied orbital is kept, whatever its character: a SOMO is
+neither $\pi$ nor lone pair to the classifier above, and dropping it would
+leave an unpaired electron in a closed core. The narrowed space's electron
+count is the sum of its orbitals' pool occupations (2, 1 or 0, §2.4), not
+twice the number of kept orbitals below the Fermi level, which is right only
+for a closed shell.
+
 The narrowed tier is subject to the same completion guard as every other tier
-(§2.6), and is not published when it fails it.
+(§2.6), read from the same occupations, and is not published when it fails
+it.
 
 Two alternative rules were measured and rejected. *Coverage of the hole* fails
 because an $n \rightarrow \pi^*$ hole expressed in the projector's eigenbasis

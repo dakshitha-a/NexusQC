@@ -57,6 +57,13 @@ note saying what changed.
 
 ### Fixed
 
+- Active-space recommendations for molecules with a triple bond or another
+  linear centre now include its π orbitals. Acetylene, cyanoacetylene,
+  cyanogen, ketene and similar molecules were given a space with no π
+  orbitals at all, so a π→π\* state could not be described.
+- Active-space recommendations for radicals now always keep the unpaired
+  electron's orbital in the space. It could be left out, both when the
+  space was first built and when it was narrowed to the requested states.
 - During an update, a browser tab that had not started it reloaded every
   couple of seconds into the lockout. It now waits until the lockout lifts.
 - The updating screen appears the moment an update's restart begins. It
