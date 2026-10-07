@@ -19,7 +19,7 @@ py=${QUEST_PYTHON:-python3}
 n=0
 tail -n 0 -F "$dir/runner.log" 2>/dev/null | while IFS= read -r line; do
   case "$line" in
-    *" done "*" status=ok "*|*" done "*" status=unrepresentable "*|*" done "*" status=not_converged "*)
+    *" done "*" status=ok "*|*" done "*" status=unrepresentable "*|*" done "*" status=not_converged "*|*" done "*" status=too_large "*)
       # Results, not alarms: an unrepresentable space is the engine's answer
       # for that state and is counted in the progress line, as is a
       # non-converged state average. Only failures of the run itself page.
