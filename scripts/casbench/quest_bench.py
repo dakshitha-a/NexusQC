@@ -122,7 +122,16 @@ def reference_scf(mol, row, cache=True, log=print):
     mf.conv_tol = 1e-10
     if cache and chk.exists():
         z = np.load(chk)
-        mf.kernel(dm0=mf.make_rdm1(z["mo_coeff"], z["mo_occ"]))
+        if "mo_energy" in z.files:
+            # Restored, not re-run: re-running even from the converged
+            # density rebuilds the in-core two-electron integrals (below).
+            mf.mo_coeff, mf.mo_occ = z["mo_coeff"], z["mo_occ"]
+            mf.mo_energy, mf.e_tot = z["mo_energy"], float(z["e_tot"])
+            mf.converged = True
+        else:
+            mf.kernel(dm0=mf.make_rdm1(z["mo_coeff"], z["mo_occ"]))
+            _release_eri(mf)
+            _save_scf(chk, mf, float(z["shift"]))
         return mf, {"cached": True, "energy": float(mf.e_tot),
                     "stabilised_shift_eh": float(z["shift"])}
     t0 = time.time()
@@ -137,12 +146,33 @@ def reference_scf(mol, row, cache=True, log=print):
             "stabilised_shift_eh": shift, "seconds": round(time.time() - t0, 1)}
     log(f"  SCF {mol.nao} AO  E={mf.e_tot:.8f}  stabilise moved it {shift:+.2e} Eh  "
         f"{info['seconds']}s")
+    _release_eri(mf)
     if cache:
-        chk.parent.mkdir(parents=True, exist_ok=True)
-        tmp = chk.with_name(chk.stem + f".tmp{os.getpid()}.npz")
-        np.savez(tmp, mo_coeff=mf.mo_coeff, mo_occ=mf.mo_occ, shift=shift)
-        os.replace(tmp, chk)
+        _save_scf(chk, mf, shift)
     return mf, info
+
+
+def _release_eri(mf):
+    """Drop the in-core two-electron integrals once the SCF is converged.
+
+    PySCF keeps them in core whenever they fit, which in aug-cc-pVTZ is
+    18 GB at 368 basis functions and 29 GB at 414. Nothing downstream needs
+    them: CASSCF, NEVPT2 and MC-PDFT transform what they use themselves.
+    Holding them breaks the CSF solver, which subtracts the process's whole
+    resident size from a budget that already had it subtracted, and refuses
+    a 0.08 MB allocation on benzene with "-12217 MB remaining".
+    """
+    import gc
+    mf._eri = None
+    gc.collect()
+
+
+def _save_scf(chk, mf, shift):
+    chk.parent.mkdir(parents=True, exist_ok=True)
+    tmp = chk.with_name(chk.stem + f".tmp{os.getpid()}.npz")
+    np.savez(tmp, mo_coeff=mf.mo_coeff, mo_occ=mf.mo_occ, mo_energy=mf.mo_energy,
+             e_tot=mf.e_tot, shift=shift)
+    os.replace(tmp, chk)
 
 
 # ---------------------------------------------------------------- selectors
