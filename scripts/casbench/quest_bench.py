@@ -307,11 +307,13 @@ def select_engine(mf, mol, row, capped=False, log=print):
     n_states = rank + 1
     rec = recommend(mf, syms, coords, spin_2s=mol.spin, n_states=n_states)
     pool_space = list(rec.space)
+    log(f"  engine: recommend {pool_space} {time.time() - t0:.0f}s")
     ks = dft.RKS(mol) if mol.spin == 0 else dft.ROKS(mol)
     ks.xc = "camb3lyp"
     ks = ks.density_fit(auxbasis=df.make_auxbasis(mol))
     ks.verbose = 0
     ks.kernel()
+    log(f"  engine: CAM-B3LYP reference {time.time() - t0:.0f}s")
     td = tdscf.TDA(ks)
     td.wfnsym = row["target_irrep"]
     if abs(row["target_ss"] - 2.0) < 0.1 and mol.spin == 0:
@@ -319,6 +321,7 @@ def select_engine(mf, mol, row, capped=False, log=print):
     td.nstates = max(6, 2 * rank + 2)
     td.verbose = 0
     td.kernel()
+    log(f"  engine: TDA {td.nstates} roots of {td.wfnsym} {time.time() - t0:.0f}s")
     per = perceive(syms, coords, include_sigma=False)
     an = analyse(ks, td, per.targets, n_states=rank,
                  rydberg_detectable=bool(rydberg_representable(ks)))
