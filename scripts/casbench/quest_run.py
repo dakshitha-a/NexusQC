@@ -243,9 +243,14 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
 
+    # 48 GB per worker. A conventional aug-cc-pVTZ SCF keeps its two-electron
+    # integrals in core whenever they fit, about 18 GB for a 368-function
+    # molecule, and PySCF's CSF solver refuses to allocate anything once the
+    # process is over budget: at 24 GB cyclopentadienone failed asking for
+    # 0.08 MB. Ten workers at this bound are at most 480 GB of the host's 1 TB.
     env = dict(os.environ, OMP_NUM_THREADS=str(a.threads), MKL_NUM_THREADS=str(a.threads),
                OPENBLAS_NUM_THREADS=str(a.threads), PYTHONPATH=str(REPO),
-               QUEST_MAX_MEMORY_MB=os.environ.get("QUEST_MAX_MEMORY_MB", "24000"))
+               QUEST_MAX_MEMORY_MB=os.environ.get("QUEST_MAX_MEMORY_MB", "48000"))
     procs = {}          # key -> Popen (launched by this runner)
     adopted = {}        # key -> pid (launched by a previous runner, still alive)
     run.log(f"runner start pid={os.getpid()} rows={len(rows)} modes={modes} "
