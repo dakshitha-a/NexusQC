@@ -624,8 +624,12 @@ def per_state(mc, solvers, states):
 def dominant_open_shells(ci, ncas, nelec) -> int:
     """Number of singly occupied orbitals in the state's largest determinant."""
     from pyscf.fci import cistring
-    ci = np.asarray(ci)
     na, nb = nelec
+    # Reshaped explicitly: a space with a single beta string (BH2's engine
+    # space has none to place) can hand back a flat vector, and unravelling
+    # against that shape indexes past the last string.
+    ci = np.asarray(ci).reshape(cistring.num_strings(ncas, na),
+                                cistring.num_strings(ncas, nb))
     ia, ib = np.unravel_index(int(np.argmax(np.abs(ci))), ci.shape)
     sa = int(cistring.addr2str(ncas, na, int(ia)))
     sb = int(cistring.addr2str(ncas, nb, int(ib)))
@@ -678,8 +682,13 @@ def downstream(mf, mc, per, grid_level=3, otfnal="tPBE", do_nevpt2=True, log=pri
         c2.mo_coeff = mo
         c2.ci = p["ci"]
         dm1a, dm1b = c2.fcisolver.make_rdm1s(p["ci"], ncas, p["nelec"])
-        p["n_open"] = dominant_open_shells(p["ci"], ncas, p["nelec"])
-        p["m_diag"] = m_diagnostic(dm1a + dm1b, sum(p["nelec"]), p["n_open"])
+        # A diagnostic, so it must never cost a row its energies.
+        try:
+            p["n_open"] = dominant_open_shells(p["ci"], ncas, p["nelec"])
+            p["m_diag"] = m_diagnostic(dm1a + dm1b, sum(p["nelec"]), p["n_open"])
+        except Exception as exc:                                # noqa: BLE001
+            p["n_open"], p["m_diag"] = None, None
+            p["m_diag_error"] = f"{type(exc).__name__}: {exc}"
         if do_nevpt2:
             p["e_nevpt2"] = p["e_casscf"] + float(mrpt.NEVPT(c2).kernel())
         p["seconds_downstream"] = round(time.time() - t0, 1)
@@ -831,7 +840,8 @@ def run_row(row, mode, log=print):
         ex[m] = round((tg[f"e_{m}"] - gs[f"e_{m}"]) * HARTREE_TO_EV, 4)
     out["excitation_ev"] = ex
     out["error_ev"] = {m: round(v - row["tbe_ev"], 4) for m, v in ex.items()}
-    out["m_max"] = round(max(gs["m_diag"], tg["m_diag"]), 4)
+    ms = [x for x in (gs["m_diag"], tg["m_diag"]) if x is not None]
+    out["m_max"] = round(max(ms), 4) if len(ms) == 2 else None
     out["good_space"] = abs(out["error_ev"]["casscf"]) < GOOD_SPACE_EV
     out["status"] = "ok" if out["converged"] else "not_converged"
     out["seconds_total"] = round(time.time() - t_all, 1)
