@@ -124,6 +124,11 @@ _PARALLEL_COS = 0.9
 # tetrahedral, so this admits a slightly-pyramidalised amide nitrogen and
 # rejects a genuine sp3 centre. See `local_pi_normal`.
 PLANARITY_COS = 0.25
+
+# Cosine between an atom's two bonds below which the atom is a linear (sp)
+# centre: -0.98 is 168.5 degrees. QUESTDB's sp carbons and nitrogens sit at
+# 178 to 180; a bent allene-like or ketenimine centre is well inside 170.
+LINEAR_COS = -0.98
 # Amplitude of s in the oriented hybrid used as a lone-pair target. Lone pairs
 # are hybrids rather than pure p lobes on every heteroatom that carries one, so
 # the amplitude is not zero, but it is much smaller than an sp2 hybrid's
@@ -538,6 +543,49 @@ def lone_pair_axes(i: int, symbols, coords, neighbours,
     return [] if total is None else [-total]
 
 
+def _linear_axis(i: int, coords, neighbours) -> Optional[np.ndarray]:
+    """The bond axis through atom `i` if it is a linear centre, else None.
+
+    Terminal atoms (one neighbour) are linear by definition once their
+    neighbour has no plane; an atom with two neighbours is linear when its
+    bonds are collinear within LINEAR_COS. Three or more neighbours cannot be
+    collinear in any molecule this engine is scoped to.
+    """
+    nbr = neighbours[i]
+    if len(nbr) == 1:
+        return _unit(coords[nbr[0]] - coords[i])
+    if len(nbr) == 2:
+        a = _unit(coords[nbr[0]] - coords[i])
+        b = _unit(coords[nbr[1]] - coords[i])
+        if a is not None and b is not None and float(np.dot(a, b)) < LINEAR_COS:
+            return a
+    return None
+
+
+def _nearest_plane_normal(i: int, coords, neighbours) -> Optional[np.ndarray]:
+    """The pi normal of the closest planar centre by bond count, if any.
+
+    Breadth-first over the bond graph from `i`, so ketene's central carbon
+    finds the CH2 carbon's plane one bond away and a linear chain with no
+    planar centre anywhere returns None.
+    """
+    seen = {i}
+    frontier = [i]
+    while frontier:
+        nxt = []
+        for a in frontier:
+            for b in neighbours[a]:
+                if b in seen:
+                    continue
+                seen.add(b)
+                n = local_pi_normal(b, coords, neighbours)
+                if n is not None:
+                    return n
+                nxt.append(b)
+        frontier = nxt
+    return None
+
+
 def perceive(symbols, coords, *, include_sigma: bool = True,
              include_lone_pairs: bool = True) -> Perception:
     """Full perception pass: bonds, pi normals, and the target list.
@@ -572,7 +620,13 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
         if shell is None:
             continue
 
-        normal = local_pi_normal(i, coords, nb)
+        # A two-coordinate atom whose bonds are collinear is a linear centre
+        # whatever `local_pi_normal` says. At 178 degrees, as propynal's sp
+        # carbons are, the plane fit still returns a "normal" from a
+        # near-degenerate pair of bond vectors, and the atom would get one pi
+        # target where a triple bond has two.
+        linear_centre = len(nb[i]) == 2 and _linear_axis(i, coords, nb) is not None
+        normal = None if linear_centre else local_pi_normal(i, coords, nb)
         if normal is None and len(nb[i]) == 1:
             # A terminal heavy atom has no plane of its own, but if the atom it
             # is bonded to has one -- a carbonyl oxygen on an sp2 carbon, say --
@@ -588,7 +642,12 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
             # Inheriting the neighbour's normal makes pi one specific direction
             # and leaves the lone pairs the two that remain.
             partner = nb[i][0]
-            inherited = local_pi_normal(partner, coords, nb)
+            # Not from a linear partner: cyanoacetylene's nitrogen sits on an
+            # sp carbon whose spurious plane would hand it one pi where the
+            # C-N triple bond has two.
+            partner_linear = (len(nb[partner]) == 2
+                              and _linear_axis(partner, coords, nb) is not None)
+            inherited = None if partner_linear else local_pi_normal(partner, coords, nb)
             if inherited is not None:
                 normal = inherited
 
@@ -598,13 +657,32 @@ def perceive(symbols, coords, *, include_sigma: bool = True,
                 kind="pi", atom_index=i, element=el, shell=shell,
                 axis=normal.tolist(), note="local pi normal",
             ))
-        elif len(nb[i]) == 1:
-            # A terminal atom whose neighbour has no plane either -- a linear
-            # fragment such as N2 or acetylene. Here the pi system really is a
-            # degenerate pair, so both directions are emitted.
-            axis = _unit(coords[nb[i][0]] - coords[i])
+        else:
+            axis = _linear_axis(i, coords, nb)
             if axis is not None:
-                for k, vec in enumerate(perpendicular_pair(axis)):
+                # A linear centre: a terminal atom whose neighbour has no plane
+                # either (N2, CO), or an atom whose two bonds are collinear
+                # (acetylene's and cyanogen's carbons, the central atom of
+                # ketene and diazomethane). Its pi system really is a
+                # degenerate pair perpendicular to the axis, so both
+                # directions are emitted.
+                #
+                # This branch used to require exactly one neighbour, which
+                # left every interior sp centre with no pi target at all.
+                # Acetylene then had no valence targets whatever, its
+                # recommendation fell back to the sigma framework, and a
+                # pi->pi* state was asked of a space holding only sigma
+                # orbitals (QUESTDB benchmark, acetylene 3Sigma_u+: 13.7 eV
+                # against 5.53).
+                #
+                # Seeded with the nearest plane normal where the molecule has
+                # one, so that in ketene or diazomethane the pair is the
+                # out-of-plane pi continuing the CH2 group's and the in-plane
+                # one, rather than two arbitrary mixtures of them. The span is
+                # the same either way; the labels a character analysis reads
+                # are not.
+                seed = _nearest_plane_normal(i, coords, nb)
+                for k, vec in enumerate(perpendicular_pair(axis, normal=seed)):
                     per.targets.append(Target(
                         kind="pi", atom_index=i, element=el, shell=shell,
                         axis=vec.tolist(),

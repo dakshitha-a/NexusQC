@@ -111,6 +111,13 @@ class Recommendation:
     # not come from the pi system, and cas_09 could not see it because pyrrole
     # has one.
     targets: list = field(default_factory=list)
+    # Reference occupation (2, 1 or 0) of each pool orbital, indexed like
+    # `entropies`: entry k belongs to MO column `ncore + k`. Carried so that
+    # anything subsetting the pool afterwards (the state narrowing, the
+    # refinement) counts electrons from occupations rather than assuming a
+    # closed shell. The narrowing did assume one, and dropped CN's singly
+    # occupied orbital out of the space it built for CN's own excited state.
+    occupations: list = field(default_factory=list)
 
     @property
     def space(self) -> tuple:
@@ -328,6 +335,7 @@ def recommend(mf, symbols, coords, *, spin_2s: int = 0,
         tiers=tiers,
         recommended="recommended",
         entropies=[float(x) for x in ranked.entropies],
+        occupations=[float(x) for x in ranked.occupations],
         target_labels=list(primary.target_labels),
         notes=list(dict.fromkeys(notes)),
         mo_coeff=primary.mo_coeff,

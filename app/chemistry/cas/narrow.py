@@ -69,6 +69,23 @@ def _equivalent_heteroatoms(symbols, neighbours, centres):
             if symbols[i] not in ("H", "C") and signature(i) in wanted}
 
 
+def tier_occupations(recommendation, tier) -> dict:
+    """Reference occupation (2, 1 or 0) of each MO column in `tier`.
+
+    Read from the recommendation's pool occupations where it carries them.
+    Otherwise the closed-shell reading, the first `n_electrons // 2` columns
+    doubly occupied, which is what every caller assumed before and is still
+    right for a closed shell.
+    """
+    idx = list(tier.orbital_indices)
+    occ = list(getattr(recommendation, "occupations", None) or [])
+    ncore = int(getattr(recommendation, "ncore", 0) or 0)
+    if occ and all(0 <= c - ncore < len(occ) for c in idx):
+        return {c: float(occ[c - ncore]) for c in idx}
+    n_docc = tier.n_electrons // 2
+    return {c: (2.0 if k < n_docc else 0.0) for k, c in enumerate(idx)}
+
+
 def narrow_to_states(mol, recommendation, tier, analysis, n_states,
                      pi_targets, lp_targets, *, nroots=1, csf_budget,
                      perception=None):
@@ -113,7 +130,12 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
 
     mo = np.asarray(recommendation.mo_coeff)
     idx = list(tier.orbital_indices)
-    n_docc = tier.n_electrons // 2
+    occ = tier_occupations(recommendation, tier)
+    # A singly occupied orbital is neither pi nor lone pair to the classifier
+    # below, so it fell into "other" and out of the space: CN's first 2B1
+    # state was narrowed to (4e,4o) with the unpaired electron left in a
+    # closed core. Every open shell stays.
+    somo = [k for k, c in enumerate(idx) if occ[c] == 1.0]
     ovlp = mol.intor("int1e_ovlp")
     labels = mol.ao_labels(fmt=None)
 
@@ -203,13 +225,15 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
         if not took_any:
             break
 
-    keep = sorted(set(pi_pool) | set(picked))
+    keep = sorted(set(pi_pool) | set(picked) | set(somo))
 
     # A backstop, not the selection rule: if the result still does not fit, drop
     # the weakest lone pairs before touching the pi system.
+    n_open = len(somo)
+
     def fits(sel):
-        ne = 2 * sum(1 for j in sel if j < n_docc)
-        c = n_csf(len(sel), ne, 0)
+        ne = int(round(sum(occ[idx[j]] for j in sel)))
+        c = n_csf(len(sel), ne, n_open)
         return (not c) or c * max(nroots, 1) <= csf_budget
 
     while len(keep) > len(pi_pool) and not fits(keep):
@@ -221,11 +245,11 @@ def narrow_to_states(mol, recommendation, tier, analysis, n_states,
 
     keep = keep or list(range(len(idx)))
     caslst = [idx[k] for k in keep]
-    nelec = 2 * sum(1 for k in keep if k < n_docc)
+    nelec = int(round(sum(occ[c] for c in caslst)))
     return caslst, nelec
 
 
-def describes_correlation(base, cas, nelec: int) -> bool:
+def describes_correlation(base, cas, nelec: int, recommendation=None) -> bool:
     """Whether CAS(nelec, len(cas)) is a space that describes correlation.
 
     Four ways a narrowing can shrink a space past the point of being one, and
@@ -254,12 +278,17 @@ def describes_correlation(base, cas, nelec: int) -> bool:
     cas = list(cas)
     if len(cas) < 2 or nelec <= 0 or nelec >= 2 * len(cas):
         return False
-    order = list(base.orbital_indices)
-    n_docc = base.n_electrons // 2
-    occupied = set(order[:n_docc])
-    virtual = set(order[n_docc:])
-    has_occ = any(int(c) in occupied for c in cas)
-    has_vir = any(int(c) in virtual for c in cas)
+    # With the recommendation in hand the occupations are read, not inferred:
+    # a singly occupied orbital is both somewhere an electron is and somewhere
+    # one can go, which the closed-shell "first half occupied" split cannot say.
+    if recommendation is not None:
+        occ = tier_occupations(recommendation, base)
+    else:
+        order = list(base.orbital_indices)
+        n_docc = base.n_electrons // 2
+        occ = {c: (2.0 if k < n_docc else 0.0) for k, c in enumerate(order)}
+    has_occ = any(occ.get(int(c), 0.0) > 0 for c in cas)
+    has_vir = any(occ.get(int(c), 0.0) < 2 for c in cas)
     return has_occ and has_vir
 
 
@@ -331,7 +360,7 @@ def add_state_narrowed_tier(rec, mol, analysis, n_states, targets, *,
     # projector's pool standing under its own name, which is a space the user
     # can run, so the failure mode of this guard is a larger recommendation
     # rather than no recommendation.
-    if not describes_correlation(base, cas, nelec):
+    if not describes_correlation(base, cas, nelec, recommendation=rec):
         if log:
             log(f"narrowing declined: CAS({nelec},{len(cas)}) is not a space "
                 f"that describes correlation, so the pool stands as "

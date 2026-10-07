@@ -73,6 +73,13 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
   evidence: scripts/casbench/quest_ctl.sh → "runner killed with -9 mid-run: 7 workers kept computing; resume adopted the 6 still alive and relaunched none (calib run, 2026-10-06 19:22)"
 - [todo] P3.2: restart test — kill a worker and the runner mid-run; resume loses and duplicates no rows
 
+## Phase 3A: fix the two engine defects calibration found (raised mid-run by the user, 2026-10-06)
+
+- [todo] P3A.1: interior linear centres (acetylene, diacetylene, cyanoacetylene, cyanogen, ketene, diazomethane) get a degenerate pi pair in perceive()
+- [todo] P3A.2: state narrowing keeps every singly occupied orbital and counts electrons from occupations (CN, allyl, BeF)
+- [todo] P3A.3: run_bench spaces/narrowed/stability re-run; improved/flat/regressed reported; method doc, CHANGELOG updated
+- [todo] P3A.4: QUESTDB calibration engine rows re-run on the fixed engine
+
 ## Phase 4: calibration and the full run
 
 - [todo] P4.1: a calibration batch of 10 excitations gives the full run's cost, reported to the user
@@ -87,3 +94,26 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 - [todo] P6.1: CAS_ENGINE_METHOD.md abstract, §3.3 and §4.1 rewritten around the new numbers; README checked
 - [todo] P6.2: HANDOFF entry removed, monitors stopped, tracker closed, pushed
+
+## Findings raised by the benchmark (not fixed mid-run; each needs a decision)
+
+Fixing the engine while the benchmark runs would leave rows measured on two
+different engines, so defects it exposes are recorded here and raised with
+the user instead.
+
+- **State narrowing drops the singly occupied orbital of a radical.** CN
+  (doublet, aug-cc-pVTZ): the engine's pool is (7e,6o); its state-narrowed
+  tier for the first ²B₁ state is (4e,4o), with the SOMO outside the space,
+  so the unpaired electron would sit in a closed core. The harness records
+  the row as `inconsistent_space` (calib run, cn-x1|engine, 2026-10-06).
+- **A valence space cannot hold a high Rydberg state.** Ammonia's third ¹A'
+  (n→3p, TBE 9.96 eV): the engine keeps its (8e,7o) valence space although
+  its own TDA labels all three requested states Rydberg; SA-CASSCF error
+  +1.16 eV. Expected from the engine's scope, recorded so the Rydberg split
+  is read with it in mind.
+- **Perception finds no π system in a linear molecule.** Acetylene, run
+  the way the product runs it (no symmetry, density fitting, cc-pVDZ or
+  aug-cc-pVTZ): `perceive(..., include_sigma=False)` returns no targets at
+  all, so the recommendation falls back to the σ framework, (6e,6o) of
+  Ag/B1u σ orbitals with no π or π\*. Its ³Σu⁺ (ππ\*) row comes out at
+  13.7 eV against a TBE of 5.53 (calib run, acetylene-x3|engine).

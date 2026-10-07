@@ -1030,7 +1030,8 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         # branch could narrow past the point of being a space at all, and did:
         # water asked for two states came back as a "refined" CAS(2,1), one
         # orbital holding one determinant. See narrow.describes_correlation.
-        if trial_cas and not describes_correlation(base, trial_cas, trial_ne):
+        if trial_cas and not describes_correlation(
+                base, trial_cas, trial_ne, recommendation=recommendation):
             log(f"[refine] narrowing declined: CAS({trial_ne},{len(trial_cas)}) "
                 f"is not a space that describes correlation, so the "
                 f"recommended tier stands")
@@ -1061,7 +1062,8 @@ def refine(mf, symbols, coords, recommendation, *, n_states: int = 1,
         # describes no correlation is not a cheaper answer, it is a wrong one,
         # and refusing leaves the base tier standing, which the user can at
         # least see is too large.
-        if narrowed and not describes_correlation(base, narrowed[0], narrowed[1]):
+        if narrowed and not describes_correlation(
+                base, narrowed[0], narrowed[1], recommendation=recommendation):
             log(f"[refine] narrowing declined: "
                 f"CAS({narrowed[1]},{len(narrowed[0])}) is not a space that "
                 f"describes correlation, so the recommended tier stands even "

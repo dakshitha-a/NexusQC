@@ -262,19 +262,40 @@ def project(mf, targets, *, threshold: float = None, minao: str = MINAO,
     sa = s21.T @ sol
     sa = 0.5 * (sa + sa.T)          # symmetrise away round-off
 
-    n_occ_block = nocc - ncore
-    wocc, uocc = np.linalg.eigh(sa[:n_occ_block, :n_occ_block])
-    wvir, uvir = np.linalg.eigh(sa[n_occ_block:, n_occ_block:])
+    # Singly occupied orbitals are kept out of the occupied-block rotation and
+    # are always active, which is what AVAS's openshell_option=2 means. Mixing
+    # them into the doubly occupied block, as this did, rotates the SOMO
+    # together with doubly occupied orbitals: the eigenvectors that fall below
+    # the threshold become "core" while carrying part of the unpaired
+    # electron, and the "singly occupied" orbital the ranking then assumes
+    # sits at a fixed place in the active block is a mixture. On CN in
+    # aug-cc-pVTZ 96% of the ROHF SOMO ended up outside the active space and
+    # the closed core held an odd number of electrons.
+    #
+    # Indices are taken from the occupation vector rather than assumed
+    # contiguous; the doubly occupied, singly occupied and virtual sets are
+    # each rotated only within themselves.
+    occv = np.asarray(mo_occ)[ncore:]
+    i_d = np.where(occv == 2)[0] if not is_uhf else np.where(occv != 0)[0]
+    i_s = np.where(occv == 1)[0] if not is_uhf else np.zeros(0, dtype=int)
+    i_v = np.where(occv == 0)[0]
+    C = mo_coeff[:, ncore:]
+    wocc, uocc = np.linalg.eigh(sa[np.ix_(i_d, i_d)])
+    wvir, uvir = np.linalg.eigh(sa[np.ix_(i_v, i_v)])
+    wsom = np.diag(sa)[i_s] if i_s.size else np.zeros(0)
 
     occ_active = wocc >= threshold
     vir_active = wvir >= threshold
 
-    mocore = mo_coeff[:, ncore:nocc] @ uocc[:, ~occ_active]
-    mocas_o = mo_coeff[:, ncore:nocc] @ uocc[:, occ_active]
-    mocas_v = mo_coeff[:, nocc:] @ uvir[:, vir_active]
-    movir = mo_coeff[:, nocc:] @ uvir[:, ~vir_active]
+    mocore = C[:, i_d] @ uocc[:, ~occ_active]
+    mocas_o = C[:, i_d] @ uocc[:, occ_active]
+    mocas_s = C[:, i_s]
+    mocas_v = C[:, i_v] @ uvir[:, vir_active]
+    movir = C[:, i_v] @ uvir[:, ~vir_active]
 
-    mocas = np.hstack([mocas_o, mocas_v])
+    # Active block layout: doubly occupied, then singly occupied, then
+    # virtual, which is the layout `ranking.rank_pool` reads occupations from.
+    mocas = np.hstack([mocas_o, mocas_s, mocas_v])
     ncas = mocas.shape[1]
     n_core_total = ncore + mocore.shape[1]
 
@@ -304,7 +325,7 @@ def project(mf, targets, *, threshold: float = None, minao: str = MINAO,
         ncore=int(n_core_total),
         occ_weights=wocc[::-1].copy(),
         vir_weights=wvir[::-1].copy(),
-        active_weights=np.hstack([wocc[occ_active], wvir[vir_active]]),
+        active_weights=np.hstack([wocc[occ_active], wsom, wvir[vir_active]]),
         target_labels=names,
         notes=notes,
     )
