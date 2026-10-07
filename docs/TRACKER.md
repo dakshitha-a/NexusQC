@@ -72,7 +72,8 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 - [done] P3.1: quest_ctl.sh start/status/stop/resume; detached runner, pidfile, heartbeat, one subprocess per calculation
   evidence: scripts/casbench/quest_ctl.sh → "runner killed with -9 mid-run: 7 workers kept computing; resume adopted the 6 still alive and relaunched none (calib run, 2026-10-06 19:22)"
-- [todo] P3.2: restart test — kill a worker and the runner mid-run; resume loses and duplicates no rows
+- [done] P3.2: restart test — kill a worker and the runner mid-run; resume loses and duplicates no rows
+  evidence: scripts/casbench/quest_report.py → "calib: runner killed -9 mid-run, workers survived and were adopted on resume; killed workers relaunched; --check over calib and calib2: 0 tasks with more than one final line"
 
 ## Phase 3A: fix the two engine defects calibration found (raised mid-run by the user, 2026-10-06)
 
@@ -82,13 +83,16 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
   evidence: app/chemistry/cas/projector.py → "root cause was the projector rotating the SOMO with doubly occupied orbitals; now SOMO weight outside the space is 0.000 for CN, allyl, BeF, NO, HCO; CN 2B1 row ok, NEVPT2 -0.31 eV"
 - [done] P3A.3: run_bench spaces/narrowed/stability re-run; improved/flat/regressed reported; method doc, CHANGELOG updated
   evidence: docs/casbench/stability.md → "spaces, narrowed and stability regenerated at 2e40193: every per-molecule row identical to the committed ledgers except timing columns; no regression, no change on the 30-molecule set"
-- [todo] P3A.4: QUESTDB calibration engine rows re-run on the fixed engine
+- [done] P3A.4: QUESTDB calibration engine rows re-run on the fixed engine
+  evidence: scripts/casbench/quest_report.py → "calib2: 10 engine rows on the fixed engine, good spaces 7/10 (was 3/7 on the shipped engine); acetylene and CN fixed; ammonia-x4, acrolein-x5, aza-naphthalene-x1 remain misses"
 
 ## Phase 4: calibration and the full run
 
-- [todo] P4.1: a calibration batch of 10 excitations gives the full run's cost, reported to the user
-- [todo] P4.2: full run launched; hourly status cron and an event monitor armed (raised mid-run by the user); HANDOFF entry added
-- [todo] P4.3: all 542 × 3 modes complete, or each missing row named with its cause
+- [done] P4.1: a calibration batch of 10 excitations gives the full run's cost, reported to the user
+  evidence: scripts/casbench/quest_report.py → "fit to calibration wall times: apc2 t ~ nao^2.0, engine t ~ nao^3.2; about 1,360 task-hours, about 6 days at 10 parallel; reported 2026-10-07"
+- [done] P4.2: full run launched; hourly status cron and an event monitor armed (raised mid-run by the user); HANDOFF entry added
+  evidence: docs/HANDOFF.md → "main run launched 2026-10-07 05:48 UTC, 10 workers x 6 threads, seeded with 29 calibration rows of the same protocol; hourly cron and quest_watch monitor armed"
+- [in-progress] P4.3: all 542 × 3 modes complete, or each missing row named with its cause
 
 ## Phase 5: analysis
 
@@ -121,3 +125,7 @@ the user instead.
   all, so the recommendation falls back to the σ framework, (6e,6o) of
   Ag/B1u σ orbitals with no π or π\*. Its ³Σu⁺ (ππ\*) row comes out at
   13.7 eV against a TBE of 5.53 (calib run, acetylene-x3|engine).
+- **Aza-naphthalene's n->pi\* state misses badly in the narrowed space.**
+  The engine narrows its (18e,14o) pool to (14e,12o) for the first ¹B₁g
+  state; SA-CASSCF error +5.66 eV, NEVPT2 +2.54 (calib2). Not yet diagnosed;
+  the full run will show whether it is general to the aza-aromatics.
