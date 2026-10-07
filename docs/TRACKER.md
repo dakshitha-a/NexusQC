@@ -76,9 +76,12 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 ## Phase 3A: fix the two engine defects calibration found (raised mid-run by the user, 2026-10-06)
 
-- [todo] P3A.1: interior linear centres (acetylene, diacetylene, cyanoacetylene, cyanogen, ketene, diazomethane) get a degenerate pi pair in perceive()
-- [todo] P3A.2: state narrowing keeps every singly occupied orbital and counts electrons from occupations (CN, allyl, BeF)
-- [todo] P3A.3: run_bench spaces/narrowed/stability re-run; improved/flat/regressed reported; method doc, CHANGELOG updated
+- [done] P3A.1: interior linear centres (acetylene, diacetylene, cyanoacetylene, cyanogen, ketene, diazomethane) get a degenerate pi pair in perceive()
+  evidence: app/chemistry/cas/geometry.py → "acetylene (4e,4o) pi space where it had sigma only; QUESTDB acetylene 3Sigma_u+ NEVPT2 error +8.27 -> +0.09 eV (calib2)"
+- [done] P3A.2: state narrowing keeps every singly occupied orbital and counts electrons from occupations (CN, allyl, BeF)
+  evidence: app/chemistry/cas/projector.py → "root cause was the projector rotating the SOMO with doubly occupied orbitals; now SOMO weight outside the space is 0.000 for CN, allyl, BeF, NO, HCO; CN 2B1 row ok, NEVPT2 -0.31 eV"
+- [done] P3A.3: run_bench spaces/narrowed/stability re-run; improved/flat/regressed reported; method doc, CHANGELOG updated
+  evidence: docs/casbench/stability.md → "spaces, narrowed and stability regenerated at 2e40193: every per-molecule row identical to the committed ledgers except timing columns; no regression, no change on the 30-molecule set"
 - [todo] P3A.4: QUESTDB calibration engine rows re-run on the fixed engine
 
 ## Phase 4: calibration and the full run
