@@ -19,7 +19,10 @@ py=${QUEST_PYTHON:-python3}
 n=0
 tail -n 0 -F "$dir/runner.log" 2>/dev/null | while IFS= read -r line; do
   case "$line" in
-    *" done "*" status=ok "*)
+    *" done "*" status=ok "*|*" done "*" status=unrepresentable "*|*" done "*" status=not_converged "*)
+      # Results, not alarms: an unrepresentable space is the engine's answer
+      # for that state and is counted in the progress line, as is a
+      # non-converged state average. Only failures of the run itself page.
       n=$((n + 1))
       if (( n % 25 == 0 )); then echo "progress: $("$py" scripts/casbench/quest_run.py --run "$run" --status)"; fi ;;
     *" done "*|*"exited without"*|*"giving up"*|*"stop requested"*|*"wall cap"*|*RUN_COMPLETE*|*adopted*)
