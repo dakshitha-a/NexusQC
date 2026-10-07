@@ -866,6 +866,8 @@ def main(argv=None) -> int:
         res = {"name": a.name, "mode": a.mode, "status": "error",
                "error": f"{type(exc).__name__}: {exc}",
                "traceback": traceback.format_exc()[-3000:]}
+    from datetime import datetime, timezone
+    res["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     line = json.dumps(res, default=float)
     print(line, flush=True)
     if a.out:
