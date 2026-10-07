@@ -510,8 +510,43 @@ def nelec_for(total: int, ss: float):
     return (na, nb)
 
 
+_CSF_PATCHED = False
+
+
+def _patch_csf_memory_check():
+    """Make PySCF's CSF spin-coupling memory check count resident memory once.
+
+    `csfstring.get_spin_evecs` refuses when ``max_memory - current_memory``
+    is smaller than the matrix it is about to build, but CASSCF hands it a
+    ``max_memory`` that is already the remaining budget, so the process's
+    resident size is subtracted twice. On benzene in aug-cc-pVTZ, whose
+    in-core integrals CASSCF holds at about 29 GB, it refuses 0.08 MB with
+    "-12217 MB remaining". The wrapper adds the resident size back, so the
+    check compares the request with what is actually left. The matrices in
+    question are at most a few MB for any space this benchmark runs.
+    """
+    global _CSF_PATCHED
+    if _CSF_PATCHED:
+        return
+    from pyscf import lib
+    from pyscf.csf_fci import csf, csfstring
+    orig = csfstring.get_spin_evecs
+
+    def get_spin_evecs(nspin, neleca, nelecb, smult, max_memory=None):
+        # Callers that pass nothing get the 4000 MB signature default, which
+        # has the same flaw, so the resident size is added back there too.
+        budget = lib.param.MAX_MEMORY if max_memory is None else max_memory
+        return orig(nspin, neleca, nelecb, smult,
+                    max_memory=budget + lib.current_memory()[0])
+
+    csfstring.get_spin_evecs = get_spin_evecs
+    csf.get_spin_evecs = get_spin_evecs
+    _CSF_PATCHED = True
+
+
 def make_solvers(mol, states, nel_tot):
     from pyscf.csf_fci import csf_solver
+    _patch_csf_memory_check()
     solvers = []
     for irrep, ss, n, idx in groups(states):
         smult = SS_TO_SMULT[round(float(ss), 2)]
