@@ -85,8 +85,9 @@ def rescore(r, row):
     g = min(gi, key=lambda i: per[i]["e_tpbe"])
     t = max((i for i, p in enumerate(per) if (p["sym"], p["ss"]) == tk and i != g),
             key=lambda i: per[i]["e_tpbe"])
-    ex = {m: (per[t][f"e_{m}"] - per[g][f"e_{m}"]) * H for m in METHODS}
-    err = {m: v - row["tbe_ev"] for m, v in ex.items()}
+    ex = {m: (None if per[t].get(f"e_{m}") is None or per[g].get(f"e_{m}") is None
+              else (per[t][f"e_{m}"] - per[g][f"e_{m}"]) * H) for m in METHODS}
+    err = {m: (None if v is None else v - row["tbe_ev"]) for m, v in ex.items()}
     return {**r, "excitation_ev": ex, "error_ev": err,
             "good_space": abs(err["casscf"]) < GOOD,
             "scoring": {"ground_index": g, "target_index": t, "rescored": True}}
@@ -150,7 +151,8 @@ def table(man, res, modes, subset=None, label="all"):
         good = [r for r in srcs[m].values() if r and r.get("good_space")]
         cells = []
         for meth in METHODS:
-            s = stats([r["error_ev"][meth] for r in good])
+            s = stats([r["error_ev"][meth] for r in good
+                       if r["error_ev"].get(meth) is not None])
             cells.append("-" if not s else f"{s['mae']:.2f} / {s['mse']:+.2f} / {s['rmse']:.2f}")
         lines.append(f"| {m} | {len(good)} | " + " | ".join(cells) + " |")
     lines.append("\nMAE (eV) over the rows good for BOTH selectors in each pair:\n")
@@ -164,8 +166,10 @@ def table(man, res, modes, subset=None, label="all"):
                     and srcs[a][n].get("good_space") and srcs[b][n].get("good_space")]
             cells = []
             for meth in METHODS:
-                sa = stats([srcs[a][n]["error_ev"][meth] for n in both])
-                sb = stats([srcs[b][n]["error_ev"][meth] for n in both])
+                bm = [n for n in both if srcs[a][n]["error_ev"].get(meth) is not None
+                      and srcs[b][n]["error_ev"].get(meth) is not None]
+                sa = stats([srcs[a][n]["error_ev"][meth] for n in bm])
+                sb = stats([srcs[b][n]["error_ev"][meth] for n in bm])
                 cells.append("-" if not sa else f"{sa['mae']:.2f}, {sb['mae']:.2f}")
             lines.append(f"| {a} vs {b} | {len(both)} | " + " | ".join(cells) + " |")
     return "\n".join(lines)

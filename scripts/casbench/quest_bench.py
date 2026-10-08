@@ -666,11 +666,23 @@ def m_diagnostic(rdm1_act, n_elec, n_open):
     return 0.5 * (2.0 - mcdono + float(np.sum(np.abs(so - 1.0))) + mcuno)
 
 
+# SC-NEVPT2 needs the three- and four-particle density matrices, which grow
+# as ncas^6 and ncas^8. Beryllium's APC-2 space, (4e,40o) where King's was
+# (4e,25o), held 98 GB after twenty hours inside NEVPT2 and had not finished.
+# Above this many active orbitals NEVPT2 is skipped and the skip recorded;
+# CASSCF and tPBE are still reported. Every space the benchmark otherwise
+# produces is at most 14 orbitals.
+NEVPT2_MAX_NCAS = 24
+
+
 def downstream(mf, mc, per, grid_level=3, otfnal="tPBE", do_nevpt2=True, log=print):
     """tPBE and SC-NEVPT2 per state on the converged SA-CASSCF orbitals."""
     from pyscf import mcpdft, mcscf, mrpt
     mo = mc.mo_coeff
     ncas = mc.ncas
+    if ncas > NEVPT2_MAX_NCAS:
+        do_nevpt2 = False
+        log(f"  NEVPT2 skipped: {ncas} active orbitals > {NEVPT2_MAX_NCAS}")
     for i, p in enumerate(per):
         t0 = time.time()
         pd = mcpdft.CASCI(mf, otfnal, ncas, p["nelec"], grids_level=grid_level)
@@ -691,6 +703,8 @@ def downstream(mf, mc, per, grid_level=3, otfnal="tPBE", do_nevpt2=True, log=pri
             p["m_diag_error"] = f"{type(exc).__name__}: {exc}"
         if do_nevpt2:
             p["e_nevpt2"] = p["e_casscf"] + float(mrpt.NEVPT(c2).kernel())
+        else:
+            p["e_nevpt2"] = None
         p["seconds_downstream"] = round(time.time() - t0, 1)
     log("  downstream done: " + ", ".join(
         f"{p['sym']}/{p['ss']:.2f} tPBE {p['e_tpbe']:.6f}" for p in per))
@@ -837,9 +851,15 @@ def run_row(row, mode, log=print):
                       for k, v in p.items() if k not in ("ci", "solver")} for p in per]
     ex = {}
     for m in ("casscf", "tpbe", "tpbe0", "nevpt2"):
-        ex[m] = round((tg[f"e_{m}"] - gs[f"e_{m}"]) * HARTREE_TO_EV, 4)
+        if tg[f"e_{m}"] is None or gs[f"e_{m}"] is None:
+            ex[m] = None
+        else:
+            ex[m] = round((tg[f"e_{m}"] - gs[f"e_{m}"]) * HARTREE_TO_EV, 4)
     out["excitation_ev"] = ex
-    out["error_ev"] = {m: round(v - row["tbe_ev"], 4) for m, v in ex.items()}
+    out["error_ev"] = {m: (None if v is None else round(v - row["tbe_ev"], 4))
+                       for m, v in ex.items()}
+    if ex["nevpt2"] is None:
+        out["nevpt2_skipped"] = f"{ncas} active orbitals > {NEVPT2_MAX_NCAS}"
     ms = [x for x in (gs["m_diag"], tg["m_diag"]) if x is not None]
     out["m_max"] = round(max(ms), 4) if len(ms) == 2 else None
     out["good_space"] = abs(out["error_ev"]["casscf"]) < GOOD_SPACE_EV
