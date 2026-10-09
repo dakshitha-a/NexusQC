@@ -277,7 +277,15 @@ def main() -> int:
             if rc is None:
                 if time.time() - p.started > TASK_WALL_S:
                     p.kill()
-                    run.log(f"wall cap hit {key}; killed")
+                    # Final, not retried: a calculation that did not finish
+                    # inside the cap will not finish inside a second one, and
+                    # the retry would spend another two days finding that out.
+                    name, mode = key.split("|")
+                    run.append({"name": name, "mode": mode, "status": "not_converged",
+                                "wall_cap": True, "finished_at": now(),
+                                "note": f"did not finish inside the {TASK_WALL_S // 3600} h "
+                                        f"per-row cap; recorded rather than retried"})
+                    run.log(f"wall cap hit {key}; killed and recorded as not_converged")
                 continue
             del procs[key]
             _inflight(run, key).unlink(missing_ok=True)
