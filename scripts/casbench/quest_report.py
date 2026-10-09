@@ -203,7 +203,8 @@ def report(run):
         k = man[n]["king"]["Aug1212"]
         if r and r.get("excitation_ev") and k.get("NEVPT2") is not None:
             diffs.append((n, r["space"], man[n]["king_aug_space"],
-                          {m: r["excitation_ev"][m] - k[KING_KEY[m]] for m in METHODS}))
+                          {m: (None if r["excitation_ev"].get(m) is None
+                               else r["excitation_ev"][m] - k[KING_KEY[m]]) for m in METHODS}))
     if diffs:
         out.append("\n#### APC-2 control against King's own Aug(12,12) rows\n")
         same = [d for d in diffs if list(d[1]) == list(d[2] or [])]
@@ -212,7 +213,8 @@ def report(run):
         out.append("| excitation | space | " + " | ".join(METHODS) + " |")
         out.append("|---|---|" + "---|" * len(METHODS))
         for n, sp, ks, d in same:
-            out.append(f"| {n} | {tuple(sp)} | " + " | ".join(f"{d[m]:+.3f}" for m in METHODS) + " |")
+            out.append(f"| {n} | {tuple(sp)} | " + " | ".join(
+                "-" if d[m] is None else f"{d[m]:+.3f}" for m in METHODS) + " |")
     return "\n".join(out)
 
 
