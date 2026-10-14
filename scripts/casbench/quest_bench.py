@@ -621,19 +621,43 @@ def per_state(mc, solvers, states):
 
 # ---------------------------------------------------------------- downstream
 
-def dominant_open_shells(ci, ncas, nelec) -> int:
-    """Number of singly occupied orbitals in the state's largest determinant."""
-    from pyscf.fci import cistring
+def dominant_open_shells(ci, ncas, nelec, dm1) -> int:
+    """Singly occupied orbitals of the state's dominant configuration.
+
+    The configuration is a spatial occupation pattern, read in the state's
+    own natural-orbital basis, with the weight of every determinant that
+    shares the pattern summed. Two shortcuts both give wrong answers:
+
+    - The largest single determinant in the CASSCF orbitals: those orbitals
+      are any rotation of the active space, so a closed-shell ground state
+      can be spread over many determinants. On the main run this counted
+      four open shells in glyoxal's ground state (M 1.86, King 0.10).
+    - The largest single determinant in the natural orbitals: an open-shell
+      singlet splits its weight across two determinants, and a closed-shell
+      one can outweigh either half (formaldehyde-x8's second A1 root).
+
+    Summed by configuration, King's Aug(12,12) wave functions reproduce all
+    16 ground- and excited-state M values in his SI Table S12, and the
+    quartiles over his 436 good rows (0.08 / 0.11 / 0.44).
+    """
+    from pyscf.fci import addons, cistring
     na, nb = nelec
+    w, u = np.linalg.eigh(dm1)
+    u = u[:, np.argsort(w)[::-1]]
     # Reshaped explicitly: a space with a single beta string (BH2's engine
-    # space has none to place) can hand back a flat vector, and unravelling
-    # against that shape indexes past the last string.
-    ci = np.asarray(ci).reshape(cistring.num_strings(ncas, na),
-                                cistring.num_strings(ncas, nb))
-    ia, ib = np.unravel_index(int(np.argmax(np.abs(ci))), ci.shape)
-    sa = int(cistring.addr2str(ncas, na, int(ia)))
-    sb = int(cistring.addr2str(ncas, nb, int(ib)))
-    return bin(sa ^ sb).count("1")
+    # space has none to place) can hand back a flat vector.
+    c = np.asarray(addons.transform_ci(ci, (na, nb), u)).reshape(
+        cistring.num_strings(ncas, na), cistring.num_strings(ncas, nb))
+    sa = cistring.make_strings(range(ncas), na)
+    sb = cistring.make_strings(range(ncas), nb)
+    sq = c ** 2
+    weight = {}
+    for ia in range(len(sa)):
+        for ib in np.nonzero(sq[ia] > 1e-8)[0]:
+            a, b = int(sa[ia]), int(sb[ib])
+            key = (a & b, a ^ b)                    # doubly, singly occupied
+            weight[key] = weight.get(key, 0.0) + float(sq[ia, ib])
+    return bin(max(weight, key=weight.get)[1]).count("1")
 
 
 def m_diagnostic(rdm1_act, n_elec, n_open):
@@ -696,7 +720,9 @@ def downstream(mf, mc, per, grid_level=3, otfnal="tPBE", do_nevpt2=True, log=pri
         dm1a, dm1b = c2.fcisolver.make_rdm1s(p["ci"], ncas, p["nelec"])
         # A diagnostic, so it must never cost a row its energies.
         try:
-            p["n_open"] = dominant_open_shells(p["ci"], ncas, p["nelec"])
+            # The occupations are stored so M can be recomputed without the CI.
+            p["noons"] = [round(float(x), 6) for x in np.sort(np.linalg.eigvalsh(dm1a + dm1b))[::-1]]
+            p["n_open"] = dominant_open_shells(p["ci"], ncas, p["nelec"], dm1a + dm1b)
             p["m_diag"] = m_diagnostic(dm1a + dm1b, sum(p["nelec"]), p["n_open"])
         except Exception as exc:                                # noqa: BLE001
             p["n_open"], p["m_diag"] = None, None
