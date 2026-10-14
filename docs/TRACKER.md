@@ -96,7 +96,7 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
 
 ## Phase 5: analysis
 
-- [todo] P5.1: quest_report.py writes docs/casbench/questdb.md, and its --check recomputes every aggregate independently
+- [in-progress] P5.1: quest_report.py writes docs/casbench/questdb.md, and its --check recomputes every aggregate independently
 
 ## Phase 6: write-up and close
 
@@ -129,3 +129,17 @@ the user instead.
   The engine narrows its (18e,14o) pool to (14e,12o) for the first ¹B₁g
   state; SA-CASSCF error +5.66 eV, NEVPT2 +2.54 (calib2). Not yet diagnosed;
   the full run will show whether it is general to the aza-aromatics.
+- **The harness's stored M diagnostic is wrong for about a fifth of ground
+  states.** It counted open shells from the largest determinant in the
+  SA-CASSCF orbitals, which are any rotation of the active space. Glyoxal-x3's
+  closed-shell ground state came out with 4 open shells and M 1.86 (King
+  0.10); 110 apc2 and 57 engine closed-shell ground states have a nonzero
+  count. Energies are unaffected. Decision taken without a rerun: the
+  M_max split now uses M from King's own Aug(12,12) wave functions
+  (`quest_mdiag.py`, dominant configuration summed over determinants in the
+  natural-orbital basis), which reproduces all 16 values of King's SI Table
+  S12 and his quartiles 0.08 / 0.11 / 0.44. The harness is fixed the same
+  way and now stores per-state natural occupations. Recovering M from this
+  run's own wave functions would mean rerunning SA-CASSCF, about 1,400
+  worker-hours.
+
