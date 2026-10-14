@@ -1,6 +1,6 @@
 # casbench: stability
 
-Produced at commit `2e40193` on 2026-10-06 23:41, in 5730s, with omp=8, mkl=12.
+Produced at commit `c5a8fbc` on 2026-10-14 17:52, in 3472s, with omp=8, mkl=12.
 
 Written by `scripts/casbench/run_bench.py`. Do not edit by hand: the
 next run overwrites it. Interpretation belongs in
