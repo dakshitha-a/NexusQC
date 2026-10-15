@@ -10,21 +10,6 @@ state of this file.
 
 ## Open
 
-- **The QUESTDB benchmark run is live; re-arm its monitors.** Launched
-  2026-10-07 05:48 UTC as a detached runner (`setsid`), so it survives the
-  session that started it, and its state is on disk under
-  `.cache/casbench_quest/run/main/`. Measured estimate about six days at ten
-  parallel calculations, longer while other tenants load the host. A new
-  session should, from the repo root with the `qc-agent` environment:
-  `scripts/casbench/quest_ctl.sh status main` for progress; if the runner is
-  gone without `RUN_COMPLETE` in `runner.log` (after a reboot, say),
-  `scripts/casbench/quest_ctl.sh resume main`, which skips finished rows and
-  adopts any worker still running; then re-arm the two monitors the user
-  asked for, which live only in a session: an hourly status check (CronCreate)
-  and an event Monitor on `scripts/casbench/quest_watch.sh main`. The
-  remaining plan steps are P4.3 onward in `docs/TRACKER.md`. Remove this
-  entry when the run completes.
-
 - **Decide whether the development host's Docker daemon should stop using
   its userland port proxy.** On that host a `docker-proxy` process accepts
   every connection to the published nginx port, so nginx, and through it the

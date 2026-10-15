@@ -1,5 +1,9 @@
 <!-- artifact: https://claude.ai/artifact/Q2ufG63Tvp8HYUrpQ2GN7q -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: a QUESTDB benchmark for the CAS engine, comparable to King et al. 2022
+# Closed Tracker: a QUESTDB benchmark for the CAS engine, comparable to King et al. 2022
+
+**Closed 2026-10-15. Eighteen steps in seven phases, all done.**
+No tracker is active until the next plan begins. One finding is left for the
+user: the engine's aza-naphthalene n->pi\* misses (see the end).
 
 **Opened 2026-10-06.** Seven phases. The tracker before this one is
 [`trackers/2026-09-shared-stack-and-update-notices.md`](trackers/2026-09-shared-stack-and-update-notices.md).
@@ -92,18 +96,22 @@ The plan of record is `.claude/plans/federated-percolating-stream.md`.
   evidence: scripts/casbench/quest_report.py → "fit to calibration wall times: apc2 t ~ nao^2.0, engine t ~ nao^3.2; about 1,360 task-hours, about 6 days at 10 parallel; reported 2026-10-07"
 - [done] P4.2: full run launched; hourly status cron and an event monitor armed (raised mid-run by the user); HANDOFF entry added
   evidence: docs/HANDOFF.md → "main run launched 2026-10-07 05:48 UTC, 10 workers x 6 threads, seeded with 29 calibration rows of the same protocol; hourly cron and quest_watch monitor armed"
-- [in-progress] P4.3: all 542 × 3 modes complete, or each missing row named with its cause
+- [done] P4.3: all 542 × 3 modes complete, or each missing row named with its cause
+  evidence: docs/casbench/questdb.md → "RUN_COMPLETE 2026-10-15 00:59 UTC, 1,626 of 1,626 tasks with one final line each; six APC-2 rows hit the 48 h cap and are recorded as wall_cap (five aza-naphthalene, naphthalene-x11); spot reruns hco-x1 apc2 and diazomethane-x7 engine reproduce exactly, water-x1 within 0.03 eV"
 
 ## Phase 5: analysis
 
-- [in-progress] P5.1: quest_report.py writes docs/casbench/questdb.md, and its --check recomputes every aggregate independently
+- [done] P5.1: quest_report.py writes docs/casbench/questdb.md, and its --check recomputes every aggregate independently
+  evidence: scripts/casbench/quest_report.py → "--check: 940 numbers compared, 0 mismatched; APC-2 433/542, King 436, engine 322; M split from King's wave functions via quest_mdiag.py, which reproduces SI Table S12 (16/16) and his quartiles"
 
 ## Phase 6: write-up and close
 
-- [todo] P6.1: CAS_ENGINE_METHOD.md abstract, §3.3 and §4.1 rewritten around the new numbers; README checked
-- [todo] P6.2: HANDOFF entry removed, monitors stopped, tracker closed, pushed
+- [done] P6.1: CAS_ENGINE_METHOD.md abstract, §3.3 and §4.1 rewritten around the new numbers; README checked
+  evidence: docs/CAS_ENGINE_METHOD.md → "abstract, §3.3, §4.1 and conclusion rewritten around QUESTDB; all six run_bench sets plus cost_attribution and hole_capture rerun at c5a8fbc (p-benzoquinone refine now converges to its literature (12e,10o); NEVPT2 n->pi*/pi->pi* MAEs move 0.01 eV; capture table updated to 0.760/0.818); README quotes no benchmark figure, unchanged"
+- [done] P6.2: HANDOFF entry removed, monitors stopped, tracker closed, pushed
+  evidence: docs/HANDOFF.md → "the live-run entry is gone; the event monitor ended with RUN_COMPLETE and the hourly cron is deleted; tracker moved to docs/trackers/2026-10-questdb-benchmark.md"
 
-## Findings raised by the benchmark (not fixed mid-run; each needs a decision)
+## Findings raised by the benchmark (not fixed mid-run; how each ended)
 
 Fixing the engine while the benchmark runs would leave rows measured on two
 different engines, so defects it exposes are recorded here and raised with
@@ -142,4 +150,22 @@ the user instead.
   way and now stores per-state natural occupations. Recovering M from this
   run's own wave functions would mean rerunning SA-CASSCF, about 1,400
   worker-hours.
+
+How each ended, at close:
+
+- **SOMO dropped by narrowing:** fixed before the full run (P3A.2, commit
+  24f12ff); the full run's radical rows use the fixed engine.
+- **Valence space and high Rydberg states:** expected from the engine's scope
+  and now quantified: 21 of 130 Rydberg excitations good, 55 unrepresentable
+  (CAS_ENGINE_METHOD.md §3.3).
+- **No π system in a linear molecule:** fixed before the full run (P3A.1,
+  commit 24f12ff).
+- **Aza-naphthalene's n->pi\* states: open, for the user to decide.** The full
+  run confirms it is general to that molecule: the engine misses all 12
+  aza-naphthalene n->pi\* excitations, 8 scored at +2.3 to +6.0 eV in a
+  (14e,12o) space and 4 too large at (18e,14o), where APC-2 is good on 10 of
+  12. The smaller azines are not affected in the same way (33 good of 42
+  scored). Not diagnosed; a fix would be an engine change and a new plan.
+- **Stored M diagnostic:** resolved without a rerun; the M split uses King's
+  wave functions (quest_mdiag.py) and the harness is fixed (commit 90feeda).
 
