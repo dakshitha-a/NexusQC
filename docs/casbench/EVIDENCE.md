@@ -1,8 +1,34 @@
 # Raw run output behind the method document
 
-`evidence-2026-09-06.tar.gz` holds the terminal output of the runs that produced
-the numbers in [`../CAS_ENGINE_METHOD.md`](../CAS_ENGINE_METHOD.md), as they came
-out, unedited.
+Two archives hold the terminal output of the runs that produced the numbers in
+[`../CAS_ENGINE_METHOD.md`](../CAS_ENGINE_METHOD.md), as they came out.
+`evidence-2026-10-14.tar.gz` carries the current sweep of the six benchmark
+sets and the QUESTDB run. `evidence-2026-09-06.tar.gz` carries the targeted
+studies of 4 to 6 September that the document still cites, described in the
+second half of this file. Neither is edited, apart from one substitution in
+the October archive: absolute paths on the machine that ran it are replaced by
+`<repo>`, `<conda>` and `<scratch>`, because a tracked file must not describe a
+particular host.
+
+## `evidence-2026-10-14.tar.gz`
+
+| path | what it is |
+|---|---|
+| `sweep/six-sets.log` | the six `run_bench.py` sets at commit `c5a8fbc`, in the order excited, nevpt2, refine, spaces, narrowed, stability, 4 h 4 m |
+| `sweep/cost-attribution.log` | `cost_attribution.py` at the same commit, the SCF / stability / selection split of section 3.10 |
+| `hole-capture/all-states.log` | `hole_capture.py` at the same commit, re-measuring the captures of sections 3.5 and 3.6 |
+| `questdb/results.jsonl` | every final and intermediate result line of the QUESTDB run, 542 excitations by three modes, which `quest_report.py` reads |
+| `questdb/runner.log` | the detached runner's log: each launch, attempt, wall-cap kill and completion, with host load at launch |
+| `questdb/config.json` | the run's modes, worker count, threads per worker, start time and starting commit |
+| `questdb/king_m.json` | the M diagnostic of every excitation from King's own wave functions, as written by `quest_mdiag.py` |
+
+The QUESTDB ledger, `questdb.md`, is regenerated from `questdb/results.jsonl`
+by `quest_report.py --write`, given the manifest that `quest_fetch.py` builds
+from King's Zenodo record. The run's inputs are not archived here: they are
+King's and QUESTDB's, under CC-BY 4.0 and ODbL, and `quest_fetch.py` downloads
+and checksums them.
+
+## `evidence-2026-09-06.tar.gz`
 
 The `.md` ledgers beside this file are the processed form of the same runs and
 are what the document cites. This archive is the layer underneath: what to read
@@ -15,7 +41,7 @@ the JobManager, so the benchmark creates no jobs in a deployment. Nothing about
 these measurements is recoverable from `data/jobs`, which is why the raw output
 is archived here instead.
 
-## What is in it
+### What is in it
 
 | path | what it is |
 |---|---|

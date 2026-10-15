@@ -32,6 +32,12 @@ The four sets answer four different questions.
 Legacy comparison is by (ne,no) and by stability. The legacy runner refuses
 open-shell molecules and caps at twelve orbitals, so on part of this set it has
 no answer at all, which is itself a result and is reported as one.
+
+The largest benchmark is not a set here. King et al.'s 542 QUESTDB excitations,
+the engine against APC-2 in one harness, take about a week at ten in parallel
+and need resuming across sessions, so they have their own detached runner:
+`scripts/casbench/quest_ctl.sh start` runs them and `quest_report.py --write`
+produces docs/casbench/questdb.md.
 """
 from __future__ import annotations
 

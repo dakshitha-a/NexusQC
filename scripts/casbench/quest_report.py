@@ -325,7 +325,9 @@ Written by `scripts/casbench/quest_report.py --run {run} --write` at commit
 belongs in `docs/CAS_ENGINE_METHOD.md`, not here. The harness and its
 validation are described in `docs/casbench/questdb-phase0.md`. Every
 aggregate below is recomputed by a second, independent path with
-`quest_report.py --check`.
+`quest_report.py --check`. The M values behind the M_max split are not part
+of that check: both paths read them from `quest_mdiag.py`, which validates them
+against King's SI Table S12 and his quartiles before it writes them.
 
 ## What was run
 

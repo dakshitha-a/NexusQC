@@ -36,6 +36,12 @@ note saying what changed.
   calculations would stop and needs a typed confirmation.
 - An admin can give one account its own storage allowance, without changing
   everyone's (`PUT /api/admin/users/{id}/quota-override`).
+- The active-space engine has been benchmarked on all 542 QUESTDB vertical
+  excitations of King et al. (JCTC 2022), against King's APC-2 selector
+  rerun in the same harness. It holds the state nearly as often as APC-2
+  on valence excitations, at half the active-space size, and does not
+  reach most Rydberg states. The results are in `docs/casbench/questdb.md`, and
+  `scripts/casbench/quest_ctl.sh` reruns them.
 
 ### Changed
 
