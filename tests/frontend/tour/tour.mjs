@@ -317,12 +317,14 @@ async function hero(page, { theme = "nightshift" } = {}) {
   const name = `hero-${theme === "daylight" ? "light" : "dark"}`;
   const rec = new Recorder(page, name, FRAMES);
   await rec.start();
-  await rec.hold(600);
-
+  // Every clip opens on where its action is, not the whole window: at the
+  // README's width the whole window is too small to read, and the first
+  // frame is the one a reader sees before anything moves.
   const box = composer(page);
+  await rec.focus(box, { pad: 120, ease: 0 });
+  await rec.hold(600);
   await glide(page, box);
   await box.click();
-  await rec.focus(box, { pad: 120 });
   await typeOut(box, HERO_PROMPT);
   await rec.hold(400);
   await box.press("Enter");
@@ -397,8 +399,8 @@ async function asks(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "asks", FRAMES);
   await rec.start();
+  await rec.focus(composer(page), { pad: 160, ease: 0 });
   await rec.hold(500);
-  await rec.focus(composer(page), { pad: 160 });
   await say(page, rec, "Run a CASSCF single point on formaldehyde");
   await rec.quickly(() => turnDone(page), 6);
   const reply = lastReply(page);
@@ -415,8 +417,8 @@ async function molecule(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "molecule", FRAMES);
   await rec.start();
+  await rec.focus(composer(page), { pad: 160, ease: 0 });
   await rec.hold(500);
-  await rec.focus(composer(page), { pad: 160 });
   await say(page, rec, "caffeine");
   const pane = page.locator('[data-testid="section-molecule-panel"]');
   const canvas = pane.locator("canvas").first();
@@ -453,7 +455,8 @@ async function orbitals(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "orbitals", FRAMES);
   await rec.start();
-  await rec.hold(400);
+  await rec.focus(page.locator(`[data-testid="jobmanager-row-${jobId}"]`), { pad: 90, ease: 0 });
+  await rec.hold(500);
   const drawer = await openFromManager(page, rec, jobId);
   const rows = drawer.locator('[data-testid^="orbital-row-"]');
   await rows.first().waitFor({ timeout: 30000 });
@@ -500,7 +503,8 @@ async function spectrum(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "spectrum", FRAMES);
   await rec.start();
-  await rec.hold(400);
+  await rec.focus(page.locator(`[data-testid="jobmanager-row-${seeded.ensemble}"]`), { pad: 90, ease: 0 });
+  await rec.hold(500);
   const drawer = await openFromManager(page, rec, seeded.ensemble);
   const panel = drawer.locator('[data-testid="wigner-broadening-panel"]');
   await panel.waitFor({ timeout: 30000 });
@@ -533,7 +537,8 @@ async function vibrations(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "vibrations", FRAMES);
   await rec.start();
-  await rec.hold(400);
+  await rec.focus(page.locator(`[data-testid="jobmanager-row-${seeded.ids.freq}"]`), { pad: 90, ease: 0 });
+  await rec.hold(500);
   const drawer = await openFromManager(page, rec, seeded.ids.freq);
   const modes = drawer.locator('[data-testid^="vibration-row-"]');
   await modes.first().waitFor({ timeout: 30000 });
@@ -568,11 +573,11 @@ async function plots(page) {
   await page.reload({ waitUntil: "networkidle" });
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "plots", FRAMES);
-  await rec.start();
-  await rec.hold(400);
   const tick = page.locator(`[data-testid="jobmanager-select-${jobId}"]`);
   await tick.waitFor({ timeout: 30000 });
-  await rec.focus(page.locator(`[data-testid="jobmanager-row-${jobId}"]`), { pad: 60 });
+  await rec.start();
+  await rec.focus(page.locator(`[data-testid="jobmanager-row-${jobId}"]`), { pad: 60, ease: 0 });
+  await rec.hold(400);
   await glide(page, tick);
   await tick.check();
   const attach = page.locator('[data-testid="jobmanager-attach-to-prompt"]');
@@ -616,10 +621,10 @@ async function troubleshoot(page, { threadId }) {
   await card.first().waitFor({ timeout: 10000 });
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "troubleshoot", FRAMES);
-  await rec.start();
-  await rec.hold(400);
   await card.first().scrollIntoViewIfNeeded();
-  await rec.focus(card.first(), { pad: 30 });
+  await rec.start();
+  await rec.focus(card.first(), { pad: 30, ease: 0 });
+  await rec.hold(400);
   await rec.hold(2500);
   const button = card.first().locator('button:has-text("Troubleshoot")');
   await glide(page, button);
@@ -630,7 +635,16 @@ async function troubleshoot(page, { threadId }) {
   const reply = lastReply(page);
   await reply.scrollIntoViewIfNeeded();
   await rec.focus(reply, { pad: 30 });
-  await rec.hold(5000);
+  await rec.hold(4500);
+  // A proposed fix comes back as an approval card, which is the better
+  // ending: the corrected job still waits for a person.
+  const approve = page.locator('[data-testid="approval-approve"]');
+  if (await approve.count()) {
+    const card = approve.locator("xpath=ancestor::div[contains(@class,'border-accent')][1]");
+    await card.scrollIntoViewIfNeeded();
+    await rec.focus(card, { pad: 24 });
+    await rec.hold(3500);
+  }
   rec.wide();
   await rec.hold(800);
   await rec.stop();
@@ -652,8 +666,8 @@ async function projects(page) {
   await page.mouse.move(800, 600);
   const rec = new Recorder(page, "projects", FRAMES);
   await rec.start();
+  await rec.focus(await span(...ids.map((id) => page.locator(`[data-testid="jobmanager-row-${id}"]`))), { pad: 60, ease: 0 });
   await rec.hold(400);
-  await rec.focus(await span(...ids.map((id) => page.locator(`[data-testid="jobmanager-row-${id}"]`))), { pad: 60 });
   for (const id of ids) {
     const tick = page.locator(`[data-testid="jobmanager-select-${id}"]`);
     await glide(page, tick, 10);
@@ -680,6 +694,38 @@ async function projects(page) {
   animate("projects", "projects.webp");
 }
 
+/** The active-space recommendation, as a still: the run takes minutes, and
+ *  what is worth showing is the finished table, not the wait. An element
+ *  screenshot is safe here because the section holds no WebGL canvas. */
+async function activeSpace(page) {
+  const seeded = seedJobs(`[${pyscfJob("rec", "cas_reco", "", "casscf", "formaldehyde", { n_states: 3 })}]`, 1500);
+  if (seeded.status.rec !== "completed") throw new Error(`the recommendation ended ${seeded.status.rec}`);
+  await page.reload({ waitUntil: "networkidle" });
+  const rec = new Recorder(page, "active-space", FRAMES); // for openFromManager's holds only
+  const drawer = await openFromManager(page, rec, seeded.ids.rec);
+  const section = drawer.locator("text=Active-space recommendation").first()
+    .locator("xpath=ancestor::div[contains(@class,'mb-4')][1]");
+  await section.waitFor({ timeout: 30000 });
+  // From the recommended space to the states table: the prose and the
+  // entropy chart above it make a strip too tall to read in a README row.
+  // The labelled line, not the same words opening the summary prose above.
+  const top = section.locator("span.font-medium", { hasText: "Recommended active space:" }).first();
+  await top.scrollIntoViewIfNeeded();
+  await top.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await page.evaluate(() => document.querySelectorAll('[aria-hidden="true"]').forEach((el) => {
+    if (el.innerHTML.includes("M3 2l14")) el.style.display = "none";
+  }));
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(1200);
+  const states = section.locator("table").last();
+  const a = await top.boundingBox(), b = await section.boundingBox(), c = await states.boundingBox();
+  await page.screenshot({
+    path: path.join(OUT, "active-space.png"),
+    clip: { x: b.x, y: a.y - 8, width: b.width, height: c.y + c.height - a.y + 16 },
+  });
+  console.log("active-space.png written");
+}
+
 // Each scene: the conversation it opens on, and what it does there.
 const SCENES = {
   hero: { label: "Formaldehyde UV/Vis, TDDFT", run: (p) => hero(p) },
@@ -691,6 +737,7 @@ const SCENES = {
   vibrations: { label: "Formaldehyde vibrations", run: vibrations },
   plots: { label: "Benzene orbital levels", run: plots },
   troubleshoot: { label: "Water single point", run: troubleshoot },
+  "active-space": { label: "Formaldehyde active space", run: activeSpace },
   projects: { label: "Water, three levels of theory", run: projects },
   "probe-hero": { label: "probe hero", run: probeHero },
 };

@@ -75,9 +75,15 @@ def camera(scene: dict):
     # Each move starts from where the camera is at that moment, so a mark
     # that arrives before the last move has ended turns the camera from
     # where it is rather than jumping it to where it was going.
-    for mark in sorted(scene["marks"], key=lambda m: m["t"]):
+    #
+    # An instant first mark (ease 0) is where the clip opens, so it holds from
+    # the very first frame rather than from the few milliseconds after the
+    # screencast started at which the scene happened to make it. NexusQC's
+    # scenes open zoomed on their action this way; added on porting.
+    for i, mark in enumerate(sorted(scene["marks"], key=lambda m: m["t"])):
         target = whole if mark["kind"] == "wide" else fit(mark["rect"], view, mark.get("zoom", MAX_ZOOM))
-        moves.append((mark["t"], mark["ease"], at(mark["t"]), target))
+        start = -1.0 if i == 0 and mark["ease"] == 0 else mark["t"]
+        moves.append((start, mark["ease"], at(start), target))
 
     return at
 
