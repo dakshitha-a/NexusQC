@@ -1179,7 +1179,11 @@ export function JobDetailDrawer({
                               <tr key={name} className="border-t border-border">
                                 <td className="py-1 pr-3 text-text-muted">
                                   {name}
-                                  {name === String(job.summary?.["recommended_tier"] ?? "") && " (recommended)"}
+                                  {/* The tier called "recommended" read "recommended
+                                      (recommended)"; the mark is for a tier whose own
+                                      name does not already say it. */}
+                                  {name === String(job.summary?.["recommended_tier"] ?? "") &&
+                                    name !== "recommended" && " (recommended)"}
                                 </td>
                                 <td className="py-1 pr-3 text-text">
                                   {String(tier["n_electrons"])}e, {String(tier["n_orbitals"])}o
