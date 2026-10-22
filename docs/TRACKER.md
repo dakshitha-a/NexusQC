@@ -53,6 +53,8 @@ the storyboard: a hero and eight tour scenes.
   evidence: tests/backend/plot_05_job_charts.py → "colours by legend label (Occupied, Virtual, HOMO, LUMO, HOMO / LUMO) and palette; an unknown label is refused; 0 failures, plot_02 and plot_07 0 failures"
 - [done] P1A.5: the approval card's heading read "Approve single_point/ee job,  formaldehyde"
   evidence: tests/frontend/draft_01_approval_card.spec.mjs → "the card now says 'Approve excited-state energies job for formaldehyde' from the registry's TaskDef.label; the payload's task_label landed in 5533e8c"
+- [done] P1A.6: troubleshooting a failed job never named its molecule, so the model asked for one, or would have drafted the fix on whatever the conversation held
+  evidence: tests/backend/fail_01_notice_flow.py → "the message carries the structure, charge and multiplicity with a set_geometry instruction; the failure card says 'single-point energy job on PySCF'; the test now uses the v2 job shape and deletes its job; 23/23"
 - [todo] P1A.4: the fixes deployed with scripts/update.sh, after a full data backup, before the final filming
 
 ## Findings left for the user (seen while filming, not changed)
@@ -62,6 +64,12 @@ the storyboard: a hero and eight tour scenes.
 - **The single-geometry UV/Vis figure is in nm**, with oscillator strength
   on the y axis. The ensemble spectrum is in eV and normalised to 1. Whether
   the single-geometry figure should match is a convention question.
+
+- **`fail_01_notice_flow` is flaky against a running stack**: two runs in
+  six on 2026-10-22 found no notice and no job_failed event. The live api
+  container's watcher reads the same `data/`, so it can report the job
+  before the test's in-process watcher. It fails the same way without this
+  plan's changes.
 
 ## Phase 2: the tour scenes
 

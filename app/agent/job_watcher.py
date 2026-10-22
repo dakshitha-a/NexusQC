@@ -88,6 +88,7 @@ from app.agent.serialize import serialize_message
 from app.chemistry.jobs.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from app.chemistry.jobs.base import get_job_manager, read_meta, read_spec
 from app.chemistry.jobs.naming import resolve_job_label
+from app.chemistry.registry2.tasks import get_task
 from app.config import DATABASE_URL, DRAFT_HOLD_SECONDS, JOBS_DIR
 from app.plots.intrinsic import register_for_job as register_intrinsic_plots
 
@@ -354,6 +355,9 @@ def _agent_notice(completed_ids, ensemble_completed_ids=(), cas_reco_completed_i
     return "(system notice, not from the user) " + " ".join(notice_parts)
 
 
+_ENGINE_NAMES = {"pyscf": "PySCF", "orca": "ORCA", "bagel": "BAGEL"}
+
+
 def _failure_notice_text(job_id: str) -> str:
     """What the user is told, in the conversation, when a job dies.
 
@@ -364,10 +368,12 @@ def _failure_notice_text(job_id: str) -> str:
     the point.
     """
     spec = read_spec(job_id) or {}
-    task = spec.get("task")
-    subtype = spec.get("subtype")
-    label = f"{task}/{subtype}" if task and subtype else task
-    engine = spec.get("engine")
+    # The registry's own name for the task, as the approval card uses: the
+    # notice read "The single_point/gs job on pyscf" until 2026-10-22.
+    task_def = get_task(spec.get("task") or "", spec.get("subtype") or "")
+    label = task_def.label.lower() if task_def and task_def.label[1:2].islower() else (
+        task_def.label if task_def else spec.get("task"))
+    engine = _ENGINE_NAMES.get(spec.get("engine") or "", spec.get("engine"))
     described = f"{label} job on {engine}" if label and engine else "job"
     return (
         f"The {described} `{job_id}` failed. I haven't changed anything or "

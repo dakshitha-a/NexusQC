@@ -48,7 +48,7 @@ from app.agent import job_watcher as jw  # noqa: E402
 from app.agent import threads as thread_registry  # noqa: E402
 from app.agent.graph import read_state  # noqa: E402
 from app.agent.troubleshoot import compose_troubleshoot_message  # noqa: E402
-from app.chemistry.jobs.base import JobSpec, get_job_manager, read_result  # noqa: E402
+from app.chemistry.jobs.base import JobSpec, delete_job_dir, get_job_manager, read_result  # noqa: E402
 
 failures: list[str] = []
 checks = 0
@@ -95,9 +95,13 @@ def main() -> int:
     config = {"configurable": {"thread_id": thread_id}}
 
     mgr = get_job_manager()
+    # The v2 shape. The pre-v2 one (method="single_point", no task) failed
+    # at dispatch with "No runner is wired up for / yet", so this test was
+    # checking the evidence for a failure that had nothing to do with the
+    # basis it named.
     spec = JobSpec(
-        method="single_point", engine="pyscf", molecule=WATER,
-        params={"method": "hf", "basis": BOGUS_BASIS},
+        task="single_point", subtype="gs", method="hf", engine="pyscf", molecule=WATER,
+        params={"basis": BOGUS_BASIS},
     )
     job_id = mgr.submit(spec)
     thread_registry.set_active_job_ids(thread_id, [job_id])
@@ -221,6 +225,10 @@ def main() -> int:
               f"manual instruction missing or misnamed: {text[-400:]}")
         check("any proposed fix is routed through an approval card, not run directly",
               "approval card" in text, text[-120:])
+        # A corrected draft is built on the conversation's current molecule,
+        # so the message has to say which structure the failed job ran on.
+        check("it names the structure the job ran on, ready for set_geometry",
+              "It ran on water" in text and "set_geometry" in text and "O " in text, text[:400])
 
     print("\n== a job that did not fail cannot be troubleshot ==")
     # This is the 409 branch of the troubleshoot route: a completed or
@@ -228,8 +236,10 @@ def main() -> int:
     check("an unknown job composes no message",
           compose_troubleshoot_message("ffffffffffff") is None)
 
-    # Leave no qatest thread behind.
+    # Leave no qatest thread or job behind. The job was left until
+    # 2026-10-22, one failed water job per run in everyone's unowned list.
     thread_registry.delete_thread(thread_id)
+    delete_job_dir(job_id)
 
     print(f"\n{checks - len(failures)}/{checks} checks passed")
     if failures:

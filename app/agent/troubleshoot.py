@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.chemistry.jobs.base import read_result, read_spec
+from app.chemistry.jobs.summarize import _single_geometry_section
 
 # How much raw output to carry into the turn. Enough to hold an engine's
 # error block and the lines that led to it, short enough that it cannot
@@ -121,6 +122,23 @@ def compose_troubleshoot_message(job_id: str) -> Optional[str]:
         f"job {job_id}, a '{job_type}' job at the {method} level on {engine} that FAILED.",
         f"Its parameters were: {described}.",
     ]
+    # The structure it ran on. A corrected draft is built on the
+    # conversation's current molecule, and nothing here used to name the
+    # failed job's own. Filmed on 2026-10-22: a water job with a mistyped
+    # basis was diagnosed correctly, and then the model told the user the
+    # job's record held no molecule and asked which one to use. In a
+    # conversation that had moved on to another molecule it would instead
+    # have drafted the fix on the wrong one.
+    molecule = spec.get("molecule") or {}
+    geometry = _single_geometry_section(job_id, spec)
+    if geometry:
+        parts.append(
+            f"It ran on {molecule.get('name') or 'this structure'} (charge "
+            f"{molecule.get('charge', 0)}, multiplicity {molecule.get('multiplicity', 1)}). "
+            f"A corrected job must run on this same structure: unless the conversation's "
+            f"current molecule already is it, call set_geometry with the block below first, "
+            f"with that charge and multiplicity.{geometry}"
+        )
     if tail:
         parts.append(
             f"Here is {source}, included mechanically so you do not have to go "
