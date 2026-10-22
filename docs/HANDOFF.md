@@ -10,15 +10,12 @@ state of this file.
 
 ## Open
 
-- **Decide what to do with the QUESTDB benchmark result, then deploy.**
+- **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
-  Two things wait on the user. First, whether to act on the engine missing
-  all 12 aza-naphthalene n→π* states, which is logged as an open finding in
-  `docs/trackers/2026-10-questdb-benchmark.md`. Second, deploying the engine
-  fix from 24f12ff onward: the stack still runs 58ee498. The
-  `scripts/update.sh --dry-run` on 2026-10-14 passed every gate, but the real
-  update was blocked by the session's permission check, so it needs a person
-  to run `scripts/update.sh` or grant permission.
+  The user has to decide whether to act on the engine missing all 12
+  aza-naphthalene n→π* states, which is logged as an open finding in
+  `docs/trackers/2026-10-questdb-benchmark.md`. The engine fix it waited
+  on is deployed: on 2026-10-22 the stack was already running 0d9706a.
 
 - **Decide whether the development host's Docker daemon should stop using
   its userland port proxy.** On that host a `docker-proxy` process accepts
