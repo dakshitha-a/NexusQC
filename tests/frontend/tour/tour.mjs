@@ -80,6 +80,63 @@ while time.time() < deadline:
 print(json.dumps({"ids": ids, "status": st}))`));
 }
 
+/** A single-geometry PySCF job, as a JobSpec expression. */
+const pyscfJob = (label, task, subtype, method, molecule, params) =>
+  `(${JSON.stringify(label)}, JobSpec(task=${JSON.stringify(task)}, subtype=${JSON.stringify(subtype)}, ` +
+  `method=${JSON.stringify(method)}, engine="pyscf", molecule=resolve_molecule(${JSON.stringify(molecule)}).to_dict(), ` +
+  `params=${JSON.stringify(params).replace(/true/g, "True").replace(/false/g, "False")}))`;
+
+/** A nuclear-ensemble spectrum, seeded the way submit_draft starts one:
+ *  a frequency job, then samples drawn from it and handed to
+ *  submit_ensemble. A wigner_spectra spec given to plain submit() fails at
+ *  dispatch, since the ensemble is orchestrated rather than run. */
+function seedEnsemble(molecule, nSamples = 16) {
+  return JSON.parse(inApi(`
+import json, random, time
+from app.chemistry.jobs.base import JobSpec, get_job_manager, read_spec
+from app.chemistry.jobs.wigner import sample_from_source_job
+from app.chemistry.molecule import resolve_molecule
+mgr = get_job_manager()
+uid = ${JSON.stringify(adminId())}
+lot = {"basis": "def2-svp", "functional": "b3lyp"}
+f = mgr.submit(JobSpec(task="freq", subtype="", method="dft", engine="pyscf",
+                       molecule=resolve_molecule(${JSON.stringify(molecule)}).to_dict(), params=lot), owner_user_id=uid)
+while mgr.status(f)["status"] not in ("completed", "failed", "cancelled"):
+    time.sleep(1)
+m = read_spec(f)["molecule"]
+seed = random.randint(0, 2**31 - 1)
+params = {**lot, "n_states": 4, "n_excited_states": 4, "n_samples": ${nSamples}, "random_seed": seed,
+          "temperature_K": 0.0, "want_oscillator_strengths": True, "source_frequency_job_id": f}
+samples, diag = sample_from_source_job(m, mgr.result(f)["summary"], n_samples=${nSamples}, random_seed=seed)
+w = mgr.submit_ensemble(JobSpec(task="wigner_spectra", subtype="", method="dft", engine="pyscf",
+                                molecule=m, params=params), samples, diag, owner_user_id=uid)
+deadline = time.time() + 900
+while time.time() < deadline and mgr.status(w)["status"] not in ("completed", "failed", "cancelled"):
+    time.sleep(2)
+print(json.dumps({"freq": f, "ensemble": w, "status": mgr.status(w)["status"]}))`));
+}
+
+/** A job that fails for a reason a chemist would recognise, attached to a
+ *  conversation so the chat shows its failure card. The v2 JobSpec shape
+ *  matters: fail_01's pre-v2 shape fails at dispatch with "No runner is
+ *  wired up", which is not the story this scene tells. */
+function seedFailedJob(threadId) {
+  return JSON.parse(inApi(`
+import json, time
+from app.agent import threads as thread_registry
+from app.chemistry.jobs.base import JobSpec, get_job_manager
+from app.chemistry.molecule import resolve_molecule
+mgr = get_job_manager()
+uid = ${JSON.stringify(adminId())}
+j = mgr.submit(JobSpec(task="single_point", subtype="gs", method="dft", engine="pyscf",
+                       molecule=resolve_molecule("water").to_dict(),
+                       params={"basis": "def2-tzvpp-typo", "functional": "b3lyp"}), owner_user_id=uid)
+while mgr.status(j)["status"] not in ("completed", "failed", "cancelled"):
+    time.sleep(1)
+thread_registry.set_active_job_ids(${JSON.stringify(threadId)}, [j])
+print(json.dumps({"job": j, "status": mgr.status(j)["status"]}))`));
+}
+
 // --- what the account holds, before and after -------------------------------
 
 // The app keeps one session per account, so logging the browser in ends any
@@ -136,7 +193,13 @@ async function cleanUp(browser, before) {
 
 // --- the app ------------------------------------------------------------------
 
-async function openApp(browser, theme = "nightshift") {
+/** A logged-in page on a conversation of its own, named `label`. The
+ *  conversation is made before the browser logs in: an account with none
+ *  gets an empty "New conversation" made for it on load, which would sit in
+ *  the sidebar of every clip. */
+async function openApp(browser, { theme = "nightshift", label }) {
+  const api = await freshApi(browser);
+  const threadId = (await (await api.post(`${BASE_URL}/api/threads`, { ...ORIGIN, data: { label } })).json()).thread_id;
   const ctx = await browser.newContext({
     ignoreHTTPSErrors: true, baseURL: BASE_URL, viewport: VIEW, deviceScaleFactor: DPR,
   });
@@ -151,18 +214,11 @@ async function openApp(browser, theme = "nightshift") {
   await page.click('[data-testid="auth-submit"]');
   await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
   // The "new here?" tutorial banner is for a first visit, not for a demo.
-  const dismiss = page.locator('button[aria-label*="ismiss"]').first();
-  if (await dismiss.isVisible().catch(() => false)) await dismiss.click();
-  return { ctx, page };
-}
-
-async function newThread(page, label) {
-  const t = await (await page.request.post(`${BASE_URL}/api/threads`, { ...ORIGIN, data: { label } })).json();
-  await page.reload({ waitUntil: "networkidle" });
-  await page.waitForSelector(LOGGED_IN, { timeout: 20000 });
-  await page.click(`[data-testid="conversation-row-${t.thread_id}"]`);
+  const hint = page.locator('[data-testid="first-run-hint-dismiss"]');
+  if (await hint.isVisible().catch(() => false)) await hint.click();
+  await page.click(`[data-testid="conversation-row-${threadId}"]`);
   await page.waitForTimeout(600);
-  return t.thread_id;
+  return { ctx, page, threadId };
 }
 
 async function jobStatus(page, id) {
@@ -195,12 +251,68 @@ function animate(name, file, width = 960, extra = []) {
 
 const composer = (page) => page.locator('[data-testid="chat-composer"]');
 
+/** Wait for the agent's turn to finish: the Thinking indicator has come and
+ *  gone, and stayed gone for a moment, since a turn that calls several tools
+ *  shows it more than once. */
+async function turnDone(page, timeoutMs = 300000) {
+  const thinking = page.locator('[data-testid="agent-thinking"]');
+  await thinking.first().waitFor({ timeout: 15000 }).catch(() => undefined);
+  const end = Date.now() + timeoutMs;
+  let quietSince = 0;
+  while (Date.now() < end) {
+    if (await thinking.count()) quietSince = 0;
+    else if (!quietSince) quietSince = Date.now();
+    else if (Date.now() - quietSince > 2500) return;
+    await page.waitForTimeout(250);
+  }
+  throw new Error("the agent's turn did not finish");
+}
+
+const lastReply = (page) => page.locator("div.justify-start > div.rounded-bl-sm").last();
+
+/** Open a job's detail drawer from the Job Manager list. */
+async function openFromManager(page, rec, jobId) {
+  const row = page.locator(`[data-testid="jobmanager-row-${jobId}"]`);
+  await row.waitFor({ timeout: 30000 });
+  await glide(page, row);
+  await rec.hold(200);
+  await row.click();
+  const drawer = page.locator('[role="dialog"]');
+  await drawer.waitFor({ timeout: 20000 });
+  return drawer;
+}
+
+/** Move a range input to a value, in steps, the way a dragged thumb does.
+ *  React's own value setter and an input event, since fill() does not
+ *  drive a range input (ui_10_atom_label_toggle found this). */
+async function slide(page, input, to, steps = 14, pauseMs = 70) {
+  const from = Number(await input.inputValue());
+  for (let i = 1; i <= steps; i++) {
+    const v = from + ((to - from) * i) / steps;
+    await input.evaluate((el, val) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      set.call(el, String(val));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, v);
+    await page.waitForTimeout(pauseMs);
+  }
+}
+
+async function say(page, rec, text) {
+  const box = composer(page);
+  await glide(page, box);
+  await box.click();
+  await typeOut(box, text);
+  await rec.hold(350);
+  await box.press("Enter");
+}
+
 // --- scenes ---------------------------------------------------------------------
 
 /** H: a sentence becomes a real calculation. Request, approval card with the
  *  input it will run, approve, the job finishes, the result opens. */
 async function hero(page, { theme = "nightshift" } = {}) {
-  await newThread(page, "Formaldehyde UV/Vis, TDDFT");
   await page.mouse.move(800, 600);
   const name = `hero-${theme === "daylight" ? "light" : "dark"}`;
   const rec = new Recorder(page, name, FRAMES);
@@ -260,7 +372,6 @@ async function hero(page, { theme = "nightshift" } = {}) {
 /** Runs the hero's request without filming and says how it went: did it
  *  reach the approval card, and did the card auto-correct anything. */
 async function probeHero(page) {
-  await newThread(page, "probe hero");
   const t0 = Date.now();
   await composer(page).fill(HERO_PROMPT);
   await composer(page).press("Enter");
@@ -280,10 +391,308 @@ async function probeHero(page) {
   return true;
 }
 
+/** 1: it asks instead of guessing. A CASSCF request with no basis and no
+ *  active space gets a question back, and nothing is submitted. */
+async function asks(page) {
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "asks", FRAMES);
+  await rec.start();
+  await rec.hold(500);
+  await rec.focus(composer(page), { pad: 160 });
+  await say(page, rec, "Run a CASSCF single point on formaldehyde");
+  await rec.quickly(() => turnDone(page), 6);
+  const reply = lastReply(page);
+  await rec.focus(reply, { pad: 40 });
+  await rec.hold(5000);
+  rec.wide();
+  await rec.hold(900);
+  await rec.stop();
+  animate("asks", "asks.webp");
+}
+
+/** 2: a molecule from one word, in 3D with numbered atoms. */
+async function molecule(page) {
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "molecule", FRAMES);
+  await rec.start();
+  await rec.hold(500);
+  await rec.focus(composer(page), { pad: 160 });
+  await say(page, rec, "caffeine");
+  const pane = page.locator('[data-testid="section-molecule-panel"]');
+  const canvas = pane.locator("canvas").first();
+  await rec.quickly(() => canvas.waitFor({ timeout: 120000 }), 6);
+  await rec.quickly(() => turnDone(page), 6);
+  await rec.focus(pane, { pad: 10 });
+  await rec.hold(1400);
+  // Turn it by hand.
+  const box = await canvas.boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await page.mouse.move(cx - 60, cy, { steps: 10 });
+  await page.mouse.down();
+  await page.mouse.move(cx + 90, cy + 25, { steps: 40 });
+  await page.mouse.up();
+  await rec.hold(800);
+  // Numbers off for a clean picture, and back on.
+  const labels = page.locator('[data-testid="molecule-atom-labels"]');
+  await glide(page, labels);
+  await labels.click();
+  await rec.hold(2400);
+  await labels.click();
+  await rec.hold(2000);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("molecule", "molecule.webp");
+}
+
+/** 3: orbitals on a finished job. HOMO, then LUMO, then the isovalue. */
+async function orbitals(page) {
+  const seeded = seedJobs(`[${pyscfJob("benzene", "single_point", "gs", "hf", "benzene", { basis: "6-31g*" })}]`);
+  const jobId = seeded.ids.benzene;
+  await page.reload({ waitUntil: "networkidle" });
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "orbitals", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  const drawer = await openFromManager(page, rec, jobId);
+  const rows = drawer.locator('[data-testid^="orbital-row-"]');
+  await rows.first().waitFor({ timeout: 30000 });
+  // The HOMO is the last occupied row; the LUMO is the one after it.
+  const homoAt = await rows.evaluateAll((trs) =>
+    trs.map((tr) => Number(tr.children[2]?.textContent)).reduce((last, occ, i) => (occ > 0 ? i : last), -1));
+  const homo = rows.nth(homoAt), lumo = rows.nth(homoAt + 1);
+  await homo.scrollIntoViewIfNeeded();
+  await rec.hold(500);
+  await rec.focus(await span(rows.nth(Math.max(0, homoAt - 3)), rows.nth(homoAt + 3)), { pad: 30 });
+  await glide(page, homo);
+  await homo.click();
+  const iso = drawer.locator('[data-testid="mocube-isoval"]');
+  await rec.quickly(() => iso.waitFor({ timeout: 90000 }), 4);
+  const viewer = iso.locator("xpath=ancestor::div[.//canvas][1]");
+  await viewer.scrollIntoViewIfNeeded();
+  await rec.hold(1200);
+  await rec.focus(viewer, { pad: 16 });
+  await rec.hold(2200);
+  await lumo.scrollIntoViewIfNeeded();
+  await glide(page, lumo);
+  await lumo.click();
+  await rec.quickly(() => page.waitForTimeout(4000), 3);
+  await viewer.scrollIntoViewIfNeeded();
+  await rec.focus(viewer, { pad: 16 });
+  await rec.hold(2000);
+  await glide(page, iso);
+  const start = Number(await iso.inputValue());
+  // Each step redraws the isosurface, which takes a moment, so few steps.
+  await slide(page, iso, start * 2, 5, 40);
+  await rec.hold(1200);
+  await slide(page, iso, start * 0.6, 6, 40);
+  await rec.hold(1800);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("orbitals", "orbitals.webp");
+}
+
+/** 4: a nuclear-ensemble spectrum, re-broadened live and zoomed to a band. */
+async function spectrum(page) {
+  const seeded = seedEnsemble("formaldehyde");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "spectrum", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  const drawer = await openFromManager(page, rec, seeded.ensemble);
+  const panel = drawer.locator('[data-testid="wigner-broadening-panel"]');
+  await panel.waitFor({ timeout: 30000 });
+  await panel.scrollIntoViewIfNeeded();
+  await rec.hold(600);
+  await rec.focus(panel, { pad: 16 });
+  await rec.hold(1500);
+  const fwhm = drawer.locator('[data-testid="wigner-fwhm-slider"]');
+  await glide(page, fwhm);
+  const w0 = Number(await fwhm.inputValue());
+  await slide(page, fwhm, Math.min(Number(await fwhm.getAttribute("max")) || 1, w0 * 3), 18, 90);
+  await rec.hold(700);
+  await slide(page, fwhm, Math.max(Number(await fwhm.getAttribute("min")) || 0.02, w0 * 0.4), 22, 90);
+  await rec.hold(1000);
+  const lo = drawer.locator('[data-testid="wigner-window-min"]');
+  await glide(page, lo);
+  await lo.focus();
+  for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(90); }
+  await rec.hold(2200);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("spectrum", "spectrum.webp");
+}
+
+/** 5: vibrations. Two normal modes of a finished frequency job. */
+async function vibrations(page) {
+  const seeded = seedJobs(`[${pyscfJob("freq", "freq", "", "hf", "formaldehyde", { basis: "6-31g*" })}]`);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "vibrations", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  const drawer = await openFromManager(page, rec, seeded.ids.freq);
+  const modes = drawer.locator('[data-testid^="vibration-row-"]');
+  await modes.first().waitFor({ timeout: 30000 });
+  await modes.first().scrollIntoViewIfNeeded();
+  await rec.focus(await span(modes.first(), modes.last()), { pad: 30 });
+  await rec.hold(700);
+  // The C=O stretch and a CH2 wag read best; fall back to the first modes.
+  const n = await modes.count();
+  for (const i of [Math.min(3, n - 1), Math.min(1, n - 1)]) {
+    const m = modes.nth(i);
+    await glide(page, m);
+    await m.click();
+    const viewer = drawer.locator('[data-testid="mode-atom-labels"]').locator("xpath=ancestor::div[.//canvas][1]");
+    await viewer.waitFor({ timeout: 30000 });
+    await viewer.scrollIntoViewIfNeeded();
+    await rec.hold(400);
+    await rec.focus(viewer, { pad: 16 });
+    await rec.hold(3600);
+    await modes.first().scrollIntoViewIfNeeded();
+  }
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("vibrations", "vibrations.webp");
+}
+
+/** 6: a chart drawn by asking, then restyled by asking. The job is attached
+ *  from the Job Manager, so "this job" has one meaning. */
+async function plots(page) {
+  const seeded = seedJobs(`[${pyscfJob("benzene", "single_point", "gs", "hf", "benzene", { basis: "6-31g*" })}]`);
+  const jobId = seeded.ids.benzene;
+  await page.reload({ waitUntil: "networkidle" });
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "plots", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  const tick = page.locator(`[data-testid="jobmanager-select-${jobId}"]`);
+  await tick.waitFor({ timeout: 30000 });
+  await rec.focus(page.locator(`[data-testid="jobmanager-row-${jobId}"]`), { pad: 60 });
+  await glide(page, tick);
+  await tick.check();
+  const attach = page.locator('[data-testid="jobmanager-attach-to-prompt"]');
+  await glide(page, attach);
+  await attach.click();
+  await rec.hold(500);
+  rec.wide();
+  await say(page, rec, "Plot the molecular orbital energy levels of this job");
+  const chatPlot = page.locator('img[alt="Plot"][src*="/api/plots/"]');
+  await rec.quickly(() => chatPlot.first().waitFor({ timeout: 300000 }), 8);
+  await rec.quickly(() => turnDone(page), 8);
+  await chatPlot.last().scrollIntoViewIfNeeded();
+  await rec.focus(chatPlot.last(), { pad: 20 });
+  await rec.hold(3000);
+  rec.wide();
+  const before = await chatPlot.count();
+  await say(page, rec, "Colour the HOMO and LUMO red and make all the text bigger");
+  await rec.quickly(() => page.waitForFunction(
+    ([sel, n]) => document.querySelectorAll(sel).length > n, ['img[alt="Plot"][src*="/api/plots/"]', before],
+    { timeout: 300000 }), 8);
+  await rec.quickly(() => turnDone(page), 8);
+  await chatPlot.last().scrollIntoViewIfNeeded();
+  await rec.focus(chatPlot.last(), { pad: 20 });
+  await rec.hold(3500);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("plots", "plots.webp");
+}
+
+/** 7: a failed job, and a diagnosis only when asked for. */
+async function troubleshoot(page, { threadId }) {
+  seedFailedJob(threadId);
+  const card = page.locator("text=Job failed").locator("xpath=ancestor::div[contains(@class,'rounded-bl-sm')][1]");
+  // The job watcher writes the failure card into the conversation.
+  const end = Date.now() + 90000;
+  while (!(await card.count()) && Date.now() < end) {
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(4000);
+  }
+  await card.first().waitFor({ timeout: 10000 });
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "troubleshoot", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  await card.first().scrollIntoViewIfNeeded();
+  await rec.focus(card.first(), { pad: 30 });
+  await rec.hold(2500);
+  const button = card.first().locator('button:has-text("Troubleshoot")');
+  await glide(page, button);
+  await button.click();
+  await rec.hold(800);
+  rec.wide();
+  await rec.quickly(() => turnDone(page, 600000), 12);
+  const reply = lastReply(page);
+  await reply.scrollIntoViewIfNeeded();
+  await rec.focus(reply, { pad: 30 });
+  await rec.hold(5000);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("troubleshoot", "troubleshoot.webp");
+}
+
+/** 8: finished work filed into a project. Filmed last in a run: the jobs
+ *  leave the Job Manager list when they are filed. */
+async function projects(page) {
+  const seeded = seedJobs(`[${[
+    pyscfJob("a", "single_point", "gs", "hf", "water", { basis: "cc-pvdz" }),
+    pyscfJob("b", "single_point", "gs", "dft", "water", { basis: "cc-pvdz", functional: "pbe0" }),
+    pyscfJob("c", "single_point", "gs", "mp2", "water", { basis: "cc-pvdz" }),
+  ].join(", ")}]`);
+  const ids = Object.values(seeded.ids);
+  await page.reload({ waitUntil: "networkidle" });
+  const section = page.locator('[data-testid="section-projects-toggle"]');
+  if ((await section.getAttribute("aria-expanded")) === "false") await section.click();
+  await page.mouse.move(800, 600);
+  const rec = new Recorder(page, "projects", FRAMES);
+  await rec.start();
+  await rec.hold(400);
+  await rec.focus(await span(...ids.map((id) => page.locator(`[data-testid="jobmanager-row-${id}"]`))), { pad: 60 });
+  for (const id of ids) {
+    const tick = page.locator(`[data-testid="jobmanager-select-${id}"]`);
+    await glide(page, tick, 10);
+    await tick.check();
+    await rec.hold(250);
+  }
+  const add = page.locator('[data-testid="jobmanager-add-to-project"]');
+  await glide(page, add);
+  await add.click();
+  const name = page.locator('[data-testid="add-to-project-new-name"]');
+  await name.waitFor({ timeout: 10000 });
+  await typeOut(name, "Water, three levels of theory");
+  await rec.hold(300);
+  const create = page.locator('[data-testid="add-to-project-create"]');
+  await glide(page, create);
+  await create.click();
+  await rec.hold(1200);
+  const panel = page.locator('[data-testid="section-projects-panel"]');
+  await rec.focus(panel, { pad: 40 });
+  await rec.hold(3000);
+  rec.wide();
+  await rec.hold(800);
+  await rec.stop();
+  animate("projects", "projects.webp");
+}
+
+// Each scene: the conversation it opens on, and what it does there.
 const SCENES = {
-  hero: (p) => hero(p),
-  "hero-light": null, // filmed in its own context, below
-  "probe-hero": probeHero,
+  hero: { label: "Formaldehyde UV/Vis, TDDFT", run: (p) => hero(p) },
+  "hero-light": { label: "Formaldehyde UV/Vis, TDDFT", theme: "daylight", run: (p) => hero(p, { theme: "daylight" }) },
+  asks: { label: "Formaldehyde CASSCF", run: asks },
+  molecule: { label: "Caffeine", run: molecule },
+  orbitals: { label: "Benzene orbitals", run: orbitals },
+  spectrum: { label: "Formaldehyde UV/Vis, nuclear ensemble", run: spectrum },
+  vibrations: { label: "Formaldehyde vibrations", run: vibrations },
+  plots: { label: "Benzene orbital levels", run: plots },
+  troubleshoot: { label: "Water single point", run: troubleshoot },
+  projects: { label: "Water, three levels of theory", run: projects },
+  "probe-hero": { label: "probe hero", run: probeHero },
 };
 
 // --- main -------------------------------------------------------------------------
@@ -300,21 +709,22 @@ let failed = false;
 try {
   for (const w of wanted) {
     console.log(`== ${w}`);
-    const theme = w === "hero-light" ? "daylight" : "nightshift";
-    const { ctx, page } = await openApp(browser, theme);
+    const scene = SCENES[w];
+    const { ctx, page, threadId } = await openApp(browser, { theme: scene.theme, label: scene.label });
     try {
-      if (w === "hero-light") await hero(page, { theme });
-      else await SCENES[w](page);
+      await scene.run(page, { threadId });
     } catch (e) {
       failed = true;
       console.log(`[FAIL] ${w}: ${e.stack || e}`);
     } finally {
       await ctx.close();
+      // Each scene clears up after itself, so the next one's sidebar and
+      // job list hold only what that scene made.
+      const leftover = await cleanUp(browser, before);
+      if (Object.values(leftover).some((v) => v.length)) failed = true;
     }
   }
 } finally {
-  const leftover = await cleanUp(browser, before);
   await browser.close();
-  if (Object.values(leftover).some((v) => v.length)) failed = true;
 }
 process.exit(failed ? 1 : 0);
