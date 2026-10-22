@@ -112,7 +112,7 @@ async function main() {
     check("submit_draft paints the approval card", true);
 
     const body = await page.innerText("body");
-    check("the card names the job type", /Approve\s+\S+\s+job/.test(body),
+    check("the card names the job type", /Approve\s+.+\s+job for /.test(body),
           body.slice(0, 200));
     check("and the molecule", /water/i.test(body));
 

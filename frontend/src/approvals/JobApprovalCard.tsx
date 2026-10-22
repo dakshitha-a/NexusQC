@@ -111,6 +111,13 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const advisoryWarnings = inputWarnings.filter((w) => w.severity === "warning");
   const calculationNotes = inputWarnings.filter((w) => w.severity === "note");
   const [ackProblems, setAckProblems] = useState(false);
+  // The registry's label, with its first letter lowered so it reads inside
+  // a sentence; "NEB transition-state search" keeps its capitals. A card
+  // pending from before task_label existed falls back to task/subtype.
+  const rawLabel = pending.task_label as string | undefined;
+  const taskName = rawLabel
+    ? (/^[A-Z][a-z]/.test(rawLabel) ? rawLabel[0].toLowerCase() + rawLabel.slice(1) : rawLabel)
+    : `${pending.task as string}${pending.subtype ? `/${pending.subtype as string}` : ""}`;
   const keywordOptions = pending.keyword_options as
     | { basis_options?: string[]; functional_options?: string[] }
     | undefined;
@@ -120,9 +127,7 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
       <div className="w-full max-w-[85%] rounded-lg border border-accent/40 bg-surface p-3.5 text-sm">
         <div className="mb-2 flex items-center justify-between">
           <div className="font-medium text-text">
-            Approve {pending.task as string}
-            {pending.subtype ? `/${pending.subtype as string}` : ""} job, {" "}
-            {(pending.molecule_name as string) ?? "molecule"}
+            Approve {taskName} job for {(pending.molecule_name as string) ?? "this molecule"}
           </div>
           <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-3xs text-text-muted">
             {engine}

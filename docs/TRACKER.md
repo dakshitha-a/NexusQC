@@ -51,6 +51,8 @@ the storyboard: a hero and eight tour scenes.
   evidence: tests/backend/elic_01_draft_scenarios.py → "HF and DFT join CMS-PDFT as methods that always compute intensities, so the flag is hidden; elic_01 206/206, wig_01 all passed, p8_04 18/18"
 - [done] P1A.3: "colour the HOMO and LUMO red" was reported done and drawn orange; the level diagram's colours were constants
   evidence: tests/backend/plot_05_job_charts.py → "colours by legend label (Occupied, Virtual, HOMO, LUMO, HOMO / LUMO) and palette; an unknown label is refused; 0 failures, plot_02 and plot_07 0 failures"
+- [done] P1A.5: the approval card's heading read "Approve single_point/ee job,  formaldehyde"
+  evidence: tests/frontend/draft_01_approval_card.spec.mjs → "the card now says 'Approve excited-state energies job for formaldehyde' from the registry's TaskDef.label; the payload's task_label landed in 5533e8c"
 - [todo] P1A.4: the fixes deployed with scripts/update.sh, after a full data backup, before the final filming
 
 ## Findings left for the user (seen while filming, not changed)
