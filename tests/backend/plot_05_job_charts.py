@@ -192,5 +192,18 @@ for name, draw in (
     draw(str(b), style=RESTYLED)
     check("%s: honours the shared style vocabulary" % name, digest(a) != digest(b))
 
+# Colours by legend label. Until 2026-10-22 the level diagram's colours were
+# constants: "colour the HOMO and LUMO red" was stored, reported as done, and
+# drawn orange.
+red = out / "orbitals_red.png"
+job_charts.render_mo_diagram(CLOSED, str(red), series=[{"label": "HOMO / LUMO", "color": "red"}])
+check("orbitals: a series colour by legend label reaches the figure", digest(red) != digest(plain))
+c = job_charts.mo_colors([{"label": "HOMO", "color": "red"}])
+check("orbitals: naming the HOMO alone leaves the LUMO's colour", c["homo"] == "red" and c["lumo"] != "red", str(c))
+from app.agent import tools as agent_tools
+refusal = agent_tools.plot_mo_diagram("no-such-job", plot_spec={"series": [{"label": "S2", "color": "red"}]})
+check("orbitals: a series the diagram does not draw is refused, not stored", "no series called 'S2'" in refusal,
+      refusal[:80])
+
 print("\n%d failure(s)" % len(failures))
 sys.exit(1 if failures else 0)

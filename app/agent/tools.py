@@ -69,7 +69,7 @@ from app.chemistry.registry2.params import (
 from app.chemistry import job_charts
 from app.chemistry import plot_style
 from app.chemistry import units
-from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, supports
+from app.chemistry.registry2.tasks import BATCH_CHILD_TASKS, BATCH_GEOMETRY_SOURCE_ARTIFACT_KEY, get_task, supports
 from app.chemistry.jobs.naming import auto_job_name, resolve_job_label
 from app.chemistry.jobs import spectrum_source
 from app.chemistry.jobs.summarize import job_context_summary
@@ -2041,7 +2041,19 @@ def plot_mo_diagram(job_id: str, state: Annotated[AgentState, InjectedState] = N
     which nothing displayed as a diagram before. spec["window"] sets how many
     levels are drawn either side of the gap (default 8); the whole table can
     be a hundred and thirty rows and the frontier is the question.
+
+    Recolour by legend label: spec["series"] = [{"label": "HOMO", "color":
+    "red"}], with "Occupied", "Virtual", "HOMO", "LUMO" or "HOMO / LUMO" for
+    both. Any other label is refused, so a change that would not be drawn is
+    never reported as made.
     """
+    unknown = [s.get("label") for s in (plot_spec or {}).get("series") or []
+               if str(s.get("label") or "").strip().lower() not in job_charts.MO_SERIES_LABELS]
+    if unknown:
+        return (f"The orbital diagram has no series called {', '.join(map(repr, unknown))}. Its "
+                f"levels are recoloured by legend label: \"Occupied\", \"Virtual\", \"HOMO\", "
+                f"\"LUMO\", or \"HOMO / LUMO\" for both, e.g. "
+                f"{{\"series\": [{{\"label\": \"HOMO / LUMO\", \"color\": \"red\"}}]}}.")
     summary, error = _completed_summary(job_id, "orbital diagram")
     if error:
         return error
@@ -2076,7 +2088,8 @@ def plot_mo_diagram(job_id: str, state: Annotated[AgentState, InjectedState] = N
         spec={**(plot_spec or {}), "kind": "orbitals", "window": window}, job_ids=[job_id],
         data={"n_orbitals": len(table)},
         render=lambda path: job_charts.render_mo_diagram(
-            table, path, window=window, style=_styled(plot_spec)),
+            table, path, window=window, style=_styled(plot_spec),
+            series=(plot_spec or {}).get("series")),
         plot_id=plot_id,
     )
     if error:
@@ -4187,6 +4200,9 @@ def _submit_ready_draft(verdict, state, tool_call_id, follow_up_work: bool = Fal
         "kind": "job_approval",
         "task": verdict.draft["task"],
         "subtype": verdict.draft.get("subtype", ""),
+        # The registry's name for the task, for the card's heading, which
+        # read "Approve single_point/ee job" until 2026-10-22.
+        "task_label": getattr(get_task(verdict.draft["task"], verdict.draft.get("subtype", "") or ""), "label", None),
         "engine": spec.engine,
         "molecule_name": (molecule or {}).get("name"),
         "params": spec.params,

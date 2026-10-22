@@ -49,7 +49,17 @@ the storyboard: a hero and eight tour scenes.
   evidence: frontend/src/approvals/JobApprovalCard.tsx → "notes are tagged severity 'note' in tools.py and shown in their own neutral box; draft_01_approval_card 11/11"
 - [done] P1A.2: a TDDFT card listed want_oscillator_strengths=false as a default, beside a result that carried intensities
   evidence: tests/backend/elic_01_draft_scenarios.py → "HF and DFT join CMS-PDFT as methods that always compute intensities, so the flag is hidden; elic_01 206/206, wig_01 all passed, p8_04 18/18"
-- [todo] P1A.3: both fixes deployed with scripts/update.sh, after a full data backup, before the final filming
+- [done] P1A.3: "colour the HOMO and LUMO red" was reported done and drawn orange; the level diagram's colours were constants
+  evidence: tests/backend/plot_05_job_charts.py → "colours by legend label (Occupied, Virtual, HOMO, LUMO, HOMO / LUMO) and palette; an unknown label is refused; 0 failures, plot_02 and plot_07 0 failures"
+- [todo] P1A.4: the fixes deployed with scripts/update.sh, after a full data backup, before the final filming
+
+## Findings left for the user (seen while filming, not changed)
+
+- **Degenerate orbital levels print their numbers on top of each other** in
+  the level diagram (benzene's 18/19, 20/21). Readable, but untidy.
+- **The single-geometry UV/Vis figure is in nm**, with oscillator strength
+  on the y axis. The ensemble spectrum is in eV and normalised to 1. Whether
+  the single-geometry figure should match is a convention question.
 
 ## Phase 2: the tour scenes
 

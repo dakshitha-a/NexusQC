@@ -32,6 +32,8 @@ Why each exists, in the order they were added:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import matplotlib
 
 matplotlib.use("Agg")  # headless, exactly as spectrum.py -- never a display
@@ -53,6 +55,39 @@ _MO_OCCUPIED = "#0072B2"
 _MO_VIRTUAL = "#B0B7BE"
 _MO_FRONTIER = "#D55E00"
 
+# The names a recolouring of the level diagram can use, as the legend shows
+# them, lower-cased. "HOMO / LUMO" is the legend's own entry and colours both.
+MO_SERIES_LABELS = ("occupied", "virtual", "homo", "lumo", "homo / lumo")
+
+
+def mo_colors(series: Optional[list] = None, style: PlotStyle = None) -> dict:
+    """The four colours the level diagram draws with: occupied, virtual, HOMO
+    and LUMO.
+
+    Until 2026-10-22 these were constants the renderer never let go of. Asked
+    to colour the HOMO and LUMO red, the agent stored the change, the edit
+    reported success, and the chart came back orange. Now a palette sets them
+    in that order (occupied, virtual, frontier), and a series named by its
+    legend label overrides one, which is how every other chart is recoloured.
+    """
+    palette = (style.palette if style is not None else None) or ()
+    out = {
+        "occupied": palette[0] if len(palette) > 0 else _MO_OCCUPIED,
+        "virtual": palette[1] if len(palette) > 1 else _MO_VIRTUAL,
+        "homo": palette[2] if len(palette) > 2 else _MO_FRONTIER,
+        "lumo": palette[2] if len(palette) > 2 else _MO_FRONTIER,
+    }
+    for s in series or []:
+        label = str(s.get("label") or "").strip().lower()
+        color = s.get("color")
+        if not color:
+            continue
+        if label == "homo / lumo":
+            out["homo"] = out["lumo"] = color
+        elif label in out:
+            out[label] = color
+    return out
+
 
 def _frontier_is_placeholder(occupied: list) -> bool:
     """Whether the highest occupied orbital's energy is a filler zero.
@@ -72,6 +107,7 @@ def _frontier_is_placeholder(occupied: list) -> bool:
 
 def render_mo_diagram(
     orbital_table: list[dict], out_path: str, window: int = 8, style: PlotStyle = None,
+    series: Optional[list] = None,
 ) -> None:
     """Molecular-orbital energy levels, occupied below the gap and virtual
     above it, with the HOMO and LUMO picked out and the gap annotated.
@@ -119,13 +155,15 @@ def render_mo_diagram(
 
     st = (style or PlotStyle()).with_defaults(
         title="Molecular orbital energies", xlabel="", ylabel="Orbital energy (eV)")
+    colors = mo_colors(series, st)
     # R-079: pyplot is global state; see plot_style.figure_lock.
     with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
         for row in shown:
             frontier = row is homo or row is lumo
             filled = (row.get("occupancy") or 0) > 0.0
-            color = _MO_FRONTIER if frontier else (_MO_OCCUPIED if filled else _MO_VIRTUAL)
+            color = (colors["homo"] if row is homo else colors["lumo"] if row is lumo
+                     else colors["occupied"] if filled else colors["virtual"])
             ax.hlines(row["energy_eV"], -0.35, 0.35, color=color,
                       linewidth=st.lw(3.0 if frontier else 2.0))
             # The index sits beside its own level rather than on an axis: the
@@ -136,19 +174,26 @@ def render_mo_diagram(
         if homo is not None and lumo is not None:
             gap = lumo["energy_eV"] - homo["energy_eV"]
             mid = (lumo["energy_eV"] + homo["energy_eV"]) / 2.0
+            # The gap belongs to the pair, so it takes their colour while
+            # they share one, and stays neutral once they are told apart.
+            gap_color = colors["homo"] if colors["homo"] == colors["lumo"] else "#606060"
             ax.annotate("", xy=(-0.5, lumo["energy_eV"]), xytext=(-0.5, homo["energy_eV"]),
-                        arrowprops=dict(arrowstyle="<->", color=_MO_FRONTIER, linewidth=1.2))
+                        arrowprops=dict(arrowstyle="<->", color=gap_color, linewidth=1.2))
             ax.annotate(f"gap {gap:.2f} eV", xy=(-0.55, mid), ha="right", va="center",
-                        color=_MO_FRONTIER, fontsize=st.size("tick_size"))
+                        color=gap_color, fontsize=st.size("tick_size"))
         ax.set_xlim(-1.35, 0.9)
         ax.set_xticks([])
         st.apply(ax)
         if st.legend is not False:
             # Proxy handles: hlines returns a LineCollection per call, so
             # labelling them directly puts one legend entry per drawn level.
-            handles = [Line2D([0], [0], color=_MO_OCCUPIED, linewidth=2.0, label="Occupied"),
-                       Line2D([0], [0], color=_MO_VIRTUAL, linewidth=2.0, label="Virtual"),
-                       Line2D([0], [0], color=_MO_FRONTIER, linewidth=3.0, label="HOMO / LUMO")]
+            handles = [Line2D([0], [0], color=colors["occupied"], linewidth=2.0, label="Occupied"),
+                       Line2D([0], [0], color=colors["virtual"], linewidth=2.0, label="Virtual")]
+            if colors["homo"] == colors["lumo"]:
+                handles.append(Line2D([0], [0], color=colors["homo"], linewidth=3.0, label="HOMO / LUMO"))
+            else:
+                handles += [Line2D([0], [0], color=colors["homo"], linewidth=3.0, label="HOMO"),
+                            Line2D([0], [0], color=colors["lumo"], linewidth=3.0, label="LUMO")]
             if isinstance(st.legend, str):
                 ax.legend(handles=handles, loc=st.legend)
             else:
@@ -158,7 +203,7 @@ def render_mo_diagram(
                 # label take the left. A "lower right" default sat squarely
                 # on the HOMO of a real 132-orbital job.
                 ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.04),
-                          ncol=3, frameon=False)
+                          ncol=len(handles), frameon=False)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")
         plt.close(fig)
