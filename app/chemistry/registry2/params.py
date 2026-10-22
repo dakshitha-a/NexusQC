@@ -236,8 +236,13 @@ _NO_OSC_METHODS = ("nevpt2", "mcpdft", "lpdft")
 # dipoles are the only reason to choose it over L-PDFT, and its runner
 # computes them for every state pair whenever there is a state average, so a
 # card reading "Oscillator strengths: no" would describe a job that produces
-# them anyway.
-_INTRINSIC_OSC_METHODS = ("cmspdft",)
+# them anyway. HF and DFT excited states are the same case on both engines
+# that run them: PySCF's tdscf and ORCA's ABSORPTION SPECTRUM block report
+# an intensity for every state whatever the flag says. Until 2026-10-22 a
+# TDDFT card asked for "a UV/Vis spectrum ... with oscillator strengths"
+# still listed want_oscillator_strengths=false among its defaults, beside a
+# result that carried them.
+_INTRINSIC_OSC_METHODS = ("cmspdft", "hf", "dft")
 _SINGLEREF = ("hf", "dft", "mp2", "ccsd", "eom_ccsd")
 # Public alias: elicitation.py's zero-excited-states auto-route (n_states=0
 # on a single_point/ee draft means "ground state only", which for a

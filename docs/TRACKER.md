@@ -43,6 +43,14 @@ the storyboard: a hero and eight tour scenes.
   evidence: tests/frontend/tour/tour.mjs → "probe-hero x3: the card appeared after 8 s, 7 s and 8 s, with no auto-corrected banner"
 - [todo] P1.3: hero filmed in dark, frames reviewed, advisor consulted
 
+## Phase 1A: bugs the hero's first cut showed (raised along the way)
+
+- [done] P1A.1: the approval card filed the registry's TDDFT note under "Structural check didn't recognize part of this input"
+  evidence: frontend/src/approvals/JobApprovalCard.tsx → "notes are tagged severity 'note' in tools.py and shown in their own neutral box; draft_01_approval_card 11/11"
+- [done] P1A.2: a TDDFT card listed want_oscillator_strengths=false as a default, beside a result that carried intensities
+  evidence: tests/backend/elic_01_draft_scenarios.py → "HF and DFT join CMS-PDFT as methods that always compute intensities, so the flag is hidden; elic_01 206/206, wig_01 all passed, p8_04 18/18"
+- [todo] P1A.3: both fixes deployed with scripts/update.sh, after a full data backup, before the final filming
+
 ## Phase 2: the tour scenes
 
 - [todo] P2.1: scene 1, it asks instead of guessing

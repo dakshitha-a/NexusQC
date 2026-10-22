@@ -4202,7 +4202,18 @@ def _submit_ready_draft(verdict, state, tool_call_id, follow_up_work: bool = Fal
         "scan_note": scan_note,
         "kb_context": kb_context,
         "param_corrections": list(param_notes or []) + list(verdict.notes),
-        "input_warnings": list(warnings or []) + list(verdict.warnings),
+        # The validator's findings arrive as {severity, message}. Everything
+        # else here is a plain string: the registry's warn_when notes, such
+        # as which kind of TDDFT will run, and the path and scan builders'
+        # remarks. Those are statements about the calculation, not a check
+        # that failed to recognise the input, so they are tagged "note" and
+        # the card shows them apart. Until 2026-10-22 they rendered under
+        # "Structural check didn't recognize part of this input" on every
+        # TDDFT card.
+        "input_warnings": [
+            w if isinstance(w, dict) else {"severity": "note", "message": w}
+            for w in list(warnings or []) + list(verdict.warnings)
+        ],
         "keyword_options": keyword_options,
         "capability_note": verdict.routing_reason,
         "spec": spec.to_dict(),

@@ -98,16 +98,18 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const kbContext = pending.kb_context as string | undefined;
   const scanNote = pending.scan_note as string | undefined;
   const paramCorrections = (pending.param_corrections as string[] | undefined) ?? [];
-  // F-018: input_warnings carries {severity, message} objects now. The
-  // string[] branch is a compatibility path for an approval that was
-  // already pending when this shipped -- its interrupt payload was written
-  // by the old code and cannot be rewritten, so an in-flight card would
-  // otherwise render "- undefined" for every finding.
+  // F-018: input_warnings carries {severity, message} objects. "error" and
+  // "warning" are the input validator's findings; "note" is a statement
+  // about the calculation from the registry or a path builder, such as
+  // which kind of TDDFT will run. A bare string is an approval that was
+  // already pending before notes were tagged; only notes were ever strings,
+  // so it is read as one.
   const inputWarnings = (
     (pending.input_warnings as Array<string | { severity?: string; message: string }> | undefined) ?? []
-  ).map((w) => (typeof w === "string" ? { severity: "warning", message: w } : w));
+  ).map((w) => (typeof w === "string" ? { severity: "note", message: w } : w));
   const definiteProblems = inputWarnings.filter((w) => w.severity === "error");
-  const advisoryWarnings = inputWarnings.filter((w) => w.severity !== "error");
+  const advisoryWarnings = inputWarnings.filter((w) => w.severity === "warning");
+  const calculationNotes = inputWarnings.filter((w) => w.severity === "note");
   const [ackProblems, setAckProblems] = useState(false);
   const keywordOptions = pending.keyword_options as
     | { basis_options?: string[]; functional_options?: string[] }
@@ -214,6 +216,17 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
               />
               Run it anyway, I know what I'm doing
             </label>
+          </div>
+        )}
+
+        {calculationNotes.length > 0 && (
+          <div
+            data-testid="approval-notes"
+            className="mb-2 rounded border border-border bg-bg px-2 py-1 text-2xs text-text-muted"
+          >
+            {calculationNotes.map((w, i) => (
+              <div key={i}>{w.message}</div>
+            ))}
           </div>
         )}
 

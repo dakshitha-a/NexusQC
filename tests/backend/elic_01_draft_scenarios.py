@@ -214,7 +214,12 @@ SCENARIOS = [
         # the complete linear response; defaulting to the approximation
         # and not saying so is a silent substitution.
         params={"basis": "6-31g*", "functional": "b3lyp", "n_excited_states": 3, "n_states": 3,
-                "use_tda": False, "want_oscillator_strengths": False},
+                "use_tda": False},
+        # TDDFT reports an intensity for every state on PySCF and ORCA
+        # alike, so a yes/no for them would describe a choice that is not
+        # there. The card used to read "want_oscillator_strengths=false"
+        # beside a result that carried them.
+        absent_params=("want_oscillator_strengths",),
         warnings_containing=("Full TDDFT (the complete linear response",),
     ),
     Scenario(
