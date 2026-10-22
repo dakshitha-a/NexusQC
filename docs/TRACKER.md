@@ -71,6 +71,14 @@ the storyboard: a hero and eight tour scenes.
   before the test's in-process watcher. It fails the same way without this
   plan's changes.
 
+- **The active-space recommendation contradicts itself on the smaller
+  size.** For formaldehyde (three states) the summary says "A smaller
+  CAS(2e, 2o) is available", while the sizes table lists minimal as 6e, 4o
+  with the recommended tier's own rationale. The CAS engine is changed only
+  with a benchmark run, so this is left for a decision.
+- **The single-orbital entropy chart** labels its x axis at 0.5 steps for
+  whole orbitals, and its title runs past the plot's right edge.
+
 ## Phase 2: the tour scenes
 
 - [todo] P2.1: scene 1, it asks instead of guessing
@@ -86,8 +94,10 @@ the storyboard: a hero and eight tour scenes.
 
 ## Phase 3: moving the text
 
-- [todo] P3.1: docs/GUIDE.md holds the README's feature prose, limitations and example prompts
-- [todo] P3.2: docs/DEPLOYMENT.md holds the installer, update and shared-service prose, merged without duplication
+- [done] P3.1: docs/GUIDE.md holds the README's feature prose, limitations and example prompts
+  evidence: docs/GUIDE.md → "eleven sections moved verbatim by line range, links rewritten for docs/ and all resolving; the 'four things' sentence that listed three now names DuckDuckGo; the results screenshot's caption describes what it shows"
+- [done] P3.2: docs/DEPLOYMENT.md holds the installer, update and shared-service prose, merged without duplication
+  evidence: docs/DEPLOYMENT.md → "added installer flags, unattended install, the ten steps, the context-window note, 'Running it for a group', password resets and orphaned directories; the update sections were already there and gained the force-stop sentence only"
 
 ## Phase 4: the new README
 

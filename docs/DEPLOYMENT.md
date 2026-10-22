@@ -36,8 +36,8 @@ You'll need:
 ### How much GPU you need, and what happens if you have less
 
 The served chat model is the app's real hardware requirement, not the quantum
-chemistry: PySCF, ORCA and BAGEL are CPU work. The default `qwen3.8:27b` sits
-at **16.3 GB resident in VRAM** while serving, and with headroom for the
+chemistry: PySCF, ORCA and BAGEL are CPU work. The default `qwen3.8:27b` is
+about 16.5 GB to download and sits at **16.3 GB resident in VRAM** while serving, and with headroom for the
 context window and the embedding model beside it, **24 GB is the practical
 floor**. That is a single consumer card -- an RTX 3090, 4090 or 5090 -- as much
 as a workstation or datacentre GPU. With less VRAM it will run on CPU and
@@ -149,6 +149,98 @@ deployment.
 Read on if you'd rather do each step by hand, want to understand what the
 installer is actually doing, or need to adapt one of these steps for your
 environment.
+
+### Installer flags
+
+Useful flags, which work through the pipe as well
+(`... | sh -s -- --bind=lan`):
+
+| Flag | What it does |
+|---|---|
+| `--dir=PATH` | install somewhere other than `~/apps/NexusQC`. Also `NEXUSQC_DIR`. |
+| `--repo=URL` | clone a fork instead. Also `NEXUSQC_REPO`. |
+| `--bind=MODE` | `localhost`, `lan`, `tailscale` or `both`, instead of being asked |
+| `--non-interactive` | ask nothing at all; see below |
+| `--pull-model` | pull the chat model if it is missing (unattended runs only) |
+| `--install-updater` | install the host service for in-app updates (unattended runs only) |
+| `--force-override` | replace an existing `docker-compose.override.yml` without asking |
+| `--help` | the same list, without installing anything |
+
+### An unattended install
+
+For an unattended install -- reprovisioning, or a machine you are configuring
+from a script -- `--non-interactive` asks nothing. It needs `--bind` and the
+first admin account in the environment:
+
+```bash
+NEXUSQC_ADMIN_EMAIL=you@example.edu NEXUSQC_ADMIN_USERNAME=you \
+NEXUSQC_ADMIN_FIRSTNAME=Your NEXUSQC_ADMIN_LASTNAME=Name \
+NEXUSQC_ADMIN_PASSWORD='...' \
+  scripts/install.sh --non-interactive --bind=localhost
+```
+
+Anything expensive or that changes the host outside the checkout stays off in
+that mode unless you ask for it by flag, so a script cannot quietly start a
+tens-of-gigabytes model download or write a systemd unit on your behalf.
+
+Re-running it is safe. It asks before touching an existing `.env`, never
+touches a populated `data/`, and if you point it at a directory that already
+holds a NexusQC checkout it leaves that checkout exactly where it is and tells
+you to use `scripts/update.sh`, which is the only thing that should ever move a
+deployment forward.
+
+### What the installer does, step by step
+
+These are the ten steps it prints, numbered as it numbers them.
+
+1. Checks this host can actually run it, before asking you anything: the five
+   tools, a docker daemon that answers, enough disk on both the image store and
+   the checkout, a free port, and a `data/` it can write. Each failure names
+   its own fix.
+2. Confirms where it is installing. Wherever the clone sits is where `data/`
+   lives -- job results, the knowledge base, uploads, the molecule cache.
+   There is no separate data-directory setting.
+3. Writes `.env` from `.env.example`, with a freshly generated Postgres
+   password and JWT signing secret, and this host's uid and gid so nothing the
+   container writes lands root-owned.
+4. Asks how the stack should be reachable and generates a self-signed
+   certificate covering the addresses you chose. TLS is not optional: the
+   session cookie is marked `Secure`, so over plain HTTP login silently does
+   nothing at all.
+5. Looks for ORCA and BAGEL, lets you enter paths by hand, or lets you skip
+   either. Skipping both is a PySCF-only deployment, which works; re-run the
+   installer later to add them. This step also offers the optional DMRG
+   backend (`block2`, about 379 MB), off by default.
+6. Checks the language model is reachable and pulled, and offers to pull it.
+   This one only warns: Ollama is not part of the stack.
+7. Builds the images and copies the frontend bundle out of the built api image.
+   This is the long part -- ten to twenty minutes, once.
+8. Starts everything and waits, showing elapsed time and what each container is
+   doing rather than going silent. If a container stops it says so immediately
+   instead of waiting out the timeout.
+9. Creates the first admin account. Everyone else joins by invite; there is no
+   open registration.
+10. Optionally installs the small systemd user service that lets the admin
+    panel run updates itself. Declining costs you the Apply button and nothing
+    else.
+
+Then it prints where to reach the deployment, which engines it ended up with,
+and what to do next.
+
+All of it is idempotent: re-running picks up where it left off, and offers to
+keep the configuration it already wrote.
+
+### Before a long session: tell the app its context window
+
+One setting is worth checking before a long session. `QC_AGENT_LLM_NUM_CTX`
+tells the app how large your model's context window is, so it knows when to
+start trimming old messages. It cannot read this from the server, and it cannot
+change it: the app can only be told. Run `ollama ps` after your first request
+and set it to the number in the CONTEXT column. Leaving it too low only means
+the agent forgets earlier turns sooner. Setting it higher than the server really
+has is the one to avoid, because replies then get cut off in mid-sentence with
+nothing reported anywhere, and a reply cut off before it submits a job means the
+approval card never appears.
 
 ---
 
@@ -380,6 +472,50 @@ docker run --rm -v "$PWD/data:/d" alpine chown -R "$(id -u):$(id -g)" /d
 
 ---
 
+## Running it for a group
+
+The installer already produces a multi-user deployment: real accounts, per-user
+data isolation, storage quotas, an append-only audit log, and an admin console
+behind the cogwheel in the sidebar. Invites, suspensions, deletions, storage
+usage and bug-report triage all happen there rather than through raw API calls.
+Deployment-wide purges require typing a confirmation phrase, since a second
+click is too easy to do by reflex. Admins manage accounts, not other people's
+work: an admin's own sidebar, job list and projects hold only their own, like
+everyone's, and another user's conversation or project cannot be opened even
+by link. Through the admin API, not yet the console, an admin can remove one
+particular job or conversation if it has to go, and give one account a larger
+or smaller storage allowance than the default. Every user, admin or not, can download all of
+their own data as a zip and purge it themselves. The zip is genuinely
+everything the account holds: jobs and their outputs, knowledge-base sources,
+uploaded geometries, saved plots with every version of each one, project
+archives, and the full text of every conversation. The purge button is
+deliberately narrower than the download: it removes the jobs, sources,
+uploads, plots and project archives, and it leaves the conversations, because
+losing every chat as a side effect of clearing out old calculations is not
+what the button says it does. Deleting the account itself does remove them.
+
+Two things worth knowing before you invite anyone. **HTTPS is mandatory**. The
+session cookie is `Secure`, so login over plain HTTP silently does nothing at
+all, which is the most common first-deployment failure. And an all-admin
+lockout is still recoverable only from the host, which is why the last active
+admin can't be deleted or suspended.
+
+### When someone forgets their password
+
+**When someone forgets their password**, any admin can open the Users section,
+click the account, and issue a reset. That hands back a single-use link, valid
+for two hours, which you send to them yourself; there is no mail server here, so
+nothing is emailed on your behalf. They open it, choose their own password, and
+are signed in. The admin never sees or picks the password, which is the reason
+this is preferable to setting a temporary one. Redeeming a link also ends every
+session the account had open, since the usual reason someone needs one is that
+they no longer know what else is signed in as them. A link you sent to the wrong
+person can be revoked while it is still unused, and issuing a second one
+cancels the first. Admins can do this for each other and for themselves, so one
+forgotten admin password is no longer a trip to the host, but a reset can't be
+issued for a suspended account: restoring one is a separate decision and this
+must not become a way around it.
+
 ## Day-to-day administration
 
 Most administration happens in the React admin console, reachable from the
@@ -470,6 +606,17 @@ an audit log that's genuinely append-only: a Postgres trigger rejects
 there being no route that exposes one.
 
 ---
+
+
+### Orphaned job directories
+
+The storage view also reports **orphaned job directories**. Disk left behind
+without a job record, by an interrupted delete or an artifact written after its
+job was removed. Nothing lists those anywhere else and they count toward
+nobody's quota, so nothing reclaims them on its own; an admin can, in one click,
+without touching anyone's job history. A directory that changed in the last hour
+is left alone and said so out loud, because a job being submitted looks the same
+for a moment.
 
 ## How this deployment is reached
 
@@ -639,7 +786,9 @@ itself, about a minute and a half. They stay signed in, and the page reloads
 by itself when the lockout lifts, with a banner saying the app was updated.
 If the update fails or is cancelled, the banner says nothing changed. From
 the admin console an announced update can be cancelled until the lockout
-starts. For an urgent rollback pass `--notice-minutes 0`.
+starts. "Stop running calculations and update" is the one way past a running
+calculation from the console: it names whose calculations would stop and
+needs a typed confirmation. For an urgent rollback pass `--notice-minutes 0`.
 
 It reports what the change would do to the running deployment before
 touching anything (schema changes that would be silent no-ops, new required
