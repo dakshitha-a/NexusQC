@@ -10,6 +10,15 @@ state of this file.
 
 ## Open
 
+- **Run `scripts/update.sh` to deploy four approval-card, plot and
+  troubleshooting fixes, then refilm the README tour.** The session that
+  made them (2026-10-22, tracker step P1A.4) could not run the update; the
+  auto-mode permission check refused it. The dry run passed every gate,
+  with no jobs running. After it, `node tests/frontend/tour/tour.mjs hero
+  hero-light asks molecule orbitals spectrum vibrations plots troubleshoot
+  active-space projects` refilms every clip into `docs/tour/`. The new
+  README waits on those clips; a draft of it is not in the repository yet.
+
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
