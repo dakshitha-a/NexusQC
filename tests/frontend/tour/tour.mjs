@@ -206,6 +206,12 @@ async function openApp(browser, { theme = "nightshift", label }) {
   await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), [APPEARANCE_KEY, JSON.stringify({
     state: { theme, accent: "hbeta", fontScale: 1, density: "cosy", motion: "full" }, version: 0,
   })]);
+  // An update's "NexusQC was updated" banner stays for an hour; filmed
+  // straight after a deploy it would sit across the top of every clip.
+  const notice = (await (await api.get(`${BASE_URL}/api/notice`)).json()).notice;
+  if (notice) {
+    await ctx.addInitScript((v) => localStorage.setItem("nexusqc.notice.dismissed", v), `${notice.id}:${notice.phase}`);
+  }
   const page = await ctx.newPage();
   await Recorder.install(page);
   await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
@@ -256,11 +262,15 @@ const composer = (page) => page.locator('[data-testid="chat-composer"]');
  *  shows it more than once. */
 async function turnDone(page, timeoutMs = 300000) {
   const thinking = page.locator('[data-testid="agent-thinking"]');
+  // The send button is swapped for Stop while the turn runs. The thinking
+  // line alone is not enough: it goes away while a reply streams, and on a
+  // loaded host a long reply streamed for over the quiet period.
+  const send = page.locator('[data-testid="chat-send"]');
   await thinking.first().waitFor({ timeout: 15000 }).catch(() => undefined);
   const end = Date.now() + timeoutMs;
   let quietSince = 0;
   while (Date.now() < end) {
-    if (await thinking.count()) quietSince = 0;
+    if ((await thinking.count()) || !(await send.count())) quietSince = 0;
     else if (!quietSince) quietSince = Date.now();
     else if (Date.now() - quietSince > 2500) return;
     await page.waitForTimeout(250);
