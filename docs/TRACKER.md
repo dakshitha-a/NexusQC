@@ -109,3 +109,5 @@ the storyboard: a hero and eight tour scenes.
 - [todo] P5.1: the user has seen every clip before any image is committed
 - [todo] P5.2: CHANGELOG and TESTING.md updated, public-safety scan passes, pushed to origin, tracker closed
 - [todo] P5.3: raised mid-run: release v1.3.0 to the public repo once the README and clips are in; the changelog section is cut, the release dry run passes, and the public remote matches origin with the v1.3.0 tag
+- [done] P5.4: raised mid-run: the updater stops sending the CAS benchmark cache to Docker; .dockerignore excludes .cache and the build context drops from about 22 GB to under 1 GB
+  evidence: .dockerignore → "a COPY . probe image measured the context at 74 MB, down from 21.9 GB in the 2026-10-23 update log"

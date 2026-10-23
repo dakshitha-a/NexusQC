@@ -35,6 +35,10 @@ tests/e2e/ui/node_modules
 *.pyc
 .pytest_cache
 
+# The CAS benchmark's working state, tens of GB that no COPY uses. Left in,
+# it made every update send over 20 GB to the Docker daemon (2026-10-23).
+.cache
+
 # Secrets and per-machine configuration -- never belong in an image.
 .env
 .env.*
