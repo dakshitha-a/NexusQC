@@ -1,8 +1,12 @@
 <!-- artifact: https://claude.ai/artifact/8GM78aCjxJhpesEdmNq938 -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Active Tracker: the README rebuilt around animated demos
+# Closed Tracker: the README rebuilt around animated demos
+
+**Closed 2026-10-23. Twenty-eight steps in five phases, all done; released as v1.3.0.**
+No tracker is active until the next plan begins. Findings left for the
+user are listed under their own heading below.
 
 **Opened 2026-10-22.** Five phases. The tracker before this one is
-[`trackers/2026-10-questdb-benchmark.md`](trackers/2026-10-questdb-benchmark.md).
+[`trackers/2026-10-questdb-benchmark.md`](2026-10-questdb-benchmark.md).
 **Exactly one tracker is active at a time.**
 
 ## Rules (enforced by `scripts/check_tracker.py`)
@@ -121,10 +125,12 @@ the storyboard: a hero and eight tour scenes.
 ## Phase 5: review and close
 
 - [done] P5.1: the user has seen every clip before any image is committed
-  evidence: claude.ai/artifact/5Ua7GjkSrB2phevr3r9sQr → "the user reviewed every clip and the README preview and said: looks good. release"
+  evidence: docs/tour/hero-dark.webp → "the user reviewed every clip on a review page and the full README preview, and said: looks good. release"
 - [done] P5.2: CHANGELOG and TESTING.md updated, public-safety scan passes, pushed to origin, tracker closed
   evidence: scripts/check_public_safe.sh → "PASS - nothing blocking found in 1074 files; CHANGELOG 1.3.0 section and TESTING.md tour section written; pushed to origin"
-- [todo] P5.3: raised mid-run: release v1.3.0 to the public repo once the README and clips are in; the changelog section is cut, the release dry run passes, and the public remote matches origin with the v1.3.0 tag
+- [done] P5.3: raised mid-run: release v1.3.0 to the public repo once the README and clips are in; the changelog section is cut, the release dry run passes, and the public remote matches origin with the v1.3.0 tag
+  evidence: CHANGELOG.md → "scripts/release.sh 1.3.0 published f3fb533; public/main equals origin/main, tag v1.3.0 is on the public remote, and github.com/dakshitha-a/NexusQC/releases/tag/v1.3.0 exists"
 - [done] P5.4: raised mid-run: the updater stops sending the CAS benchmark cache to Docker; .dockerignore excludes .cache and the build context drops from about 22 GB to under 1 GB
   evidence: .dockerignore → "a COPY . probe image measured the context at 74 MB, down from 21.9 GB in the 2026-10-23 update log"
-- [todo] P5.5: raised mid-run: a first version is live on the public repo by 2 PM on 2026-10-23, for a walkthrough; filming goes ahead despite the host load
+- [done] P5.5: raised mid-run: a first version is live on the public repo by 2 PM on 2026-10-23, for a walkthrough; filming goes ahead despite the host load
+  evidence: docs/tour/hero-dark.webp → "live on the public repo at 12:39 on 2026-10-23; raw README, GUIDE and every clip return 200"
