@@ -108,3 +108,4 @@ the storyboard: a hero and eight tour scenes.
 
 - [todo] P5.1: the user has seen every clip before any image is committed
 - [todo] P5.2: CHANGELOG and TESTING.md updated, public-safety scan passes, pushed to origin, tracker closed
+- [todo] P5.3: raised mid-run: release v1.3.0 to the public repo once the README and clips are in; the changelog section is cut, the release dry run passes, and the public remote matches origin with the v1.3.0 tag
