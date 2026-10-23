@@ -168,7 +168,8 @@ pattern naming a real path or host.
 
 `scripts/release.sh <version>` refuses to run unless you're on `main`, the
 tree is clean, the safety scan passes on the tree, `main` matches
-`origin/main`, the tag doesn't already exist, `CHANGELOG.md` has a section
+`origin/main`, CI passed on `origin` for that commit, the tag doesn't
+already exist, `CHANGELOG.md` has a section
 for the version, the public remote can be advanced, and the safety scan
 passes on every commit about to be published (about a minute for a first
 release). Then it asks for one typed confirmation, updates `CITATION.cff`,

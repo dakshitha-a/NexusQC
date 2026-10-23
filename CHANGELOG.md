@@ -10,6 +10,17 @@ note saying what changed.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-23
+
+### Fixed
+
+- The v1.3.0 release commit failed CI's tracker check. One tracker evidence
+  line named a web link, not a file. The tracker is now closed with the
+  line corrected, and nothing in the app changed.
+- `scripts/release.sh` refuses to publish a commit whose CI on the private
+  remote failed, is still running or has not started. It used to repeat
+  only some of CI's checks, which is how 1.3.0 went out on a red commit.
+
 ## [1.3.0] - 2026-10-23
 
 ### Added

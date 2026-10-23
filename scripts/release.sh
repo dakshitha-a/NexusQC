@@ -23,9 +23,10 @@
 #     ./scripts/release.sh 1.1.0 --dry-run     # run every gate, push nothing
 #
 # The gates, in order: on main; clean tree; both remotes; the tree scan; main
-# matches the private remote; the tag is free; CHANGELOG has the section; the
-# public remote is an ancestor or a README-only placeholder; unmerged branches
-# are listed; the commits to be published pass the scan too (about a minute).
+# matches the private remote; CI passed there; the tag is free; CHANGELOG has
+# the section; the public remote is an ancestor or a README-only placeholder;
+# unmerged branches are listed; the commits to be published pass the scan
+# too (about a minute).
 # Then one typed confirmation, then the push -- public first, private second --
 # and then the announcement: scripts/release_announce.sh creates the GitHub
 # release and closes the public issues the released commits reference. That
@@ -93,6 +94,22 @@ REMOTE="$(git rev-parse "$PRIVATE_REMOTE/main")"
 [ "$LOCAL" = "$REMOTE" ] \
     || die "main differs from $PRIVATE_REMOTE/main; push there first (this is the reviewed state)"
 ok "main matches $PRIVATE_REMOTE/main"
+
+# --- 4b. CI passed on that commit --------------------------------------------
+# The gates here are a subset of CI. v1.3.0 went out on a commit whose CI had
+# already failed on the private remote (a tracker evidence line named a URL,
+# not a file), and the public repo's release run went red with it.
+PRIVATE_SLUG="$(git remote get-url "$PRIVATE_REMOTE" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')"
+command -v gh >/dev/null 2>&1 || die "the gh CLI is needed to check CI on $PRIVATE_SLUG"
+CI_STATE="$(gh run list -R "$PRIVATE_SLUG" --commit "$LOCAL" --workflow CI --limit 1 \
+    --json status,conclusion --jq '.[0] // empty | "\(.status) \(.conclusion)"' 2>/dev/null)" \
+    || die "could not read CI runs on $PRIVATE_SLUG (is gh signed in?)"
+case "$CI_STATE" in
+    "completed success") ok "CI passed on $PRIVATE_SLUG for ${LOCAL:0:7}" ;;
+    "") die "no CI run on $PRIVATE_SLUG for ${LOCAL:0:7} yet; wait for it after the push" ;;
+    completed*) die "CI failed on $PRIVATE_SLUG for ${LOCAL:0:7} (${CI_STATE#completed }); fix it first" ;;
+    *) die "CI is still running on $PRIVATE_SLUG for ${LOCAL:0:7}; wait for it to finish" ;;
+esac
 
 # --- 5. Tag is free ---------------------------------------------------------
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
