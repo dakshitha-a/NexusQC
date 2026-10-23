@@ -66,6 +66,28 @@ docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:stable -x \
 `-x` matters: without it shellcheck does not follow the `source` into
 `scripts/lib/common.sh` and reports every helper as an unknown command.
 
+## The README tour clips
+
+The animated clips in `docs/tour/` are filmed from the live app, not drawn.
+`tests/frontend/tour/tour.mjs` drives each scene in Chromium as
+`qatest_admin`, and `recorder.mjs` records every repaint through the
+DevTools screencast. The screencast also catches the WebGL viewers, which
+`page.screenshot()` does not. `animate.py` turns the frames into an
+animated WebP, gliding a crop between the points each scene marked.
+
+```bash
+QC_AGENT_TEST_BASE_URL=https://127.0.0.1:8444 \
+QC_AGENT_TOUR_PYTHON=<python with Pillow> \
+    node tests/frontend/tour/tour.mjs hero hero-light asks molecule ...
+```
+
+Run it by hand; it is not part of the suite. Each scene creates its own
+conversation and jobs, then deletes only what it created and prints what
+was left behind, which should be nothing. Film on a quiet host if you can.
+The browser draws the 3D views on the CPU, so a busy machine makes every
+clip longer and choppier. The public-safety scan cannot read images, so a
+person looks at every clip before it is committed.
+
 ## Full end-to-end pass
 
 There have been two of these so far. The first, clean install, full product
