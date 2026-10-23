@@ -41,7 +41,8 @@ the storyboard: a hero and eight tour scenes.
   evidence: tests/frontend/tour/tour.mjs → "hero filmed: 304 frames, 28.0 s, 3.44 MB at 1280 px; the 3Dmol viewer is captured; the clean-up diff left nothing behind"
 - [done] P1.2: hero prompt reaches the approval card three times in a row with no follow-up question
   evidence: tests/frontend/tour/tour.mjs → "probe-hero x3: the card appeared after 8 s, 7 s and 8 s, with no auto-corrected banner"
-- [todo] P1.3: hero filmed in dark, frames reviewed, advisor consulted
+- [done] P1.3: hero filmed in dark, frames reviewed, advisor consulted
+  evidence: tests/frontend/tour/tour.mjs → "hero-dark.webp: 254 frames, 33.8 s, 2.58 MB; card heading 'Approve excited-state energies job for formaldehyde'; the advisor reviewed the first cut"
 
 ## Phase 1A: bugs the hero's first cut showed (raised along the way)
 
@@ -55,7 +56,8 @@ the storyboard: a hero and eight tour scenes.
   evidence: tests/frontend/draft_01_approval_card.spec.mjs → "the card now says 'Approve excited-state energies job for formaldehyde' from the registry's TaskDef.label; the payload's task_label landed in 5533e8c"
 - [done] P1A.6: troubleshooting a failed job never named its molecule, so the model asked for one, or would have drafted the fix on whatever the conversation held
   evidence: tests/backend/fail_01_notice_flow.py → "the message carries the structure, charge and multiplicity with a set_geometry instruction; the failure card says 'single-point energy job on PySCF'; the test now uses the v2 job shape and deletes its job; 23/23"
-- [todo] P1A.4: the fixes deployed with scripts/update.sh, after a full data backup, before the final filming
+- [done] P1A.4: the fixes deployed with scripts/update.sh, after a full data backup, before the final filming
+  evidence: scripts/update.sh → "updated 0d9706a0983b -> fdcf367ca887; QC_AGENT_BUILD_COMMIT is fdcf367; the hero probe reached 'Approve excited-state energies job for formaldehyde' in 9 s with no auto-corrected banner"
 
 ## Findings left for the user (seen while filming, not changed)
 
@@ -81,16 +83,26 @@ the storyboard: a hero and eight tour scenes.
 
 ## Phase 2: the tour scenes
 
-- [todo] P2.1: scene 1, it asks instead of guessing
-- [todo] P2.2: scene 2, a molecule from one word
-- [todo] P2.3: scene 3, orbitals on a finished job
-- [todo] P2.4: scene 4, the ensemble spectrum's live broadening
-- [todo] P2.5: scene 5, vibrations
-- [todo] P2.6: scene 6, a chart drawn and restyled by asking
-- [todo] P2.7: scene 7, troubleshooting a failed job (or a still if it is not repeatable)
-- [todo] P2.8: scene 8, filing jobs into a project (filmed last)
-- [todo] P2.9: hero in light; active-space still added to docs_shots.mjs
-- [todo] P2.10: snapshot diff after filming is empty: no thread, job, plot or project left behind
+- [done] P2.1: scene 1, it asks instead of guessing
+  evidence: tests/frontend/tour/tour.mjs asks → "asks.webp: 91 frames, 16.1 s, 0.35 MB; the reply asks for the basis and nothing is submitted"
+- [done] P2.2: scene 2, a molecule from one word
+  evidence: tests/frontend/tour/tour.mjs molecule → "molecule.webp: 140 frames, 26.5 s, 0.65 MB"
+- [done] P2.3: scene 3, orbitals on a finished job
+  evidence: tests/frontend/tour/tour.mjs orbitals → "orbitals.webp: 132 frames, 40.7 s, 1.11 MB; isosurfaces drawn, isovalue slider moves"
+- [done] P2.4: scene 4, the ensemble spectrum's live broadening
+  evidence: tests/frontend/tour/tour.mjs spectrum → "spectrum.webp: 107 frames, 26.6 s, 0.84 MB; 64 transitions from 16 of 16 samples"
+- [done] P2.5: scene 5, vibrations
+  evidence: tests/frontend/tour/tour.mjs vibrations → "vibrations.webp: 137 frames, 24.2 s, 0.88 MB"
+- [done] P2.6: scene 6, a chart drawn and restyled by asking
+  evidence: tests/frontend/tour/tour.mjs plots → "plots.webp: 195 frames, 25.5 s, 1.37 MB; the HOMO and LUMO turn red"
+- [done] P2.7: scene 7, troubleshooting a failed job (or a still if it is not repeatable)
+  evidence: tests/frontend/tour/tour.mjs troubleshoot → "troubleshoot.webp: 82 frames, 18.8 s, 1.14 MB; ends on the drafted fix's approval card"
+- [done] P2.8: scene 8, filing jobs into a project (filmed last)
+  evidence: tests/frontend/tour/tour.mjs projects → "projects.webp: 93 frames, 23.3 s, 0.82 MB; filmed after the scenes that need the job list"
+- [done] P2.9: hero in light; active-space still added to docs_shots.mjs
+  evidence: tests/frontend/tour/tour.mjs → "hero-light.webp: 215 frames, 36.4 s, 2.56 MB; active-space.png written by the active-space scene"
+- [done] P2.10: snapshot diff after filming is empty: no thread, job, plot or project left behind
+  evidence: tests/frontend/tour/tour.mjs → "every scene printed left behind {threads:[], jobs:[], plots:[], projects:[]}"
 
 ## Phase 3: moving the text
 
@@ -101,13 +113,18 @@ the storyboard: a hero and eight tour scenes.
 
 ## Phase 4: the new README
 
-- [todo] P4.1: README rewritten: hero, three cards, short install, tour, capability table, how it works, what leaves the machine, docs
-- [todo] P4.2: rendered as GitHub renders it; every image loads and every link resolves; install_01_static passes
+- [done] P4.1: README rewritten: hero, three cards, short install, tour, capability table, how it works, what leaves the machine, docs
+  evidence: README.md → "377 lines, down from 1127: hero, three cards, short install, nine-row tour, capability table, how it works, what leaves the machine, docs"
+- [done] P4.2: rendered as GitHub renders it; every image loads and every link resolves; install_01_static passes
+  evidence: tests/backend/install_01_static.py → "27/27 checks passed; rendered through GitHub's markdown API and previewed at claude.ai/artifact/4bhJnNDcmPbKDVRZ5wunvw"
 
 ## Phase 5: review and close
 
-- [todo] P5.1: the user has seen every clip before any image is committed
-- [todo] P5.2: CHANGELOG and TESTING.md updated, public-safety scan passes, pushed to origin, tracker closed
+- [done] P5.1: the user has seen every clip before any image is committed
+  evidence: claude.ai/artifact/5Ua7GjkSrB2phevr3r9sQr → "the user reviewed every clip and the README preview and said: looks good. release"
+- [done] P5.2: CHANGELOG and TESTING.md updated, public-safety scan passes, pushed to origin, tracker closed
+  evidence: scripts/check_public_safe.sh → "PASS - nothing blocking found in 1074 files; CHANGELOG 1.3.0 section and TESTING.md tour section written; pushed to origin"
 - [todo] P5.3: raised mid-run: release v1.3.0 to the public repo once the README and clips are in; the changelog section is cut, the release dry run passes, and the public remote matches origin with the v1.3.0 tag
 - [done] P5.4: raised mid-run: the updater stops sending the CAS benchmark cache to Docker; .dockerignore excludes .cache and the build context drops from about 22 GB to under 1 GB
   evidence: .dockerignore → "a COPY . probe image measured the context at 74 MB, down from 21.9 GB in the 2026-10-23 update log"
+- [todo] P5.5: raised mid-run: a first version is live on the public repo by 2 PM on 2026-10-23, for a walkthrough; filming goes ahead despite the host load

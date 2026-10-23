@@ -10,7 +10,20 @@ note saying what changed.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
 ### Added
+
+- **A shorter README with a tour.** The README opens on a looping clip of a
+  request turning into a spectrum, then a tour of short clips filmed in the
+  real app: the agent asking instead of guessing, a molecule from one word,
+  orbitals, live spectrum broadening, vibrations, charts restyled by
+  asking, troubleshooting a failed job and filing jobs into a project. The
+  feature detail it used to carry moved, word for word, into a new user
+  guide, `docs/GUIDE.md`. Install and group-running detail moved into
+  `docs/DEPLOYMENT.md`.
+- `tests/frontend/tour/` films those clips from the live app and cuts them
+  into animated WebP. `docs/TESTING.md` says how to run it.
 
 - Plots can carry text. Ask for the values on a comparison and each number
   is written beside its own bar or energy level, from the value the plot
@@ -103,6 +116,22 @@ note saying what changed.
   80 to 105. `reasoning: {"effort": "none"}` is now sent as well.
 - A plot that failed to render no longer leaves its figure open in the
   server process.
+- The approval card is headed with the job in words, such as "Approve
+  excited-state energies job for formaldehyde", not an internal name. The
+  failure card names the job the same way.
+- A plain note on an approval card is shown as a note. Before, it was
+  filed under "Structural check didn't recognize part of this input".
+- TDDFT approval cards no longer list "oscillator strengths = false" as a
+  default. PySCF and ORCA always compute them for HF and DFT.
+- Asking to colour the HOMO and LUMO on an orbital level diagram works.
+  Before, the agent said it was done and the chart came back unchanged.
+- Troubleshooting a failed job keeps the fix on the molecule the job ran
+  on. Before, the agent asked which molecule it was, and in a conversation
+  that had moved on it could draft the fix on the wrong one.
+- The active-space size table no longer labels its tier "recommended
+  (recommended)".
+- An update no longer sends the CAS benchmark cache to Docker. Every build
+  copied about 22 GB it never used; it now copies 74 MB.
 
 ## [1.2.0] - 2026-09-20
 
