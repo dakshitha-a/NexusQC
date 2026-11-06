@@ -550,6 +550,29 @@ curl -sk -b admin_cookies.txt -X PATCH https://<host>/api/admin/config \
 curl -sk -b admin_cookies.txt https://<host>/api/admin/audit-log
 ```
 
+### Pausing the stack to free its GPU
+
+The chat model sits in GPU memory for as long as the app is running. To
+give that GPU back for a while without touching any data:
+
+```bash
+scripts/stack_power.sh down     # stop the stack, then unload the model
+scripts/stack_power.sh up       # start it again; the model reloads itself
+scripts/stack_power.sh status   # what is running, and what each GPU holds
+```
+
+- **Stopping the containers alone does not free the GPU.** The model is
+  held by Ollama, and the app asks Ollama to keep it loaded indefinitely.
+  `down` stops the stack first and then tells Ollama to unload it.
+- **Running jobs would be killed.** They run inside the api container. So
+  `down` refuses while any job is running, unless you add `--force`.
+  Queued jobs are safe and start again after `up`.
+- **Nothing is rebuilt or reconfigured.** The containers are stopped and
+  started as they are. Moving a deployment forward is still
+  `scripts/update.sh`'s job.
+- **The pause survives a reboot.** A stopped stack stays stopped until you
+  run `up`.
+
 ### If every admin is locked out
 
 Recover with the filesystem-local CLI. This needs shell access to the

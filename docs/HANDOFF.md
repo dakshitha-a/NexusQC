@@ -10,6 +10,14 @@ state of this file.
 
 ## Open
 
+- **The development host's stack is deliberately stopped, to free GPU 0.**
+  On 2026-11-05 the user asked for GPU 0 back for a while, and the stack
+  was stopped with `scripts/stack_power.sh down`. The site is unreachable
+  and the test suites fail with `Connection refused` until it is started
+  again. That is expected, not a regression. Do not bring it up or run
+  `scripts/update.sh` unless the user says so. When they do, run
+  `scripts/stack_power.sh up` and delete this entry.
+
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
