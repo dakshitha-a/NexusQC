@@ -165,3 +165,95 @@ and the model server on its own accounts for 2.13x of it, so **the app
 multiplies the server's own concurrency penalty by 1.22x**. Four concurrent
 turns still finish faster than four serial ones, 14.8 s against about 17 s.
 Details in `evaluation/2026-09-06-full-pass.md`.
+
+### Found while taking the thesis screenshots (2026-11-09)
+
+Observed on the dev stack at fdcf367, driving the app as the test admin.
+
+**The frequency job the agent offers after an optimisation uses the starting
+geometry.** Furan opt `d3ea1bc721bb` (B3LYP/def2-SVP, PySCF) converged; the
+agent then drafted a frequency job on its own, and the card's coordinates were
+the PubChem input (C1 x = 0.43511416), not the optimised ones (0.44668877).
+Approved as drafted, the frequencies would be off the minimum and anything
+built on them, a nuclear ensemble included, would be wrong. Asking "use the
+optimised geometry from job d3ea1bc721bb as the active molecule" fixed it.
+**Next:** find whether the opt-completion path should set the optimised frame
+as the active molecule, or the follow-up draft should take
+`source_geometry_job_id` from the opt job.
+
+**A nuclear-ensemble request is drafted as a single-geometry TDDFT job.**
+Three phrasings ("nuclear-ensemble UV/Vis spectrum … 100 Wigner samples",
+"a Nuclear-ensemble spectrum (Wigner sampling) … 100 samples", and the same
+after "Drop that draft.") each produced an "excited-state energies" card with
+no `n_samples`; only naming the task id (`wigner_spectra`) produced the
+ensemble card. **Next:** check how `start_job_draft` and `lookup_capabilities`
+expose `wigner_spectra` to the model; the label and aliases likely need
+"nuclear ensemble", "Wigner" and "ensemble spectrum".
+
+**A rejected draft captures every later request.** After Reject, the agent
+answers "I've left the setup … as it is", and the next request, even one for
+a different task, is applied with `update_job_draft` to that old draft. "Drop
+that draft." called `start_job_draft` and rebuilt the same single point rather
+than discarding it. **Next:** make "drop/discard" clear the draft, and have a
+request for a different task start a new draft instead of updating the old one.
+
+**The orbital table scrolls inside the job drawer even when there is room.**
+`OrbitalTable.tsx` caps the non-fill table at `max-h-56`, so water/STO-3G's
+seven orbitals needed an inner scroll at text size "Largest" while the drawer
+had space below. **Next:** let the table grow to the drawer's height, or raise
+the cap with the font scale.
+
+**The job drawer's scrim hides the chat that is talking about the job.**
+`JobDetailDrawer.tsx` overlays `bg-black/50`, so the agent's summary of a job
+is dimmed while its drawer is open, the moment a user most wants to compare
+the two. **Next:** consider a lighter or no scrim for this drawer, since it is
+a side panel rather than a blocking dialog.
+
+**There is no print or presentation theme.** Daylight is deliberately warm
+paper (`--bg: #f4f2ec`) with grey muted text (`#5b6373`); a figure for a
+printed page wants a white field and near-black text. The thesis shots had to
+inject an override. **Next:** a "Print" theme in `appearanceStore.ts` with a
+white background, darker muted text and no scrollbars.
+
+**`tests/frontend` asks for a Chromium build that is not installed.** Its
+Playwright looked for `chromium_headless_shell-1234` while
+`~/.cache/ms-playwright` holds 1243, although both `node_modules` copies
+report playwright-core 1.62.1. **Next:** find which copy resolves to 1234 and
+pin `tests/frontend` to the browsers that are installed, or add
+`npx playwright install chromium` to the suite's setup notes.
+
+**An ORCA TDDFT spectrum card carries a note about excited-state gradients.**
+"Compute the UV/Vis spectrum of formaldehyde … B3LYP/def2-SVP, 10 states, on
+ORCA" drafted a plain `%tddft` job, and the card still showed a seven-line note
+that ORCA refuses excited-state gradients for B88 functionals and that "for
+single_point/grad the job is refused", naming `docs/PARSER_GAPS.md`. No
+gradient is requested, so the note does not apply, and an internal doc path is
+not something a user can act on. **Next:** show the note only when the draft
+actually asks for an excited-state gradient, and word it without the repo path.
+
+**At larger text sizes the approval card cannot be seen whole.** At text size
+"Largest" on a 1440x900 window, the formaldehyde ORCA card is 998 CSS px tall,
+so its title and parameters scroll away while the input file and the Approve
+button are on screen. The input file itself is a fixed-height textarea with an
+inner scroll. **Next:** let the input box size to its content, and consider
+making the long notes collapsible so the card's head stays in view.
+
+**The agent says it changed a plot when the renderer cannot make that change.**
+Asked to make one curve of a `spectra` overlay dashed, the agent replied
+"Single geometry curve now dashed" and saved v2, but the curve stayed solid.
+`spectrum.py` draws every series with one `st.line_style`, and the stored spec
+carried no per-series style. **Next:** support a per-series line style for
+`spectra` (it is what tells two curves apart in greyscale print), and have the
+plot tool refuse an edit it cannot draw, so the reply cannot claim it.
+
+**A spectra overlay draws a marker on every grid point by default.** The first
+version of the furan overlay put a marker on each of the 2000 grid points, so
+both curves printed as thick beaded bands. **Next:** no markers by default for
+continuous spectra.
+
+**Long plot titles run off the figure, and the legend sits on the peaks.** The
+agent's title "Furan UV/Vis: nuclear ensemble vs single geometry
+(B3LYP/def2-SVP)" was clipped at the right edge of an 8x6 in figure, and the
+default legend covered both peak tops until the y limit was raised by hand.
+**Next:** wrap or shrink long titles to the axes width, and place the legend
+with `loc="best"` or reserve headroom above normalised spectra.
