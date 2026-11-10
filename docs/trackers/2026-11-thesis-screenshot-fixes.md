@@ -1,9 +1,12 @@
 <!-- artifact: https://claude.ai/artifact/V1fMX18Ldz75a1qZCsKBgH -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: fixing what the thesis screenshots found
+# Closed Tracker: fixing what the thesis screenshots found
+
+**Closed 2026-11-09. Fourteen steps in five phases, all done; deployed at 5334679.**
+No tracker is active until the next plan begins. One new finding, the
+job-finished notice worded for the model, is in `docs/BACKLOG.md`.
 
 **Opened 2026-11-09.** Five phases. The tracker before this one is
-[`trackers/2026-10-readme-tour.md`](trackers/2026-10-readme-tour.md).
-**Exactly one tracker is active at a time.**
+[`trackers/2026-10-readme-tour.md`](2026-10-readme-tour.md).
 
 ## Rules (enforced by `scripts/check_tracker.py`)
 
@@ -81,4 +84,6 @@ does not change mid-session.
 
 - [done] P5.1: README and docs updated for the user-visible changes
   evidence: docs/GUIDE.md → "post-opt geometry, declined drafts, dashed curves and the Print theme described; CHANGELOG Unreleased lists all twelve; README chart blurb still accurate"
-- [todo] P5.2: deployed with scripts/update.sh after a full backup
+- [done] P5.2: deployed with scripts/update.sh after a full backup
+  evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "stack reports 5334679 (fdcf367 -> 5334679, frontend stamped 5334679); 19/19 on the deployed stack, no gradient note on the ORCA card; draft_01, reject_03, plots_01, opt_02, orbital_08/09, ui_06/07, p7_05 all pass"
+- merged: 5334679

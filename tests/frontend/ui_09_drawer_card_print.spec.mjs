@@ -118,10 +118,17 @@ try {
       taScroll: ta ? ta.scrollHeight - ta.clientHeight : null,
       notesH: notes?.getBoundingClientRect().height ?? null,
       toggle: !!document.querySelector('[data-testid="approval-notes-toggle"]'),
+      noteChars: notes ? notes.textContent.replace(/Show (all|less)$/, "").length : 0,
+      gradientNote: !!notes && /excited-state gradient/i.test(notes.textContent),
     };
   });
   check("the input box shows every line without an inner scroll", card.taScroll !== null && card.taScroll <= 2, JSON.stringify(card));
-  check("the long note folds behind Show all", card.toggle, JSON.stringify(card));
+  // A plain TDDFT card no longer carries the B88 gradient note (fixed in
+  // the same tracker), so its notes are usually short. The fold is checked
+  // against what is there: a toggle exactly when the notes are long.
+  check("no excited-state gradient note on a plain TDDFT card", !card.gradientNote, JSON.stringify(card));
+  check("notes fold behind Show all exactly when they are long",
+        card.toggle === (card.noteChars > 240), JSON.stringify(card));
   if (OUT) await page.screenshot({ path: `${OUT}/approval_card.png` });
   if (card.toggle) {
     await page.click('[data-testid="approval-notes-toggle"]');
