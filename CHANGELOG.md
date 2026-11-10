@@ -32,6 +32,9 @@ note saying what changed.
 
 ### Fixed
 
+- When a job finished, the chat showed the instruction the app sends the
+  model ("Check their status and give the user a concise summary"). It now
+  shows "Job ... finished."
 - Core orbitals were labelled "n", as lone pairs, in the orbital table:
   water's oxygen 1s was one. They are now labelled "core", including
   core combinations spread over equivalent atoms, as in ethylene.

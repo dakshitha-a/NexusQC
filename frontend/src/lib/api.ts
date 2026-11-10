@@ -30,6 +30,9 @@ export interface MessageNotice {
   job_id?: string;
   job_ids?: string[];
   action?: "troubleshoot";
+  // A system_notice's text is addressed to the model. When the app also
+  // wrote a line for the user ("Job X finished."), the row shows that.
+  display?: string;
 }
 
 export interface ChatMessage {

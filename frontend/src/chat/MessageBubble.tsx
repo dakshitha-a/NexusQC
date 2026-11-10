@@ -236,11 +236,12 @@ export function FailedJobNotice({ message }: { message: ChatMessage }) {
  * muted here instead: it is context for what the agent does next, not a
  * message from anyone.
  */
-export function SystemNoticeRow({ content }: { content: string }) {
-  // The prefix is addressed to the model and is noise to a reader. Stripped
-  // for display only. What identifies the message is the notice payload,
-  // never this text.
-  const text = content.replace(/^\(system notice, not from the user\)\s*/, "");
+export function SystemNoticeRow({ content, display }: { content: string; display?: string }) {
+  // The text is addressed to the model and is noise to a reader, so a line
+  // the app wrote for the user wins when there is one. Otherwise the prefix
+  // is stripped for display only. What identifies the message is the notice
+  // payload, never this text.
+  const text = display || content.replace(/^\(system notice, not from the user\)\s*/, "");
   return (
     <div className="flex justify-center">
       <div className="max-w-[70ch] min-w-0 rounded border border-border/60 bg-surface px-3 py-1.5 text-xs text-text-muted whitespace-pre-wrap break-words">
@@ -274,7 +275,7 @@ export const MessageBubbleRow = memo(function MessageBubbleRow({ message }: { me
   // reason above: a system notice IS a HumanMessage, injected by the app to
   // start a turn, so the plain user bubble would otherwise claim the user
   // said it.
-  if (message.notice?.kind === "system_notice") return <SystemNoticeRow content={message.content} />;
+  if (message.notice?.kind === "system_notice") return <SystemNoticeRow content={message.content} display={message.notice.display} />;
   if (message.type === "HumanMessage") return <HumanBubble content={message.content} />;
   if (message.type === "ToolMessage") return <ToolResultChip message={message} />;
   if (message.type === "AIMessage") return <AssistantBubble content={message.content} />;

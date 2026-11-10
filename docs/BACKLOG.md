@@ -170,13 +170,14 @@ Details in `evaluation/2026-09-06-full-pass.md`.
 
 Observed on the dev stack at fdcf367, driving the app as the test admin.
 
-**The job-finished notice shows the user an instruction meant for the model.**
-When a job finishes, the chat shows a system row reading "Job(s) ca49e9478c01
-finished. Check their status and give the user a concise summary of the
-results." `job_watcher._agent_notice` writes it as a turn for the model, and
-`MessageBubble`'s `SystemNoticeRow` shows it verbatim, which is deliberate
-(the row marks text the app injected) but the wording is addressed to the
-model. It appeared in the Figure 7.4 screenshot. Seen again on 2026-11-09
-while verifying the drawer fixes. **Next:** show the user a plain line ("Job
-ca49e9478c01 finished") and keep the instruction model-only, or hide the row
-once the model's summary follows it.
+**An empty orbital that sits on one atom is labelled "n".** In water
+HF/cc-pVDZ (job b23486553278, 2026-11-10) orbital 10, a virtual at +31.7 eV
+entirely on oxygen, reads "n" in the Character column. The lone-pair branch of
+`classify_orbital_character` in `app/chemistry/jobs/molden.py` asks only that
+one atom carries the orbital, not that it is occupied. A lone pair is occupied
+by definition. **Next:** require `occ >= 1.0` for "n", let an empty one-atom
+orbital fall through to its shape label with a "*", and add the case to
+`scripts/validate_orbital_character.py`.
+
+**Fixed 2026-11-10:** the job-finished notice no longer shows the user the
+instruction meant for the model; the row reads "Job X finished."

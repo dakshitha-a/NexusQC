@@ -152,7 +152,22 @@ _QUOTA_ENFORCE_EVERY_N_TICKS = 150  # ~5 minutes at _POLL_INTERVAL_SECONDS=2.0
 EventCallback = Callable[[str, dict], None]
 
 
-def _system_notice_message(text: str) -> HumanMessage:
+def _finished_line(job_ids) -> str:
+    """What the user reads for a job-finished notice: which jobs finished.
+
+    The notice's own text is an instruction to the model ("Check their
+    status and give the user a concise summary"), and the chat used to show
+    it verbatim, so a user read a sentence addressed to someone else, and it
+    sat in a thesis figure. The model still gets the full text; this line
+    rides beside it in the structured payload for the UI.
+    """
+    ids = list(dict.fromkeys(job_ids))
+    if not ids:
+        return ""
+    return f"Job {ids[0]} finished." if len(ids) == 1 else f"Jobs {', '.join(ids)} finished."
+
+
+def _system_notice_message(text: str, display: str = "") -> HumanMessage:
     """The watcher's notice, marked as written by the app.
 
     A HumanMessage because the served model needs a user turn to answer;
@@ -164,8 +179,10 @@ def _system_notice_message(text: str) -> HumanMessage:
     matching on that prefix, which would break the first time the wording
     changed.
     """
-    return HumanMessage(content=text,
-                        additional_kwargs={"nexus_notice": {"kind": "system_notice"}})
+    notice = {"kind": "system_notice"}
+    if display:
+        notice["display"] = display
+    return HumanMessage(content=text, additional_kwargs={"nexus_notice": notice})
 
 
 def _seen_path(thread_id: str) -> Path:
@@ -772,6 +789,8 @@ class JobWatcher:
 
             notice = _agent_notice(completed_ids, ensemble_completed_ids, cas_reco_completed_ids,
                                     pes_scan_completed_ids)
+            notice_line = _finished_line(completed_ids + ensemble_completed_ids
+                                         + cas_reco_completed_ids + pes_scan_completed_ids)
             # Same reasoning as server/routes/chat.py's _publish_new_messages:
             # invoke_turn() is a single blocking call with no incremental
             # "updates" to stream from, so the investigation/retry messages
@@ -816,7 +835,7 @@ class JobWatcher:
             try:
                 try:
                     result_state = invoke_turn_if_idle(
-                        {"messages": [_system_notice_message(notice)]}, config, on_start=_announce)
+                        {"messages": [_system_notice_message(notice, notice_line)]}, config, on_start=_announce)
                 except Exception as e:
                     # Left unseen on purpose, so the next tick retries the
                     # notice. Reported because a turn that fails EVERY tick
