@@ -63,6 +63,7 @@ does not change mid-session.
   evidence: tests/backend/plot_08_series_styles_and_layout.py → "2000-point overlay drawn with no marker; 12-point custom line keeps circles"
 - [done] P3.3: long titles wrap to the figure, and the legend leaves the peaks clear
   evidence: tests/backend/plot_08_series_styles_and_layout.py → "the 68-character thesis title wraps on 8 in; y top 1.2+ above normalised peaks; plot_02-07 and spec_01 all pass"
+- merged: 81b605d
 
 ## Phase 4: the interface
 
@@ -74,6 +75,7 @@ does not change mid-session.
   evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "body rgb(255,255,255), text rgb(17,20,24), muted rgb(58,63,71), scrollbar-width none; Print in the picker"
 - [done] P4.4: the approval card's input box fits its content and long notes fold away
   evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "formaldehyde ORCA card: input scroll 0 px (was 94), long note folded to 86 px with Show all; 15/15 via the Vite dev server"
+- merged: 1dcfe05
 
 ## Phase 5: closing out
 
