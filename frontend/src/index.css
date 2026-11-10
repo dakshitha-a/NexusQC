@@ -19,11 +19,12 @@
    one gradient in the interface (the logo, see brand/Logo.tsx) runs H-beta to
    H-gamma rather than being decorative.
 
-   Four themes, chosen for the conditions they suit rather than as variations:
+   Five themes, chosen for the conditions they suit rather than as variations:
 
      balmer      graphite field, the default
      nightshift  warm near-black, low blue, for evening work
      daylight    warm paper and ink, for daylight and projectors
+     print       white and near-black with no scrollbars, for screenshots on paper
      contrast    pure black with brightened tokens, checked at AAA
 
    This block used to carry a comment saying the app had "no light-mode
@@ -133,6 +134,32 @@
   color-scheme: light;
 }
 
+[data-theme="print"] {
+  /* For screenshots that end up on a printed page: a white field, near-black
+     text and muted text dark enough to survive a laser printer, which
+     Daylight's warm paper and #5b6373 do not. Status and engine colours are
+     Daylight's, already checked at AA on a light surface. Scrollbars are
+     hidden below. The thesis figures had to inject all of this (2026-11-09). */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-raised: #f1f2f4;
+  --border: #c4c8cf;
+  --text: #111418;
+  --text-muted: #3a3f47;
+
+  --status-pending: #3a3f47;
+  --status-running: #8a5000;
+  --status-completed: #0a6b3d;
+  --status-failed: #c01829;
+  --status-cancelled: #4a505b;
+  --on-status-failed: #ffffff;
+
+  --engine-pyscf: #0a6b57;
+  --engine-orca: #5b34c4;
+  --engine-bagel: #8a5a05;
+  color-scheme: light;
+}
+
 [data-theme="contrast"] {
   /* For projectors and for low vision. Checked at AAA rather than AA, since
      that is the only reason to choose it. */
@@ -205,23 +232,29 @@
 }
 
 [data-theme="daylight"],
-[data-theme="daylight"][data-accent="hbeta"] {
+[data-theme="daylight"][data-accent="hbeta"],
+[data-theme="print"],
+[data-theme="print"][data-accent="hbeta"] {
   --accent: #06697e;
   --on-accent: #ffffff;
 }
-[data-theme="daylight"][data-accent="hgamma"] {
+[data-theme="daylight"][data-accent="hgamma"],
+[data-theme="print"][data-accent="hgamma"] {
   --accent: #3a4fd0;
   --on-accent: #ffffff;
 }
-[data-theme="daylight"][data-accent="hdelta"] {
+[data-theme="daylight"][data-accent="hdelta"],
+[data-theme="print"][data-accent="hdelta"] {
   --accent: #6435c9;
   --on-accent: #ffffff;
 }
-[data-theme="daylight"][data-accent="sodium"] {
+[data-theme="daylight"][data-accent="sodium"],
+[data-theme="print"][data-accent="sodium"] {
   --accent: #8a5000;
   --on-accent: #ffffff;
 }
-[data-theme="daylight"][data-accent="mercury"] {
+[data-theme="daylight"][data-accent="mercury"],
+[data-theme="print"][data-accent="mercury"] {
   --accent: #0a6b3d;
   --on-accent: #ffffff;
 }
@@ -442,6 +475,16 @@ textarea:focus-visible {
 * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+}
+
+/* The Print theme hides scrollbars outright: in a screenshot a scrollbar is
+   a grey stripe that says nothing about the content. Scrolling still works. */
+[data-theme="print"] * {
+  scrollbar-width: none;
+}
+[data-theme="print"] *::-webkit-scrollbar,
+[data-theme="print"]::-webkit-scrollbar {
+  display: none;
 }
 
 /* The one memorable device in the interface: a bar on the leading edge of

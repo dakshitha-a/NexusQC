@@ -44,7 +44,8 @@ export function viewerBackground(): string {
 
 /** True on themes whose field is lighter than their ink. */
 export function isLightField(): boolean {
-  return useAppearanceStore.getState().theme === "daylight";
+  const theme = useAppearanceStore.getState().theme;
+  return theme === "daylight" || theme === "print";
 }
 
 // Which viewers currently carry the light-field outline. 3Dmol has no getter

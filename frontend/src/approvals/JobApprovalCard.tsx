@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import * as api from "../lib/api";
@@ -110,7 +110,24 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
   const definiteProblems = inputWarnings.filter((w) => w.severity === "error");
   const advisoryWarnings = inputWarnings.filter((w) => w.severity === "warning");
   const calculationNotes = inputWarnings.filter((w) => w.severity === "note");
+  // Long notes fold to two lines. At text size Largest an ORCA TDDFT card
+  // with a seven-line note was 998 px tall, so its title and parameters
+  // scrolled away while the input and the Approve button were on screen
+  // (2026-11-09). Short notes are shown whole; there is nothing to fold.
+  const notesLong = calculationNotes.reduce((n, w) => n + w.message.length, 0) > 240;
+  // The input box grows to its content: set from scrollHeight after every
+  // edit, because a line count misses lines that wrap in a narrow card. The
+  // CSS cap (max-h-[60vh]) keeps a large geometry block from pushing
+  // Approve off screen; past it the box scrolls as before.
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [ackProblems, setAckProblems] = useState(false);
+  useLayoutEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight + 2}px`;
+  });
   // The registry's label, with its first letter lowered so it reads inside
   // a sentence; "NEB transition-state search" keeps its capitals. A card
   // pending from before task_label existed falls back to task/subtype.
@@ -229,9 +246,21 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
             data-testid="approval-notes"
             className="mb-2 rounded border border-border bg-bg px-2 py-1 text-2xs text-text-muted"
           >
-            {calculationNotes.map((w, i) => (
-              <div key={i}>{w.message}</div>
-            ))}
+            <div className={notesLong && !notesOpen ? "line-clamp-2" : ""}>
+              {calculationNotes.map((w, i) => (
+                <div key={i}>{w.message}</div>
+              ))}
+            </div>
+            {notesLong && (
+              <button
+                type="button"
+                data-testid="approval-notes-toggle"
+                onClick={() => setNotesOpen((o) => !o)}
+                className="mt-0.5 text-text-muted underline hover:text-text"
+              >
+                {notesOpen ? "Show less" : "Show all"}
+              </button>
+            )}
           </div>
         )}
 
@@ -276,8 +305,9 @@ export function JobApprovalCard({ pending, threadId }: { pending: PendingApprova
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            rows={10}
-            className="mb-2 w-full resize-y rounded border border-border bg-bg p-2 font-mono text-2xs text-text outline-none focus:border-accent"
+            ref={inputRef}
+            rows={4}
+            className="mb-2 max-h-[60vh] w-full resize-y rounded border border-border bg-bg p-2 font-mono text-2xs text-text outline-none focus:border-accent"
           />
         ) : (
           <pre className="mb-2 max-h-64 overflow-y-auto rounded border border-border bg-bg p-2 font-mono text-2xs text-text-muted">

@@ -137,9 +137,13 @@ export function OrbitalTable({ rows, selected, onSelect, fill, activeSpaceNote, 
           {warning}
         </div>
       )}
+      {/* Collapsed, the cap is a share of the window rather than a fixed
+          max-h-56: that fixed 14rem made water/STO-3G's seven orbitals scroll
+          at text size Largest while the drawer had room below (2026-11-09).
+          A long table still scrolls here, inside the drawer. */}
       <div
         className={`overflow-y-auto rounded border border-border ${
-          fill ? "min-h-0 flex-1" : "max-h-56"
+          fill ? "min-h-0 flex-1" : "max-h-[60vh]"
         }`}
       >
         <table className="w-full text-xs">

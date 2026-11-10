@@ -356,9 +356,13 @@ export function JobDetailDrawer({
   const [optCoordsOpen, setOptCoordsOpen] = useState(false);
 
   return (
-    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+    // Non-modal, with no overlay: this is a side panel about a job, and the
+    // chat beside it is usually the agent talking about that same job. A
+    // modal bg-black/50 scrim dimmed and froze exactly the text a user wants
+    // to compare against the drawer (2026-11-09). Escape and a click outside
+    // still close it; Radix keeps the drawer's own flyouts inside its layer.
+    <Dialog.Root open modal={false} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in" />
         <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-105 max-w-[90vw] flex-col border-l border-border bg-surface shadow-2xl data-[state=open]:animate-slide-in-right">
           {!job ? (
             <div className="p-4 text-sm text-text-muted">Loading...</div>

@@ -170,27 +170,13 @@ Details in `evaluation/2026-09-06-full-pass.md`.
 
 Observed on the dev stack at fdcf367, driving the app as the test admin.
 
-**The orbital table scrolls inside the job drawer even when there is room.**
-`OrbitalTable.tsx` caps the non-fill table at `max-h-56`, so water/STO-3G's
-seven orbitals needed an inner scroll at text size "Largest" while the drawer
-had space below. **Next:** let the table grow to the drawer's height, or raise
-the cap with the font scale.
-
-**The job drawer's scrim hides the chat that is talking about the job.**
-`JobDetailDrawer.tsx` overlays `bg-black/50`, so the agent's summary of a job
-is dimmed while its drawer is open, the moment a user most wants to compare
-the two. **Next:** consider a lighter or no scrim for this drawer, since it is
-a side panel rather than a blocking dialog.
-
-**There is no print or presentation theme.** Daylight is deliberately warm
-paper (`--bg: #f4f2ec`) with grey muted text (`#5b6373`); a figure for a
-printed page wants a white field and near-black text. The thesis shots had to
-inject an override. **Next:** a "Print" theme in `appearanceStore.ts` with a
-white background, darker muted text and no scrollbars.
-
-**At larger text sizes the approval card cannot be seen whole.** At text size
-"Largest" on a 1440x900 window, the formaldehyde ORCA card is 998 CSS px tall,
-so its title and parameters scroll away while the input file and the Approve
-button are on screen. The input file itself is a fixed-height textarea with an
-inner scroll. **Next:** let the input box size to its content, and consider
-making the long notes collapsible so the card's head stays in view.
+**The job-finished notice shows the user an instruction meant for the model.**
+When a job finishes, the chat shows a system row reading "Job(s) ca49e9478c01
+finished. Check their status and give the user a concise summary of the
+results." `job_watcher._agent_notice` writes it as a turn for the model, and
+`MessageBubble`'s `SystemNoticeRow` shows it verbatim, which is deliberate
+(the row marks text the app injected) but the wording is addressed to the
+model. It appeared in the Figure 7.4 screenshot. Seen again on 2026-11-09
+while verifying the drawer fixes. **Next:** show the user a plain line ("Job
+ca49e9478c01 finished") and keep the instruction model-only, or hide the row
+once the model's summary follows it.

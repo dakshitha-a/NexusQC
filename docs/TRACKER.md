@@ -66,10 +66,14 @@ does not change mid-session.
 
 ## Phase 4: the interface
 
-- [todo] P4.1: the orbital table in the job drawer grows instead of scrolling when there is room
-- [todo] P4.2: the job drawer no longer darkens the chat beside it
-- [todo] P4.3: a Print theme with a white field, near-black text and no scrollbars
-- [todo] P4.4: the approval card's input box fits its content and long notes fold away
+- [done] P4.1: the orbital table in the job drawer grows instead of scrolling when there is room
+  evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "water/STO-3G's 7 orbitals at text size 1.35: table scrollHeight 488 = clientHeight 488"
+- [done] P4.2: the job drawer no longer darkens the chat beside it
+  evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "no overlay with a background; chat scrolled 1050 -> 650 by wheel with the drawer open; Escape closes it"
+- [done] P4.3: a Print theme with a white field, near-black text and no scrollbars
+  evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "body rgb(255,255,255), text rgb(17,20,24), muted rgb(58,63,71), scrollbar-width none; Print in the picker"
+- [done] P4.4: the approval card's input box fits its content and long notes fold away
+  evidence: tests/frontend/ui_09_drawer_card_print.spec.mjs → "formaldehyde ORCA card: input scroll 0 px (was 94), long note folded to 86 px with Show all; 15/15 via the Vite dev server"
 
 ## Phase 5: closing out
 

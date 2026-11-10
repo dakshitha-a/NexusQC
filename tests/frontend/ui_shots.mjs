@@ -24,7 +24,7 @@ const args = Object.fromEntries(
   process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => a.replace(/^--/, "").split("=")),
 );
 const OUT = args.out || path.resolve(HERE, "..", "..", "docs", "e2e-artifacts", "ui");
-const THEMES = args.only ? [args.only] : ["balmer", "nightshift", "daylight", "contrast"];
+const THEMES = args.only ? [args.only] : ["balmer", "nightshift", "daylight", "print", "contrast"];
 // 1366x900 is where the three-panel row starts to bind, which is the width the
 // text-size range has to survive; 1920 is what it is normally used at.
 const VIEWPORTS = [

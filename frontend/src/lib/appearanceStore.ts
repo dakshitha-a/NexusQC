@@ -28,7 +28,7 @@ import { persist } from "zustand/middleware";
  * resetting one does not throw away the other.
  */
 
-export type ThemeId = "balmer" | "nightshift" | "daylight" | "contrast";
+export type ThemeId = "balmer" | "nightshift" | "daylight" | "print" | "contrast";
 export type AccentId = "hbeta" | "hgamma" | "hdelta" | "sodium" | "mercury";
 export type DensityId = "compact" | "cosy" | "roomy";
 export type MotionId = "full" | "reduced";
@@ -40,6 +40,7 @@ export const THEMES: { id: ThemeId; name: string; blurb: string }[] = [
   { id: "balmer", name: "Balmer", blurb: "Graphite field. The default." },
   { id: "nightshift", name: "Nightshift", blurb: "Warm and low blue, for working late." },
   { id: "daylight", name: "Daylight", blurb: "Paper and ink, for a bright room or a projector." },
+  { id: "print", name: "Print", blurb: "White and near-black, no scrollbars. For screenshots on a page." },
   { id: "contrast", name: "Contrast", blurb: "Pure black, brightened. Checked at AAA." },
 ];
 
