@@ -633,7 +633,11 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
                 and float(np.dot(C[core_ao], (S @ C)[core_ao])) > 0.8)
         if core:
             character = "core"
-        elif single_atom or lone_pair_combination:
+        elif (single_atom and occ >= 1.0) or lone_pair_combination:
+            # A lone pair is occupied by definition. An empty orbital on one
+            # atom (water HF/cc-pVDZ's orbital 10, +31.7 eV, all oxygen) was
+            # labelled "n" here; it falls through to its shape with a "*" now.
+            # lone_pair_combination already requires occupation.
             character = "n"
         elif shape is not None:
             character = f"{shape}{'*' if occ < 1.0 else ''}"

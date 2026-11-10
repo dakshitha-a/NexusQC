@@ -170,14 +170,8 @@ Details in `evaluation/2026-09-06-full-pass.md`.
 
 Observed on the dev stack at fdcf367, driving the app as the test admin.
 
-**An empty orbital that sits on one atom is labelled "n".** In water
-HF/cc-pVDZ (job b23486553278, 2026-11-10) orbital 10, a virtual at +31.7 eV
-entirely on oxygen, reads "n" in the Character column. The lone-pair branch of
-`classify_orbital_character` in `app/chemistry/jobs/molden.py` asks only that
-one atom carries the orbital, not that it is occupied. A lone pair is occupied
-by definition. **Next:** require `occ >= 1.0` for "n", let an empty one-atom
-orbital fall through to its shape label with a "*", and add the case to
-`scripts/validate_orbital_character.py`.
+**Fixed 2026-11-10:** an empty orbital on one atom is no longer labelled a
+lone pair; it takes its shape label with a "*".
 
 **Fixed 2026-11-10:** the job-finished notice no longer shows the user the
 instruction meant for the model; the row reads "Job X finished."

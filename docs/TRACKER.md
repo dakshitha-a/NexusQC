@@ -48,7 +48,8 @@ The user's decisions, taken 2026-11-10:
 
 - [todo] P1.1: a job that finishes while its owner is logged out has a summary waiting on return (e2e_17 L9b)
 - [todo] P1.2: the job drawer shows only the sections a job's results support
-- [todo] P1.3: an empty orbital on one atom is not labelled a lone pair
+- [done] P1.3: an empty orbital on one atom is not labelled a lone pair
+  evidence: scripts/validate_orbital_character.py → "all checks passed; water/cc-pVDZ orbital 10 (empty, all oxygen) now sigma*, no empty orbital is n, the occupied lone pairs stay n"
 - [todo] P1.4: a mistyped functional or basis gets suggestions (e2e_11)
 - [todo] P1.5: a draft built on another job's geometry reaches ready (e2e_12)
 

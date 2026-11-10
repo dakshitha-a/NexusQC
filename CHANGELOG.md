@@ -32,6 +32,8 @@ note saying what changed.
 
 ### Fixed
 
+- An empty orbital sitting on one atom was labelled "n", a lone pair, in
+  the orbital table. It now takes its shape label, such as "sigma*".
 - PDF downloads of plots embedded their font as Type 3, which many theses,
   journals and printers refuse. They now embed TrueType (Type 42).
 - Asking for a plot's y axis "from 0" fixed both ends, so the top sat on

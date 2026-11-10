@@ -101,6 +101,15 @@ ok &= check("core orbital 1 is on O1", rows[0]["localized_atom"] == "O1", rows[0
 # core test existed. The 2s-like orbital 2 is valence and keeps its own label.
 ok &= check("orbital 1 is core, not a lone pair", rows[0]["character"] == "core", str(rows[0]))
 ok &= check("orbital 2 is not core", rows[1]["character"] != "core", str(rows[1]))
+
+rows, occ, mol = classify("water / cc-pVDZ (an empty orbital on one atom)", WATER, "cc-pvdz")
+print("expectations:")
+# Orbital 10 is a virtual sitting entirely on oxygen. It read "n" until the
+# lone-pair branch asked for occupation. No empty orbital may be a lone pair.
+ok &= check("no empty orbital is called a lone pair",
+            not any(r["character"] == "n" for r, o in zip(rows, occ) if o < 1.0),
+            str([(i + 1, r["character"]) for i, (r, o) in enumerate(zip(rows, occ)) if o < 1.0 and r["character"] == "n"]))
+ok &= check("the occupied lone pairs are still lone pairs", rows[4]["character"] == "n", str(rows[4]))
 ok &= check("no occupied orbital is called antibonding",
             not any(r["character"] and r["character"].endswith("*") for r in rows[:5]))
 # The HOMO (1b1) is antisymmetric about the molecular plane and would read as
