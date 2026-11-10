@@ -14,7 +14,7 @@ export interface OrbitalRow {
   occupancy: number;
   // Only populated by recommend_active_space today (see
   // classify_orbital_character in pyscf_runner.py) -- character is
-  // "sigma"/"pi"/"n"/"sigma*"/"pi*"/null (unclassified), localized_atom is
+  // "core"/"sigma"/"pi"/"n"/"sigma*"/"pi*"/null (unclassified), localized_atom is
   // a short label like "O1" or "C1-C2", or "delocalized over ..." for an
   // orbital that isn't cleanly localized on 1-2 atoms.
   character?: string | null;

@@ -341,8 +341,34 @@ def _axis_quarter_turn_symmetry(mol, axis: np.ndarray, origin: np.ndarray, mo_co
     return _symmetry_expectation(mol, mo_coeff, rotate, grid)
 
 
+def _core_ao_mask(mol) -> np.ndarray:
+    """True for every AO that belongs to an atom's chemical core shells.
+
+    The core is the closed noble-gas shells below the valence: 1s for Li to
+    Ne, 1s 2s 2p for Na to Ar, and 1s to 3p for K to Kr, plus 3d from Ga on.
+    The shell names come from pyscf's own AO labels, which number each
+    angular momentum from its lowest shell, so "1s" is the tightest s
+    function in any basis. An atom with an ECP is left out: its core
+    electrons are not in the basis at all, and its lowest labelled shell is
+    valence.
+    """
+    def core_shells(z: int) -> set[str]:
+        if z <= 2:
+            return set()
+        if z <= 10:
+            return {"1s"}
+        if z <= 18:
+            return {"1s", "2s", "2p"}
+        shells = {"1s", "2s", "2p", "3s", "3p"}
+        return shells | {"3d"} if z >= 31 else shells
+
+    shells = [set() if mol.atom_nelec_core(ia) else core_shells(int(mol.atom_charge(ia)))
+              for ia in range(mol.natm)]
+    return np.array([nl in shells[ia] for ia, _sym, nl, _m in mol.ao_labels(fmt=False)], dtype=bool)
+
+
 def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) -> list[dict]:
-    """Per-orbital {"character": "sigma"/"pi"/"n"/"sigma*"/"pi*"/None,
+    """Per-orbital {"character": "core"/"sigma"/"pi"/"n"/"sigma*"/"pi*"/None,
     "localized_atom": str} for every orbital in mo_coeff, using only
     already-in-memory data (no new QM calculation).
 
@@ -429,6 +455,7 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
     # rather than one per orbital -- everything accumulated here is shared
     # by every column of mo_coeff.
     grid = _becke_grid(mol)
+    core_ao = _core_ao_mask(mol)
     diffuse_fraction = _diffuse_fractions(mol, mo_coeff, grid)
     plane_symmetry = _plane_reflection_symmetry(mol, normal, centroid, mo_coeff, grid) if is_planar else None
     axis_symmetry = _axis_quarter_turn_symmetry(mol, axis, centroid, mo_coeff, grid) if is_linear else None
@@ -591,7 +618,22 @@ def classify_orbital_character(mol, mo_coeff: np.ndarray, mo_occ: np.ndarray) ->
                         for i, a in enumerate(hetero)
                         for b in hetero[i + 1:])
         )
-        if single_atom or lone_pair_combination:
+        # A core orbital sits on one atom too, so it used to come out "n":
+        # water's O 1s was labelled a lone pair, in a table a thesis figure
+        # shows. What separates them is where on that atom the orbital lives.
+        # Measured across water in STO-3G, cc-pVDZ, def2-SVPD and
+        # aug-cc-pVDZ, formaldehyde's C 1s and HCl's Cl 1s/2s/2p, every core
+        # orbital puts at least 0.99 of its Mulliken population on the core
+        # shells and every valence orbital at most 0.005, so 0.8 sits in open
+        # space. Occupied only: nothing virtual is chemical core. It does
+        # not require one atom: ethylene's or benzene's carbon 1s orbitals
+        # are in- and out-of-phase combinations over equivalent atoms, which
+        # the shape test alone would call sigma.
+        core = (not diffuse and occ >= 1.0
+                and float(np.dot(C[core_ao], (S @ C)[core_ao])) > 0.8)
+        if core:
+            character = "core"
+        elif single_atom or lone_pair_combination:
             character = "n"
         elif shape is not None:
             character = f"{shape}{'*' if occ < 1.0 else ''}"

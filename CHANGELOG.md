@@ -32,6 +32,9 @@ note saying what changed.
 
 ### Fixed
 
+- Core orbitals were labelled "n", as lone pairs, in the orbital table:
+  water's oxygen 1s was one. They are now labelled "core", including
+  core combinations spread over equivalent atoms, as in ethylene.
 - A job asked for after a converged optimization ran on the starting
   geometry. It now runs on the optimized one, and the approval card says so.
 - A nuclear-ensemble request written as "nuclear-ensemble UV/Vis spectrum"
