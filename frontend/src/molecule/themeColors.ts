@@ -34,6 +34,13 @@ import { useAppearanceStore } from "../lib/appearanceStore";
 function tokenAsHex(name: string, fallback: string): string {
   if (typeof window === "undefined") return fallback;
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // The production build minifies #ffffff to #fff, so the short form must be
+  // read too. Reading only six digits fell back to the graphite default and
+  // drew a dark canvas on the Print theme's white page (and a not-quite-black
+  // one on Contrast's #000), which the dev server, serving unminified CSS,
+  // never showed. Found 2026-11-10 retaking the thesis figures.
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(raw);
+  if (short) return `0x${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
   const m = /^#([0-9a-f]{6})$/i.exec(raw);
   return m ? `0x${m[1]}` : fallback;
 }

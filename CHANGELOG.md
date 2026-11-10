@@ -46,6 +46,9 @@ note saying what changed.
 - A drafting turn could loop for hundreds of steps when the model wrote the
   molecule into a draft that already had one. The key is now dropped and the
   draft carries on.
+- The 3D viewers drew a dark canvas on the Print theme, and a not-quite-black
+  one on Contrast, because the production build shortens #ffffff to #fff and
+  the colour reader only accepted six digits.
 
 ## [1.3.1] - 2026-10-23
 
