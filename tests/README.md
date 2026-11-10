@@ -94,6 +94,13 @@ directory (`QC_AGENT_BACKUP_DIR`) before doing anything else.
 npm --prefix frontend run test:e2e   # requires: playwright install chromium (once)
 ```
 
+The browser must be the exact Chromium build the installed Playwright asks
+for. Install it with `(cd frontend && npx playwright install chromium)`, and
+run that again whenever `frontend/package.json` moves Playwright to a new
+version. A build fetched by some other Playwright copy can sit in
+`~/.cache/ms-playwright` and still not count, and `newBrowser()` then stops
+with that same command in its error.
+
 ## What "FAIL" means here
 
 Group A (`sec_*`) scripts were originally written to PROVE a specific

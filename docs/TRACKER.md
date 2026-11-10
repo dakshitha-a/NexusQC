@@ -1,3 +1,4 @@
+<!-- artifact: https://claude.ai/artifact/V1fMX18Ldz75a1qZCsKBgH -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
 # Tracker: fixing what the thesis screenshots found
 
 **Opened 2026-11-09.** Five phases. The tracker before this one is
@@ -38,7 +39,8 @@ does not change mid-session.
 
 ## Phase 1: the browser the frontend suite launches
 
-- [todo] P1.1: tests/frontend launches a Chromium that is installed
+- [done] P1.1: tests/frontend launches a Chromium that is installed
+  evidence: tests/frontend/gh_01_version_and_issue_links.spec.mjs → "17/17 on HeadlessChrome 151.0.7922.34 (build 1234); with no browser, newBrowser() names the install command"
 
 ## Phase 2: drafting
 

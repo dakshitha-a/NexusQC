@@ -66,7 +66,20 @@ export function summary() {
 }
 
 export async function newBrowser() {
-  return chromium.launch({ ignoreHTTPSErrors: true });
+  try {
+    return await chromium.launch({ ignoreHTTPSErrors: true });
+  } catch (e) {
+    // Each Playwright release wants one exact Chromium build. Browsers fetched by
+    // a different Playwright sit beside it in the cache and are never used, so
+    // the raw error ("Executable doesn't exist") reads like a broken install.
+    if (/Executable doesn't exist/.test(String(e))) {
+      throw new Error(
+        "Playwright's Chromium build is not installed. From the repo root run:\n" +
+        "  (cd frontend && npx playwright install chromium)\n" +
+        "and again after any Playwright upgrade.\n\n" + e.message);
+    }
+    throw e;
+  }
 }
 
 export async function newContext(browser) {

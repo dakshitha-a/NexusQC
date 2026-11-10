@@ -215,13 +215,6 @@ printed page wants a white field and near-black text. The thesis shots had to
 inject an override. **Next:** a "Print" theme in `appearanceStore.ts` with a
 white background, darker muted text and no scrollbars.
 
-**`tests/frontend` asks for a Chromium build that is not installed.** Its
-Playwright looked for `chromium_headless_shell-1234` while
-`~/.cache/ms-playwright` holds 1243, although both `node_modules` copies
-report playwright-core 1.62.1. **Next:** find which copy resolves to 1234 and
-pin `tests/frontend` to the browsers that are installed, or add
-`npx playwright install chromium` to the suite's setup notes.
-
 **An ORCA TDDFT spectrum card carries a note about excited-state gradients.**
 "Compute the UV/Vis spectrum of formaldehyde … B3LYP/def2-SVP, 10 states, on
 ORCA" drafted a plain `%tddft` job, and the card still showed a seven-line note
