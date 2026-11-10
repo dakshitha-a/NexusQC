@@ -187,17 +187,37 @@ try {
     check("the chat scrolls while the drawer is open", false, "no scrollable chat column found");
   }
 
-  const raw = page.locator('[title="View raw input"]');
-  if (await raw.count()) {
-    await raw.first().click();
-    await page.waitForTimeout(800);
-    const flyout = page.getByText("Raw input").last();
-    await flyout.click().catch(() => {});
-    await page.waitForTimeout(400);
-    check("clicking inside the raw-input flyout keeps the drawer open",
-          (await page.locator('[role="dialog"]').count()) >= 1);
+  // The drawer is non-modal now, so a flyout it opens must not count as a
+  // click outside it. The geometry flyout, because every single-geometry job
+  // has one (a PySCF job has no raw input or output file).
+  const geo = page.locator('[title="View geometry"]');
+  check("the drawer offers its geometry flyout", (await geo.count()) > 0);
+  if (await geo.count()) {
+    await geo.first().click();
+    const inFlyout = page.locator('[data-testid="flyout-download-geometry"]');
+    await inFlyout.waitFor({ timeout: 10000 });
+    const box = await inFlyout.boundingBox();
+    // A click on the flyout's own surface, beside its download button, and
+    // proof that the point is the flyout's rather than the drawer's.
+    const px = box.x - 40, py = box.y + box.height / 2;
+    const inside = await page.evaluate(([x, y]) => {
+      const btn = document.querySelector('[data-testid="flyout-download-geometry"]');
+      const panel = btn.closest('[role="dialog"]') || btn.parentElement.parentElement;
+      const drawer = document.querySelector('[data-testid="drawer-send-copy"]').closest('[role="dialog"]');
+      const hit = document.elementFromPoint(x, y);
+      return { inPanel: !!hit && panel.contains(hit), panelIsDrawer: panel === drawer };
+    }, [px, py]);
+    check("the test click lands on the flyout, not the drawer",
+          inside.inPanel && !inside.panelIsDrawer, JSON.stringify(inside));
+    await page.mouse.click(px, py);
+    await page.waitForTimeout(500);
+    check("clicking inside the flyout keeps the drawer open",
+          (await page.locator('[data-testid="drawer-send-copy"]').count()) === 1);
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(500);
+    check("Escape closes the flyout first and leaves the drawer",
+          (await inFlyout.count()) === 0 &&
+          (await page.locator('[data-testid="drawer-send-copy"]').count()) === 1);
   }
   await page.keyboard.press("Escape");
   await page.waitForTimeout(600);

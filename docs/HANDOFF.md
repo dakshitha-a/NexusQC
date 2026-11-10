@@ -10,6 +10,19 @@ state of this file.
 
 ## Open
 
+- **Deploy the thesis-screenshot fixes with `scripts/update.sh`.** Twelve
+  fixes are on `main` and pushed (tracker `docs/TRACKER.md`), but the stack
+  still runs the image from before them. Auto mode refuses a real
+  `scripts/update.sh`, so a person runs it: `bash scripts/update.sh` from the
+  repo root. On 2026-11-09 its `--dry-run` passed every gate with no
+  destructive changes: a fast image rebuild, no schema or config change, and
+  a frontend reinstall that `update.sh` does itself. Nobody had a job running
+  or a stream open. Afterwards: run
+  `tests/frontend/ui_09_drawer_card_print.spec.mjs` against the stack without
+  `QC_AGENT_TEST_VITE_URL`, mark P5.2 done with the deployed commit, add
+  Phase 5's merged row, archive the tracker to
+  `docs/trackers/2026-11-thesis-screenshot-fixes.md`, and delete this entry.
+
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
