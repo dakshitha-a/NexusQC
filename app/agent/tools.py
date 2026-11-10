@@ -3969,8 +3969,69 @@ def start_job_draft(
     their own input.
     """
     draft = {"task": task, "method": method, "engine": engine, "params": {}}
+    opt_job = _converged_opt_from_here(state, task)
+    if opt_job:
+        # Applied once, here, and recorded as a default: a user who says to
+        # use the starting structure clears it with update_job_draft and it
+        # stays cleared, because nothing re-applies it.
+        draft["params"]["source_geometry_job_id"] = opt_job
+        draft[DEFAULTED_KEY] = ["source_geometry_job_id"]
     return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
                           preview_only)
+
+
+# Tasks a geometry from an optimisation cannot feed: they take no single
+# structure of their own (see elicitation._NO_MOLECULE).
+_NO_SOURCE_GEOMETRY = {"blind", "batch", "geometry_set", "wigner_spectra"}
+
+
+def _same_geometry(a: Optional[dict], b: Optional[dict], tol: float = 1e-6) -> bool:
+    if not a or not b or list(a.get("symbols") or []) != list(b.get("symbols") or []):
+        return False
+    ca, cb = a.get("coords") or [], b.get("coords") or []
+    return len(ca) == len(cb) and all(
+        abs(float(x) - float(y)) <= tol for p, q in zip(ca, cb) for x, y in zip(p, q))
+
+
+def _converged_opt_from_here(state: Optional[dict], task_phrase: Optional[str]) -> Optional[str]:
+    """The id of this conversation's most recent converged minimisation that
+    STARTED from the structure now on screen, or None.
+
+    Found 2026-11-09: furan was optimised, then a frequency job was drafted
+    and approved on the PubChem input, because nothing moves the active
+    molecule when an optimisation finishes. Frequencies off the minimum are
+    wrong, and so is any ensemble sampled from them. The job watcher cannot
+    safely write conversation state, so the fix is here: a new draft on
+    exactly the opt's input structure takes the opt's result instead, and
+    says so. A structure the user changed since (a different molecule, an
+    edited frame) does not match and is left alone, and so are constrained
+    and conical-intersection searches, whose end point is not a minimum.
+    """
+    state = state or {}
+    molecule = state.get("molecule")
+    if not molecule:
+        return None
+    resolved, _ = resolve_task(task_phrase) if task_phrase else (None, None)
+    if resolved is None and task_phrase:
+        from app.chemistry.registry2.elicitation import _read_phrase
+        resolved = _read_phrase(task_phrase)[0]
+    if resolved and resolved[0] in _NO_SOURCE_GEOMETRY:
+        return None
+    for job_id in reversed(list(state.get("active_job_ids") or [])):
+        spec = read_spec(job_id)
+        if not spec:
+            continue
+        kind = (spec.get("task"), spec.get("subtype") or "")
+        if not (kind == ("opt", "min") or kind[0] == "opt_freq"):
+            continue
+        if not _same_geometry(spec.get("molecule"), molecule):
+            continue
+        result = get_job_manager().result(job_id) or {}
+        summary = result.get("summary") or {}
+        if (result.get("status") == "completed" and summary.get("optimized_geometry")
+                and summary.get("converged", True) is not False):
+            return job_id
+    return None
 
 
 @tool
@@ -4013,7 +4074,10 @@ def update_job_draft(
     calling set_geometry; you already have that id from earlier in this
     conversation. A job that cannot supply its geometry (still running, or a
     scan/batch with more than one) is refused with the reason rather than
-    silently substituted.
+    silently substituted. A draft started on the exact structure a converged
+    optimisation began from already carries that optimisation here, as a
+    default the reply mentions; if the user wants the starting structure
+    instead, write {"source_geometry_job_id": null}.
 
     If the user wants an earlier CASSCF-family job's active space with an
     orbital swapped -- "swap orbital 26 for 21", "replace 32 with 37", "rotate

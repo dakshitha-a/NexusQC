@@ -170,17 +170,6 @@ Details in `evaluation/2026-09-06-full-pass.md`.
 
 Observed on the dev stack at fdcf367, driving the app as the test admin.
 
-**The frequency job the agent offers after an optimisation uses the starting
-geometry.** Furan opt `d3ea1bc721bb` (B3LYP/def2-SVP, PySCF) converged; the
-agent then drafted a frequency job on its own, and the card's coordinates were
-the PubChem input (C1 x = 0.43511416), not the optimised ones (0.44668877).
-Approved as drafted, the frequencies would be off the minimum and anything
-built on them, a nuclear ensemble included, would be wrong. Asking "use the
-optimised geometry from job d3ea1bc721bb as the active molecule" fixed it.
-**Next:** find whether the opt-completion path should set the optimised frame
-as the active molecule, or the follow-up draft should take
-`source_geometry_job_id` from the opt job.
-
 **The orbital table scrolls inside the job drawer even when there is room.**
 `OrbitalTable.tsx` caps the non-fill table at `max-h-56`, so water/STO-3G's
 seven orbitals needed an inner scroll at text size "Largest" while the drawer

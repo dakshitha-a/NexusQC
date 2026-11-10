@@ -783,6 +783,15 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # which re-resolves the (by-then re-validated) id itself rather than
     # trusting a value computed here.
     source_geometry_job = d["params"].get("source_geometry_job_id")
+    if source_geometry_job and "source_geometry_job_id" in d.get(DEFAULTED_KEY, []):
+        # Set by start_job_draft, not by anyone asking (see
+        # tools._converged_opt_from_here). Said every time the draft is
+        # checked, so it reaches the user and the card, with the way out.
+        notes.append(
+            f"Using the optimised geometry from job {source_geometry_job}, since that "
+            f"optimisation started from the structure in the molecule panel. To run on the "
+            f"starting structure instead, clear source_geometry_job_id."
+        )
     if source_geometry_job and check_external:
         problem = _source_geometry_problem(str(source_geometry_job),
                                            d["params"].get("source_geometry_image"))

@@ -51,7 +51,8 @@ does not change mid-session.
   evidence: tests/backend/draft_04_task_phrases.py → "18/18; and two real agent turns with the thesis phrasings (qwen3.8:27b, scratch data dir) drafted wigner_spectra, not single_point/ee"
 - [done] P2.3: a rejected draft can be dropped, and a request for a different task starts a new draft
   evidence: tests/backend/draft_05_declined_drafts.py → "8/8; real turns after Reject: 'Drop that draft.' called discard_job_draft and cleared it, and a frequency request started a fresh freq draft"
-- [todo] P2.4: a job drafted after a converged optimisation uses the optimised geometry, and the card says so
+- [done] P2.4: a job drafted after a converged optimisation uses the optimised geometry, and the card says so
+  evidence: tests/backend/draft_06_followup_geometry.py → "8/8; real turn: water opt 4600ce5dba8a completed, then 'compute its vibrational frequencies' drafted freq with source_geometry_job_id=4600ce5dba8a"
 
 ## Phase 3: plots
 
