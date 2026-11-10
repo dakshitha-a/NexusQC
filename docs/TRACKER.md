@@ -77,5 +77,6 @@ does not change mid-session.
 
 ## Phase 5: closing out
 
-- [todo] P5.1: README and docs updated for the user-visible changes
+- [done] P5.1: README and docs updated for the user-visible changes
+  evidence: docs/GUIDE.md → "post-opt geometry, declined drafts, dashed curves and the Print theme described; CHANGELOG Unreleased lists all twelve; README chart blurb still accurate"
 - [todo] P5.2: deployed with scripts/update.sh after a full backup

@@ -151,6 +151,19 @@ the job produced one, otherwise the input geometry. A job with no single
 geometry of its own, like a scan or a Wigner ensemble, is refused by name rather
 than guessed at.
 
+After a **geometry optimization converges**, the next job you ask for on that
+same structure runs on the optimized geometry, not the one the optimization
+started from. Frequencies after an optimization are the usual case, and they
+are only meaningful at the minimum. The approval card says which job the
+geometry came from. Say "use the starting structure" to keep the original. A
+structure you have changed since, or an optimization that did not converge, is
+left alone.
+
+If you **decline an approval card**, nothing runs and the setup is kept. Ask
+for a change ("use cc-pVDZ instead") and it is amended. Ask for a different
+calculation and a new one starts from scratch, without the declined one's
+settings. Say "drop it" and it is discarded.
+
 A **nuclear-ensemble spectrum** always builds on earlier work, because there is
 nothing to sample without a molecule's vibrations: it draws its geometries from
 a finished frequency calculation's normal modes. Tag that job and ask for the
@@ -245,11 +258,15 @@ actually talking about.
 
 Any chart restyles by asking. Title, axis labels, font sizes, figure size,
 grid, axis ranges, colours, line and marker settings, and where the legend
-goes, including beside the chart rather than on top of it. Asking for bigger
+goes, including beside the chart rather than on top of it. On a chart that
+overlays several spectra, one curve can be dashed or dotted, which is what
+keeps two curves apart once the page is printed in greyscale. Asking for bigger
 text scales the title, the axis labels, the tick numbers and the legend
 together, so one request does what you meant. A chart can be downloaded as SVG
 or PDF as well as PNG, at whatever size and font you set, which is what a
-figure headed for a paper needs.
+figure headed for a paper needs. For a screenshot of the app itself, the Print
+theme (the palette button, top left) gives a white page, near-black text and no
+scrollbars.
 
 Any chart can carry text. Ask for the values on a method comparison and each
 number is written beside its own bar or energy level. The numbers are the

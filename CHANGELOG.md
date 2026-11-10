@@ -10,6 +10,40 @@ note saying what changed.
 
 ## [Unreleased]
 
+### Added
+
+- A Print theme with a white page, near-black text and no scrollbars, for
+  screenshots that end up on paper.
+- One curve of a spectra overlay can be dashed, dotted or dash-dotted, so
+  curves stay apart in greyscale.
+- A declined draft can be dropped by asking ("drop it").
+
+### Changed
+
+- The job drawer no longer dims the chat beside it, and the chat stays
+  scrollable while it is open.
+- The approval card's input box fits its content, and a long note folds to
+  two lines behind Show all.
+- The orbital table in the job drawer only scrolls when it is taller than
+  most of the window.
+- Spectra overlays draw no markers on their grid points. Long chart titles
+  wrap, and the legend no longer sits on the peaks.
+
+### Fixed
+
+- A job asked for after a converged optimization ran on the starting
+  geometry. It now runs on the optimized one, and the approval card says so.
+- A nuclear-ensemble request written as "nuclear-ensemble UV/Vis spectrum"
+  or "Wigner samples" was drafted as a single-geometry TDDFT job.
+- After declining a draft, a request for a different calculation amended the
+  declined one, and "drop that draft" rebuilt it.
+- An ORCA B3LYP UV/Vis card carried a note about excited-state gradients
+  that did not apply to it and named an internal file.
+- The agent could report a plot change, such as a dashed curve, that the
+  renderer had silently ignored. Such a change is now refused by name.
+- The frontend test suite's error for a missing Chromium build says how to
+  install the right one.
+
 ## [1.3.1] - 2026-10-23
 
 ### Fixed
