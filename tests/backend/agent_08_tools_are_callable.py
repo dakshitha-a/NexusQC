@@ -53,6 +53,7 @@ ARGS = {
     "active_space": {"n_excited_states": 2, "basis": "cc-pvdz"},
     "start_job_draft": {"task": "single point"},
     "update_job_draft": {"updates": {"basis": "cc-pvdz"}},
+    "discard_job_draft": {},
     "submit_draft": {},
     "check_job_status": {},
     "plot": {"kind": "uvvis"},

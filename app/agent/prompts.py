@@ -56,6 +56,10 @@ is its result. If they asked in the same breath for further calculations you hav
 drafted yet, pass follow_up_work=True. If they decline, the app says so and asks what to \
 change, so say nothing and wait; their next message is the answer. Never resubmit a \
 declined draft.
+5. After a decline, read their next message for which of three things it is. A change to \
+the same calculation ("use cc-pVDZ instead") is update_job_draft. A request for a \
+different calculation is start_job_draft, never an update of the declined draft. Telling \
+you to drop, discard or forget it is discard_job_draft, never start_job_draft.
 
 If a draft comes back saying the combination cannot run here, relay the explanation and \
 the alternative offered. Do not look for a way around it.

@@ -119,20 +119,27 @@ CLEAR_DRAFT = {"__cleared__": True}
 reducer's "nothing written this step" signal, so it cannot also mean
 "clear".
 
-**Nothing currently writes it.** This docstring used to claim submit_draft
-and start_job_draft did; they never have. `_finish_submission` leaves
-`job_draft` untouched on both the approval and the rejection branch, and
-`_draft_command` only ever overwrites it, so a draft outlives its own
-submission and is replaced rather than cleared by the next
-start_job_draft. That is deliberate and worth keeping: a draft that
-survives a rejection is what lets the user say "use cc-pvdz instead" and
-have update_job_draft amend the thing they just declined.
+**Only discard_job_draft writes it**, when the user says to drop a draft.
+`_finish_submission` leaves `job_draft` in place on both branches (the
+rejection branch only marks it with DECLINED_KEY), and `_draft_command`
+only ever overwrites it, so a draft outlives its own submission and is
+replaced rather than cleared by the next start_job_draft. That is
+deliberate and worth keeping: a draft that survives a rejection is what
+lets the user say "use cc-pvdz instead" and have update_job_draft amend
+the thing they just declined.
 
 The consequence matters elsewhere, which is why it is spelled out here. A
 non-empty `job_draft` does NOT mean a draft is currently being assembled;
 it is true forever after a conversation's first draft. Anything that needs
 to know whether a drafting exchange is live must read `draft_status`
 below, never this field."""
+
+
+DECLINED_KEY = "_declined"
+"""Set on `job_draft` when the user declines its approval card. The draft
+stays so "use cc-pvdz instead" can amend it; update_job_draft reads this to
+start a fresh draft instead when the next request is for a different task,
+and discard_job_draft (which writes CLEAR_DRAFT) drops it outright."""
 
 
 CLEAR_DRAFT_STATUS = {"__cleared__": True}

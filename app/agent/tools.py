@@ -37,7 +37,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command, interrupt
 
 from app.agent.scholar_search import search_academic_literature
-from app.agent.state import AgentState, CLEAR_DRAFT_STATUS, attached_job_id, attached_jobs_this_turn
+from app.agent.state import AgentState, CLEAR_DRAFT, CLEAR_DRAFT_STATUS, DECLINED_KEY, attached_job_id, attached_jobs_this_turn
 from app.agent.web_search import web_search
 from app.chemistry.registry2.capabilities import get_caps
 from app.chemistry.registry2.elicitation import (
@@ -2437,8 +2437,16 @@ def _finish_submission(decision, job_type: str, state, tool_call_id, follow_up_w
         # does, so it releases any job summaries the watcher has been
         # holding. `job_draft` itself is deliberately left in place: the
         # message the app writes invites the user to change something, and
-        # update_job_draft needs a draft to amend.
+        # update_job_draft needs a draft to amend. It is marked declined, so
+        # that a later update which changes the TASK starts a fresh draft
+        # rather than carrying the declined one's parameters into an
+        # unrelated job (seen 2026-11-09: every request after a Reject was
+        # applied to the old single point). discard_job_draft drops it.
+        declined_update = {}
+        if (state or {}).get("job_draft"):
+            declined_update["job_draft"] = {**state["job_draft"], DECLINED_KEY: True}
         return Command(update={
+            **declined_update,
             "draft_status": CLEAR_DRAFT_STATUS,
             # The run-it intent belonged to the request that ended here.
             # Left set, an unrelated later draft would inherit it and
@@ -3912,6 +3920,10 @@ def start_job_draft(
 ) -> Command:
     """Begin assembling a calculation, discarding any draft in progress.
 
+    Also the right call after the user declined a draft and now asks for a
+    DIFFERENT calculation. To drop a draft without starting another, call
+    discard_job_draft instead.
+
     Call this as soon as the user asks for a calculation, with whatever
     they have already said -- `task` alone is enough. The reply tells you
     the one thing to ask next; keep answering it with update_job_draft
@@ -4018,6 +4030,16 @@ def update_job_draft(
         return Command(update={"messages": [ToolMessage(
             content="There is no draft in progress -- call start_job_draft first.",
             tool_call_id=tool_call_id)]})
+    if draft.pop(DECLINED_KEY, False) and _changes_task(draft, updates):
+        # The user declined that draft and is now asking for a different
+        # calculation. Amending would carry the declined job's basis, states
+        # and geometry source into it as though they had been chosen again,
+        # so start clean with only what this call says -- the same thing
+        # start_job_draft would have done.
+        draft = {"task": updates.get("task", draft.get("task")),
+                 "subtype": updates.get("subtype", ""),
+                 "method": updates.get("method"), "engine": updates.get("engine"),
+                 "params": {}}
     params = dict(draft.get("params") or {})
     # A parameter the user has now stated is no longer a default, whatever it
     # was before. `updates` is exactly "what they just said", so this is the
@@ -4099,6 +4121,44 @@ def update_job_draft(
             tool_call_id=tool_call_id)]})
     return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
                           preview_only)
+
+
+def _changes_task(draft: dict, updates: Optional[dict]) -> bool:
+    """Does this update ask for a different calculation from the draft's?"""
+    if not updates or not ("task" in updates or "subtype" in updates):
+        return False
+    before = _draft_task_pair(draft)
+    after = _draft_task_pair({**draft, **{k: updates[k] for k in ("task", "subtype") if k in updates}})
+    return before != after
+
+
+@tool
+def discard_job_draft(
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Drop the current draft entirely, without starting another.
+
+    Call this when the user says to drop, discard, scrap or forget the draft
+    or the calculation they were setting up, including one they just declined
+    on its approval card. Nothing is run and nothing is queued. Do NOT call
+    start_job_draft for this: that builds a new draft, which is the opposite
+    of what they asked.
+    """
+    draft = (state or {}).get("job_draft") or {}
+    pair = _draft_task_pair(draft) if draft else None
+    named = (f"{pair[0]}/{pair[1]}" if pair and pair[1] else pair[0]) if pair else None
+    return Command(update={
+        "job_draft": CLEAR_DRAFT,
+        "draft_status": CLEAR_DRAFT_STATUS,
+        "draft_run_when_ready": False,
+        "draft_preview_only": False,
+        "messages": [ToolMessage(
+            content=(f"Dropped the {named} draft. Nothing was run. Tell the user in one short "
+                     f"sentence; a new request starts with start_job_draft."
+                     if named else "There was no draft to drop."),
+            tool_call_id=tool_call_id)],
+    })
 
 
 @tool
@@ -5648,7 +5708,7 @@ def convert_energy_units(
 
 STATIC_TOOLS = [
     set_geometry, lookup_capabilities, active_space,
-    start_job_draft, update_job_draft, submit_draft,
+    start_job_draft, update_job_draft, discard_job_draft, submit_draft,
     check_job_status, plot, geometry_parameters, list_ensemble_geometries_in_window,
     convert_energy_units,
     search,

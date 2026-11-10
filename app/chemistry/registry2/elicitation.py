@@ -264,6 +264,10 @@ def normalize_draft(draft: Optional[dict]) -> dict:
     is where that write is applied.
     """
     draft = dict(draft or {})
+    # The declined mark (app/agent/state.py's DECLINED_KEY) is conversation
+    # state, not a parameter; the loop below would otherwise file it under
+    # params, and from there onto a card and into a spec.
+    draft.pop("_declined", None)
     params = dict(draft.get("params") or {})
     for key in list(draft.keys()):
         if key in STRUCTURAL_KEYS:

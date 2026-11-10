@@ -11,7 +11,7 @@ parameter of single_point, so nothing could rescue it later either.
 
 In-process, no stack and no model needed:
 
-    PYTHONPATH=$PWD python3 tests/backend/draft_02_task_phrases.py
+    PYTHONPATH=$PWD python3 tests/backend/draft_04_task_phrases.py
 """
 from __future__ import annotations
 

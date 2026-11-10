@@ -181,13 +181,6 @@ optimised geometry from job d3ea1bc721bb as the active molecule" fixed it.
 as the active molecule, or the follow-up draft should take
 `source_geometry_job_id` from the opt job.
 
-**A rejected draft captures every later request.** After Reject, the agent
-answers "I've left the setup … as it is", and the next request, even one for
-a different task, is applied with `update_job_draft` to that old draft. "Drop
-that draft." called `start_job_draft` and rebuilt the same single point rather
-than discarding it. **Next:** make "drop/discard" clear the draft, and have a
-request for a different task start a new draft instead of updating the old one.
-
 **The orbital table scrolls inside the job drawer even when there is room.**
 `OrbitalTable.tsx` caps the non-fill table at `max-h-56`, so water/STO-3G's
 seven orbitals needed an inner scroll at text size "Largest" while the drawer
