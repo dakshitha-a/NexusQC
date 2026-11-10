@@ -277,6 +277,7 @@ def render_line_plot(
             st.reserve_legend_headroom(ax, len(y_series))
         st.apply(ax, legend_default=legend_default)
         fig.tight_layout()
+        st.clear_legend(fig, ax)
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")
         plt.close(fig)
 

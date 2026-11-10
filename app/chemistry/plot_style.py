@@ -255,6 +255,44 @@ class PlotStyle:
         else:
             ax.set_ylim(bottom, top + (top - bottom) * (0.06 + 0.07 * n_entries))
 
+    def clear_legend(self, fig, ax) -> None:
+        """Raise the y axis until no line passes under the drawn legend.
+
+        reserve_legend_headroom guesses the room a legend needs as a share of
+        the axis, and the share a legend really takes grows as the figure
+        shrinks: on a 6 x 4 in spectra overlay the legend still sat on the
+        dashed peak (2026-11-10). This measures instead. Once the legend is
+        drawn it finds the highest point of any line inside the legend's
+        horizontal span and, if that reaches the legend's lower edge, lifts
+        the top of the axis just enough. The legend is anchored to the axes,
+        so it stays put while the data moves down beneath it. Skipped for an
+        explicit ylim, which is the caller's, a log axis, and a legend
+        outside the axes.
+        """
+        legend = ax.get_legend()
+        if legend is None or self.ylim is not None or self.log_y or self.legend == self.OUTSIDE:
+            return
+        fig.canvas.draw()
+        box = legend.get_window_extent().transformed(ax.transAxes.inverted())
+        x0, x1 = (ax.transAxes + ax.transData.inverted()).transform([(box.x0, 0), (box.x1, 0)])[:, 0]
+        peak = None
+        for line in ax.get_lines():
+            xs, ys = line.get_xdata(), line.get_ydata()
+            for x, y in zip(xs, ys):
+                try:
+                    x, y = float(x), float(y)
+                except (TypeError, ValueError):
+                    continue
+                if min(x0, x1) <= x <= max(x0, x1) and y == y:
+                    peak = y if peak is None else max(peak, y)
+        if peak is None:
+            return
+        bottom, top = ax.get_ylim()
+        room = box.y0 - 0.03  # the legend's lower edge, as a fraction of the axes, less a gap
+        if room <= 0.2 or (peak - bottom) / (top - bottom) <= room:
+            return
+        ax.set_ylim(bottom, bottom + (peak - bottom) / room)
+
     def draw_annotations(self, ax) -> None:
         """Place each annotation at its data point.
 

@@ -102,6 +102,33 @@ def main() -> int:
           str(drawn.get("markers")))
     check("headroom above the peak for the legend", drawn.get("ytop", 0) > 1.15, str(drawn.get("ytop")))
 
+    print("\n== on a small figure the legend still clears the curves ==")
+    seen = {}
+
+    def spy2(fig, *a, **kw):
+        ax = fig.axes[0]
+        leg = ax.get_legend().get_window_extent().transformed(ax.transData.inverted())
+        worst = max((float(y) for ln in ax.get_lines() for x, y in zip(ln.get_xdata(), ln.get_ydata())
+                     if leg.x0 <= float(x) <= leg.x1), default=0.0)
+        seen["gap"] = leg.y0 - worst
+        return real_savefig(fig, *a, **kw)
+
+    plt.Figure.savefig = spy2
+    try:
+        # The furan overlay's shape: a narrow peak at the legend's left edge,
+        # on a 6 x 4 in figure with a wrapped title.
+        x = np.linspace(5.2, 9.3, 2000)
+        broad = np.exp(-0.5 * ((x - 6.17) / 0.2) ** 2) + 0.74 * np.exp(-0.5 * ((x - 8.1) / 0.25) ** 2)
+        narrow = np.exp(-0.5 * ((x - 6.46) / 0.07) ** 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            render_line_plot(list(x), {"Nuclear ensemble (100 samples)": list(broad / broad.max()),
+                                       "Single geometry": list(narrow)}, "Energy (eV)",
+                             "Normalized intensity", title, str(Path(tmp) / "s.png"),
+                             style=PlotStyle(figsize=(6, 4)), series_styles={"Single geometry": "--"})
+    finally:
+        plt.Figure.savefig = real_savefig
+    check("no curve reaches the legend's lower edge", seen.get("gap", -1) > 0, str(seen))
+
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return 0 if FAIL == 0 else 1
 

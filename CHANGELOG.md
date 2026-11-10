@@ -27,7 +27,8 @@ note saying what changed.
 - The orbital table in the job drawer only scrolls when it is taller than
   most of the window.
 - Spectra overlays draw no markers on their grid points. Long chart titles
-  wrap, and the legend no longer sits on the peaks.
+  wrap, and the legend no longer sits on the peaks, at any figure size: the
+  axis is raised until no curve passes under the drawn legend.
 
 ### Fixed
 
