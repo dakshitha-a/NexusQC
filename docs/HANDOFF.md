@@ -10,24 +10,6 @@ state of this file.
 
 ## Open
 
-- **Delete the round-3 thesis-figure data from `qatest_admin` once the
-  thesis session accepts the figures.** It was kept on 2026-11-10 so a round 4
-  need not rerun the furan ensemble, which took about an hour. Delete exactly
-  these, by id, and nothing else on the account:
-  - Conversations `0e1efd8941844c16bf3583c0bd37414e` (furan),
-    `7587df7814ea4c2798f986ff63e65f12` (water) and
-    `ee3f2000178e4b1bb51bea62624c2229` (formaldehyde, with a pending card).
-  - Jobs `078b4fa0555e`, `8848a0d2c030`, `f1d0da529780`, `f7c58684059c`,
-    `c120758f105a`, `84719ca3b937`, `4e425f10ca85`, `86207133145e`,
-    `c8dccbef38ef` and `95654484caae`. `f7c58684059c` is a 100-sample
-    ensemble; after deleting it, check that its child job folders listed in
-    its `children.jsonl` are gone too.
-  - Plots `p297c7ed596a`, `p09a5c380ca9`, `p83563372e81`, `p65491c1952a`,
-    `pdd755d5f99a`, `pe4bd9e6fc92` and `pe890b7acac3`.
-  Before this round the account held one conversation,
-  `e285b1d4705743beab7a7c96f38f173c`, and no jobs, plots or projects. That is
-  the state to return to.
-
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
