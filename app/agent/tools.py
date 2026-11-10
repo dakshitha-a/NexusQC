@@ -4166,6 +4166,14 @@ def update_job_draft(
             content=_unknown_param_message(draft, unknown, inapplicable, updates),
             tool_call_id=tool_call_id)]})
     draft["params"] = params
+    if misrouted == ["molecule"] and (state or {}).get("molecule"):
+        # A molecule is already set, so the key asks for nothing that is not
+        # already true. Refusing it here returned before the draft was
+        # re-checked, so the model never saw that the molecule question had
+        # been answered: on 2026-11-10 it alternated set_geometry and
+        # {"molecule": "water"} about 170 times in one turn. Drop the key and
+        # carry on, so the reply is the draft's real next step.
+        misrouted = []
     if misrouted:
         # Same all-or-nothing rule as the unknown/inapplicable branch above,
         # and now the same sentence. This branch returns no `job_draft`, so

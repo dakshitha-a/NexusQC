@@ -43,6 +43,9 @@ note saying what changed.
   renderer had silently ignored. Such a change is now refused by name.
 - The frontend test suite's error for a missing Chromium build says how to
   install the right one.
+- A drafting turn could loop for hundreds of steps when the model wrote the
+  molecule into a draft that already had one. The key is now dropped and the
+  draft carries on.
 
 ## [1.3.1] - 2026-10-23
 
