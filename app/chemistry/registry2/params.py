@@ -1001,8 +1001,14 @@ PARAMS: tuple[ParamSpec, ...] = (
              "hard cap is 500.",
         ask="How many geometries should the ensemble sample? 50 is a good default; the "
             "maximum is 500.",
-        required_when=ALWAYS,
-        applies_to=("wigner_spectra",),
+        # Required on the ensemble only; it is merely *accepted* on a single
+        # point (below), never asked for there.
+        required_when={"eq": ["task", "wigner_spectra"]},
+        # single_point too, so a count written onto a draft that resolved to
+        # single_point/ee is accepted and elicitation can turn it into the
+        # ensemble it is (step 5a' in validate_draft). Without it the count
+        # was refused as inapplicable and the job stayed one geometry.
+        applies_to=("wigner_spectra", "single_point"),
     ),
     ParamSpec(
         name="fwhm_eV", type="float", label="Broadening (eV)",

@@ -21,6 +21,7 @@ codebase and it is the one that was already being trusted.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any, Optional
 
 from app.chemistry.jobs import keyword_suggest, param_normalize
@@ -136,6 +137,30 @@ TASK_SYNONYMS: dict[str, tuple[str, str]] = {
 }
 
 
+def normalize_phrase(text: Optional[str]) -> str:
+    """Lowercase, with hyphens, slashes, underscores and brackets read as spaces.
+
+    A user writes "nuclear-ensemble", "UV/Vis" and "(Wigner sampling)" as
+    readily as the spaced forms the synonym tables are keyed on, and an exact
+    or whole-word match then misses: "nuclear-ensemble UV/Vis spectrum" fell
+    through to the generic "spectrum" and drafted a single-geometry TDDFT job
+    (seen 2026-11-09). Both sides of every comparison go through this.
+    """
+    return " ".join(re.sub(r"[-_/(),;:]", " ", (text or "").lower()).split())
+
+
+# Words that settle the task wherever they appear in a phrase. A spectrum
+# from sampled geometries is still a "spectrum" and often an "absorption"
+# one, and both of those are longer matches for single_point/ee, so the
+# longest-match rule alone hands an ensemble request to the wrong task.
+DECISIVE_TASK_WORDS: dict[str, tuple[str, str]] = {
+    "wigner": ("wigner_spectra", ""),
+    "nuclear ensemble": ("wigner_spectra", ""),
+    "ensemble spectrum": ("wigner_spectra", ""),
+    "ensemble spectra": ("wigner_spectra", ""),
+}
+
+
 def _fuzzy(query: str, pool, n: int = 3, cutoff: float = 0.6) -> list[str]:
     return difflib.get_close_matches(query.lower().strip(), list(pool), n=n, cutoff=cutoff)
 
@@ -169,6 +194,10 @@ def resolve_task(query: Optional[str]) -> tuple[Optional[tuple[str, str]], list[
     q = query.lower().strip().replace("_", " ")
     if q in TASK_SYNONYMS:
         return TASK_SYNONYMS[q], []
+    nq = normalize_phrase(query)
+    for phrase, pair in TASK_SYNONYMS.items():
+        if normalize_phrase(phrase) == nq:
+            return pair, []
     for (task, subtype) in TASKS:
         name = f"{task}/{subtype}" if subtype else task
         if q in (name, task.replace("_", " "), name.replace("_", " ")):

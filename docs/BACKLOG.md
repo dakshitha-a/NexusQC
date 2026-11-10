@@ -181,15 +181,6 @@ optimised geometry from job d3ea1bc721bb as the active molecule" fixed it.
 as the active molecule, or the follow-up draft should take
 `source_geometry_job_id` from the opt job.
 
-**A nuclear-ensemble request is drafted as a single-geometry TDDFT job.**
-Three phrasings ("nuclear-ensemble UV/Vis spectrum … 100 Wigner samples",
-"a Nuclear-ensemble spectrum (Wigner sampling) … 100 samples", and the same
-after "Drop that draft.") each produced an "excited-state energies" card with
-no `n_samples`; only naming the task id (`wigner_spectra`) produced the
-ensemble card. **Next:** check how `start_job_draft` and `lookup_capabilities`
-expose `wigner_spectra` to the model; the label and aliases likely need
-"nuclear ensemble", "Wigner" and "ensemble spectrum".
-
 **A rejected draft captures every later request.** After Reject, the agent
 answers "I've left the setup … as it is", and the next request, even one for
 a different task, is applied with `update_job_draft` to that old draft. "Drop

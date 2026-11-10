@@ -47,7 +47,8 @@ does not change mid-session.
 
 - [done] P2.1: the B88 excited-state gradient note appears only when a gradient is requested, and names no repo path
   evidence: tests/backend/elic_01_draft_scenarios.py → "206/206; ORCA B3LYP note absent for sp/ee and wigner_spectra, present for nac, excited opt and excited grad"
-- [todo] P2.2: a nuclear-ensemble or Wigner request in plain words drafts wigner_spectra
+- [done] P2.2: a nuclear-ensemble or Wigner request in plain words drafts wigner_spectra
+  evidence: tests/backend/draft_02_task_phrases.py → "18/18; and two real agent turns with the thesis phrasings (qwen3.8:27b, scratch data dir) drafted wigner_spectra, not single_point/ee"
 - [todo] P2.3: a rejected draft can be dropped, and a request for a different task starts a new draft
 - [todo] P2.4: a job drafted after a converged optimisation uses the optimised geometry, and the card says so
 

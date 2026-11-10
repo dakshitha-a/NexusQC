@@ -46,6 +46,7 @@ from app.chemistry.jobs import keyword_suggest, param_normalize
 from app.chemistry.registry2.lookup import (
     METHOD_SYNONYMS, TASK_SYNONYMS, method_is_really_a_task, resolve_method,
     resolve_task, suggest_basis, suggest_functional,
+    DECISIVE_TASK_WORDS, normalize_phrase,
 )
 from app.chemistry.registry2.params import (
     DEFAULTED_KEY,
@@ -573,15 +574,20 @@ def _read_phrase(text: str) -> tuple[Optional[tuple[str, str]], Optional[str]]:
     (the method), which is exactly the conflation the v2 taxonomy exists to
     undo.
     """
-    lowered = f" {(text or '').lower().replace('_', ' ')} "
+    lowered = f" {normalize_phrase(text)} "
     task = None
-    for phrase in sorted(TASK_SYNONYMS, key=len, reverse=True):
+    for phrase, pair in DECISIVE_TASK_WORDS.items():
         if f" {phrase} " in lowered:
-            task = TASK_SYNONYMS[phrase]
+            task = pair
             break
+    if task is None:
+        for phrase in sorted(TASK_SYNONYMS, key=len, reverse=True):
+            if f" {normalize_phrase(phrase)} " in lowered:
+                task = TASK_SYNONYMS[phrase]
+                break
     method = None
     for name in sorted(METHOD_SYNONYMS, key=len, reverse=True):
-        if f" {name} " in lowered:
+        if f" {normalize_phrase(name)} " in lowered:
             method = METHOD_SYNONYMS[name]
             break
     return task, method
@@ -1226,6 +1232,24 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # `requires` routing checks, which parameters apply, and which of them
     # are required -- all of which were already computed above against the
     # old subtype. Same shape as 5b just below.
+    # -- 5a'. A sample count means a nuclear-ensemble spectrum ------------
+    #
+    # The same move as the scan switch below, for the same reason: the task
+    # phrase is unreliable (an ensemble request phrased around "UV/Vis
+    # spectrum" lands on single_point/ee), but a sample count is something
+    # only the ensemble takes, and the model writes it once the user has
+    # said "100 samples". n_samples lists single_point in its applies_to so
+    # update_job_draft accepts it there and this can read it.
+    if d["task"] == "single_point" and d["params"].get("n_samples") is not None:
+        d["task"], d["subtype"] = "wigner_spectra", ""
+        notes.append(
+            f"Running this as a nuclear-ensemble spectrum, since "
+            f"{d['params']['n_samples']} sampled geometries were asked for. It needs "
+            f"a finished frequency job on this molecule to sample from."
+        )
+        rerouted = validate_draft(d, state, check_external=check_external)
+        return replace(rerouted, notes=tuple(notes) + rerouted.notes)
+
     scan_subtype = _scan_state_subtype(d["task"], d["method"], d["params"])
     if scan_subtype is not None and scan_subtype != d["subtype"]:
         was_excited = d["subtype"] == "ee"
