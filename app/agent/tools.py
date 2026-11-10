@@ -5383,7 +5383,8 @@ def plot(
     `spec["look"]` restyles ANY kind, spectra and the distributions
     geometry_parameters draws included: title, axis labels, font sizes,
     figsize, dpi, fmt (png/svg/pdf, for the download), grid, xlim/ylim,
-    legend, palette, line and marker settings.
+    legend, palette, line and marker settings. When the user names one end
+    of an axis ("y from 0"), set only that end: "ylim": [0, null].
     Pass what the user named, e.g. {"look": {"title": "...", "font_size": 16,
     "marker_size": 8}}; an unrecognised key is refused with the full list, so
     do not memorise it. "Make the text bigger" is `font_size` alone, which

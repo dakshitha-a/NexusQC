@@ -110,7 +110,7 @@ def _draw_value_labels(ax, positions, series, style, fmt, st, n_series) -> None:
         # otherwise run off the axis past its half-slot margin.
         lo, hi = ax.get_xlim()
         ax.set_xlim(lo, hi + 0.35)
-    elif st.ylim is None and not st.log_y:
+    elif not st.top_fixed and not st.log_y:
         # Headroom for labels sitting above the highest mark.
         bottom, top = ax.get_ylim()
         ax.set_ylim(bottom, top + 0.06 * (top - bottom))
@@ -673,8 +673,8 @@ def render_wigner_ensemble_spectrum(
                 linewidth=1.2, alpha=0.9, label=f"S{state_idx} contribution",
             )
         ax.plot(grid_eV, total_norm, color="black", linewidth=st.lw(2.0), label=f"Total ({len(pooled_energies_eV)} transitions)")
-        if st.ylim is None:
-            ax.set_ylim(bottom=0, top=1.1)
+        if not st.top_fixed:
+            ax.set_ylim(*st.ylim_or(0, 1.1))
         # Trim to the band, not the tails -- see _ENSEMBLE_PLOT_INTENSITY_CUTOFF.
         # Padded by a twentieth of the retained width so the curve meets the axis
         # rather than being clipped flush against it, and skipped entirely if the

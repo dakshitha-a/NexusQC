@@ -297,14 +297,14 @@ def render_excited_state_map(
                         ha="center", va="bottom",
                         fontsize=st.size("tick_size") * 0.8, color="#404040")
         tallest = max(osc, default=0.0)
-        if st.ylim is None and tallest > 0:
+        if not st.top_fixed and tallest > 0:
             # Headroom for the annotations, which sit above the bars and which
             # matplotlib does not measure when it autoscales.
-            ax.set_ylim(0, tallest * 1.35)
-        elif st.ylim is None:
+            ax.set_ylim(*st.ylim_or(0, tallest * 1.35))
+        elif not st.top_fixed:
             # Every state dark. An autoscaled axis collapses onto zero, so say
             # what happened rather than drawing an empty box.
-            ax.set_ylim(0, 1)
+            ax.set_ylim(*st.ylim_or(0, 1))
             ax.annotate("every transition has zero oscillator strength",
                         xy=(0.5, 0.5), xycoords="axes fraction", ha="center",
                         color="#606060", fontsize=st.size("tick_size"))
@@ -391,7 +391,7 @@ def render_thermochemistry(
         ax.set_xticks(range(len(steps) + 2))
         ax.set_xticklabels(["E$_{elec}$"] + [s[0] for s in steps] + ["G"])
         ax.axhline(0.0, color="#c0c0c0", linewidth=0.8, zorder=0)
-        if st.ylim is None:
+        if not st.top_fixed:
             # Room for the captions at both ends. matplotlib does not measure
             # annotations when it autoscales, so without this the topmost
             # caption runs into the title -- which is what the first render
@@ -399,7 +399,7 @@ def render_thermochemistry(
             levels = [0.0, zpe, total_h, total_g]
             lo, hi = min(levels), max(levels)
             pad = (hi - lo or 1.0) * 0.18
-            ax.set_ylim(lo - pad, hi + pad)
+            ax.set_ylim(*st.ylim_or(lo - pad, hi + pad))
         st.apply(ax)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")

@@ -187,12 +187,12 @@ class PlotStyle:
         if self.grid:
             ax.grid(True, alpha=0.3, linewidth=0.6)
         if self.xlim:
-            ax.set_xlim(*self.xlim)
+            ax.set_xlim(left=self.xlim[0], right=self.xlim[1])
         elif self.invert_x:
             lo, hi = ax.get_xlim()
             ax.set_xlim(max(lo, hi), min(lo, hi))
         if self.ylim:
-            ax.set_ylim(*self.ylim)
+            ax.set_ylim(bottom=self.ylim[0], top=self.ylim[1])
         if self.annotations:
             self.draw_annotations(ax)
 
@@ -234,6 +234,18 @@ class PlotStyle:
             return
         ax.legend(loc=self.legend if isinstance(self.legend, str) else "upper right", **kwargs)
 
+    def ylim_or(self, bottom, top) -> tuple:
+        """A renderer's own y range, with any end the caller fixed kept."""
+        if self.ylim is None:
+            return (bottom, top)
+        lo, hi = self.ylim
+        return (bottom if lo is None else lo, top if hi is None else hi)
+
+    @property
+    def top_fixed(self) -> bool:
+        """Whether the caller fixed the top of the y axis, which nothing may then raise."""
+        return self.ylim is not None and self.ylim[1] is not None
+
     def reserve_legend_headroom(self, ax, n_entries: int) -> None:
         """Make room above the data for a legend before drawing it.
 
@@ -244,7 +256,7 @@ class PlotStyle:
         explicit ylim, which is theirs, and when the legend is outside the
         axes, where there is nothing to make room for.
         """
-        if self.ylim is not None or self.legend in (False, self.OUTSIDE):
+        if self.top_fixed or self.legend in (False, self.OUTSIDE):
             return
         bottom, top = ax.get_ylim()
         if self.log_y:
@@ -270,7 +282,7 @@ class PlotStyle:
         outside the axes.
         """
         legend = ax.get_legend()
-        if legend is None or self.ylim is not None or self.log_y or self.legend == self.OUTSIDE:
+        if legend is None or self.top_fixed or self.log_y or self.legend == self.OUTSIDE:
             return
         fig.canvas.draw()
         box = legend.get_window_extent().transformed(ax.transAxes.inverted())
@@ -337,7 +349,7 @@ class PlotStyle:
                 arrowprops={"arrowstyle": "->", "color": color, "lw": 1.0} if arrow else None,
             )
             highest = max(highest, note["y"])
-        if self.ylim is None and not self.log_y and highest >= top - 0.08 * (top - bottom):
+        if not self.top_fixed and not self.log_y and highest >= top - 0.08 * (top - bottom):
             ax.set_ylim(bottom, highest + 0.12 * (top - bottom))
 
     def color(self, index: int, override: Optional[str] = None) -> str:
@@ -519,11 +531,25 @@ def _unique_first_lines(categories: dict) -> list:
 
 
 def _pair(name: str, value) -> tuple:
+    """Two numbers. An axis limit may leave one end null, meaning free.
+
+    "y from 0" names one end only. With two numbers required, the model
+    filled in the other itself: the thesis furan overlay (2026-11-10) came
+    back with ylim [0, 1], which pinned the top at the normalised peaks and
+    put the legend on both of them, because a fixed top is the caller's and
+    nothing may raise it. [0, null] pins the floor and leaves the top to the
+    data and the legend.
+    """
     try:
         lo, hi = value
+        if name in ("xlim", "ylim"):
+            if lo is None and hi is None:
+                raise ValueError
+            return (None if lo is None else float(lo), None if hi is None else float(hi))
         return (float(lo), float(hi))
     except (TypeError, ValueError):
-        raise PlotStyleError(f"style '{name}' wants two numbers, e.g. [0, 10]; got {value!r}.")
+        free = " Either end of an axis limit may be null, e.g. [0, null]." if name in ("xlim", "ylim") else ""
+        raise PlotStyleError(f"style '{name}' wants two numbers, e.g. [0, 10]; got {value!r}.{free}")
 
 
 def from_spec(spec: Optional[dict]) -> PlotStyle:

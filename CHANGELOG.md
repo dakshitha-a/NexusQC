@@ -32,6 +32,9 @@ note saying what changed.
 
 ### Fixed
 
+- Asking for a plot's y axis "from 0" fixed both ends, so the top sat on
+  the peaks and the legend covered them. One end of an axis range can now
+  be left open, and the legend still clears the curves.
 - The agent could misreport a dipole moment. It was handed only the three
   components, and once gave water's as 1.87 D where the result says 2.08 D.
   It now gets the magnitude as well.

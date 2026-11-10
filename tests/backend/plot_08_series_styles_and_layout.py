@@ -23,7 +23,7 @@ import numpy as np
 
 from app.agent.tools import PLOT_SPEC_KEYS, _plot_patch_problem
 from app.chemistry.plot_style import (PlotStyle, PlotStyleError, default_marker,
-                                      parse_line_style)
+                                      from_spec, parse_line_style)
 from app.chemistry.spectrum import render_line_plot
 
 PASS = FAIL = 0
@@ -128,6 +128,45 @@ def main() -> int:
     finally:
         plt.Figure.savefig = real_savefig
     check("no curve reaches the legend's lower edge", seen.get("gap", -1) > 0, str(seen))
+
+    print("\n== 'y from 0' pins the floor only, and the legend still clears ==")
+    # The round-3 thesis overlay: asked for "y axis starting at 0", the model
+    # wrote ylim [0, 1], which fixed the top at the peaks and left the
+    # legend on both. One end may now be null.
+    check("[0, null] is accepted", from_spec({"look": {"ylim": [0, None]}}).ylim == (0.0, None))
+    for bad, label in (({"ylim": [None, None]}, "an axis limit with neither end"),
+                       ({"figsize": [6, None]}, "a figsize with a null")):
+        try:
+            from_spec({"look": bad})
+            check(f"{label} is refused", False)
+        except PlotStyleError as e:
+            check(f"{label} is refused", True, str(e))
+    for look, want in (({"ylim": [0, None]}, "open"), ({"ylim": [0, 1]}, "fixed")):
+        seen.clear()
+
+        def spy3(fig, *a, **kw):
+            ax = fig.axes[0]
+            leg = ax.get_legend().get_window_extent().transformed(ax.transData.inverted())
+            worst = max((float(y) for ln in ax.get_lines() for x, y in zip(ln.get_xdata(), ln.get_ydata())
+                         if leg.x0 <= float(x) <= leg.x1), default=0.0)
+            seen["gap"], seen["ylim"] = leg.y0 - worst, ax.get_ylim()
+            return real_savefig(fig, *a, **kw)
+
+        plt.Figure.savefig = spy3
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                render_line_plot(list(x), {"Nuclear ensemble (100 samples)": list(broad / broad.max()),
+                                           "Single geometry": list(narrow)}, "Energy (eV)",
+                                 "Normalised intensity", None, str(Path(tmp) / "s.png"),
+                                 style=from_spec({"look": {"figsize": [6, 4], **look}}),
+                                 series_styles={"Single geometry": "--"})
+        finally:
+            plt.Figure.savefig = real_savefig
+        if want == "open":
+            check("open top: the floor stays at 0", abs(seen["ylim"][0]) < 1e-9, str(seen))
+            check("open top: no curve reaches the legend", seen.get("gap", -1) > 0, str(seen))
+        else:
+            check("a fixed range is kept exactly", tuple(round(v, 9) for v in seen["ylim"]) == (0.0, 1.0), str(seen))
 
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return 0 if FAIL == 0 else 1
