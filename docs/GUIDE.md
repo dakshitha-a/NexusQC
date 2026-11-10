@@ -167,8 +167,10 @@ settings. Say "drop it" and it is discarded.
 A **nuclear-ensemble spectrum** always builds on earlier work, because there is
 nothing to sample without a molecule's vibrations: it draws its geometries from
 a finished frequency calculation's normal modes. Tag that job and ask for the
-spectrum. If you haven't run one, say so and the agent will set the frequency
-calculation up first, then sample the ensemble from it once it lands.
+spectrum. If you have no frequency calculation on that molecule yet, the agent
+drafts one for you to approve, with an optimisation first when there is no
+optimised structure to start from, and samples the ensemble from it once it
+lands.
 
 For the CASSCF-based methods, every sample also starts from that same frequency job's
 converged orbitals rather than from its own fresh guess. Besides saving the

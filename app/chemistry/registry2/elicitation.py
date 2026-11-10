@@ -646,6 +646,36 @@ def method_is_really_a_functional(value: str, engine: Optional[str]) -> Optional
     return None
 
 
+def _states_from_targets(draft: dict) -> Optional[int]:
+    """Default n_excited_states from the state(s) a draft targets, or None.
+
+    A target state already says how many excited states the calculation
+    needs: at least the highest one targeted. Two things went wrong without
+    this (2026-11-10). A conical-intersection request "between S0 and S1"
+    still asked "how many excited states?", and e2e_21's BAGEL case stopped
+    on that question 2 of 3 times. Worse, a CASSCF optimisation drafted with
+    target_state=1 and no count went to the runner single-state, and the
+    runner only follows target_state when there is more than one state, so
+    a user asking for S1 got the ground state, silently. Set as a default and
+    said in a note, so the user can still raise it to state-average over
+    more states. Returns the value it set.
+    """
+    params = draft.get("params") or {}
+    if "n_excited_states" in params:
+        return None
+    targets = [t for t in (params.get("target_state"), params.get("target_state_2"))
+               if t is not None]
+    if not targets or not all(isinstance(t, int) and not isinstance(t, bool) and t >= 0
+                              for t in targets):
+        return None
+    highest = max(targets)
+    if highest < 1:
+        return None
+    params["n_excited_states"] = highest
+    draft[DEFAULTED_KEY] = sorted(set(draft.get(DEFAULTED_KEY) or []) | {"n_excited_states"})
+    return highest
+
+
 def _derive_root_count(draft: dict) -> None:
     """Write the engine's `n_states` from the model-facing `n_excited_states`.
 
@@ -711,6 +741,11 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
     # so a method that arrives after the count still corrects it. The raw
     # method is safe to test here: the only aliasing step 3 performs is
     # tddft -> dft, and both sides of that are single-reference.
+    _states_from_targets(d)
+    if "n_excited_states" in (d.get(DEFAULTED_KEY) or []):
+        notes.append(
+            f"Computing {d['params']['n_excited_states']} excited state(s), enough to reach "
+            f"the targeted state. Raise n_excited_states to state-average over more.")
     _derive_root_count(d)
 
     # -- 1. What kind of calculation ------------------------------------
@@ -1372,7 +1407,12 @@ def validate_draft(draft: Optional[dict], state: Optional[dict] = None,
                                           d["method"], engine, d["params"])
             filled = {**defaults_for(child_task, child_subtype, child_context), **filled}
     newly_defaulted = {k for k in filled if k not in d["params"]}
-    remembered = {k for k in (d.get(DEFAULTED_KEY) or []) if k in filled}
+    # Kept as well when it is in the draft but not a registry default: a value
+    # a tool set for the user (the optimised geometry, a state count derived
+    # from the targets) belongs in the card's "you did not specify these" box
+    # as much as a static default does. update_job_draft removes a key from
+    # this list the moment the user writes it.
+    remembered = {k for k in (d.get(DEFAULTED_KEY) or []) if k in filled or k in d["params"]}
     d["params"] = {**filled, **d["params"]}
     still_defaulted = sorted(remembered | newly_defaulted)
     d[DEFAULTED_KEY] = still_defaulted

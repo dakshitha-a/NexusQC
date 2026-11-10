@@ -51,26 +51,6 @@ Everything here came out of the 2026-09 fix phase's final gate. Each entry says
 what was observed, what has been ruled out, and the next experiment, because an
 entry with no next step is a note rather than a backlog item.
 
-**The Deployment admin section loses three checks under a four-suite load.**
-`tests/frontend/deploy_05_deployment_section.spec.mjs` reported 9 of 12 in the
-Gate 3 frontend run, all three failures downstream of one wait: a job staged
-directly into `JOBS_DIR` never appeared in the "Who is working right now" table
-within twenty seconds, and the two checks that read the same page snapshot
-afterwards found neither the update controls nor the `scripts/update.sh` line.
-Run alone against the same stack at the same commit the script passes 13 of 13,
-twice. Ruled out: the app code, which did not change between the two runs, and
-a global logout on a failed poll, which `lib/api.ts:222-247` does not do (only a
-401, and only outside `/api/auth/me`). Not ruled out: what the page actually
-looked like, because the log recorded only that an assertion did not hold. The
-script now prints a `pageState()` line naming which of the section, the
-activity table, the update controls, the admin panel and the login screen were
-on screen, plus the last failing `/api/` responses. **Next experiment:** run
-`deploy_05` alone with `QC_AGENT_TEST_DEPLOY05_WAIT_MS` left at its default
-while a synthetic load drives the same stack (the four suites concurrently is
-what produced it, load average 39 with nginx returning intermittent 502s), and
-read the `pageState()` line. Full triage in
-`docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md`.
-
 **The CAS engine misses aza-naphthalene's n->pi\* states.** All 12 in the
 QUESTDB run; 8 scored at +2.3 to +6.0 eV in a (14e,12o) space, 4 left at an
 unrunnable (18e,14o); APC-2 is good on 10 of 12, and the smaller azines are
@@ -81,66 +61,40 @@ rather than a fix inside another one; it is recorded as a limitation in
 which nitrogen lone pair or pi orbital the narrowing drops; the fix is then
 validated across the whole benchmark.
 
-**The agent reaches the approval card less often than it did.** In the
-2026-09-25 end-to-end run: `e2e_21` carded 0 of 3 Wigner-ensemble requests
-and 1 of 3 BAGEL conical-intersection requests, asking a question instead
-(the tool trail shows `lookup_capabilities` then a question); `e2e_19` did
-not reach the ensemble card at all; `e2e_12`'s explicit "use job X's
-geometry" request (G1) did not reach READY, as it also failed on 2026-09-14;
-`model_compat` carded a basis the model chose itself without flagging it as
-unstated. None of tonight's changes touched the agent, the registry or
-the prompts. **Next experiment:** rerun `e2e_21` at the commit before
-`50f96f9` (hidden reasoning switched off for real on 2026-09-24) and at
-`HEAD`; if the card rate differs, the drafting prompt was leaning on the
-reasoning the model no longer does.
+**`start_job_draft` drops a basis the model passes it.** In in-process
+e2e_21 turns (2026-11-10) the model called `start_job_draft(..., basis=...)`
+on almost every request. The tool has no `basis` parameter, so the value is
+dropped and the reply asks for the basis the user already gave, one extra
+round per draft. Adding the parameter breaks `agent_01`'s rule that no tool
+takes more than 8 parameters (it would take 9). **Next experiment:** fold
+`basis` into an existing argument shape, for example an optional `params`
+dict replacing one flag, and measure the card rate before and after.
 
-**A scrubber drag costs three cube renders, not one.**
-`tests/e2e/ui/ui_09_orbital_and_mode_panels.spec.mjs` reports "3 during the
-drag, 4 in total" against a bound of one. Rendering an orbital cube is the
-heaviest per-request allocation the app makes on a read path, so a drag across
-five orbitals asking for four of them is real work nobody asked for. Failing
-since the review.
+**Closed 2026-11-10, each reproduced on the current code first:**
 
-Next experiment: read what debounces the scrubber in `JobDetailDrawer`, and
-whether the requests are fired on `input` rather than on `change` or after a
-settle.
-
-**Two drawer sections render where they should be gated off.**
-`ui_01_shell_and_chat` and `ui_02_approval_jobs_drawer` both report that an HF
-job's drawer shows "Molecular orbitals" and a DFT job's shows "Optimization
-energy", and that a job with no engine exposes "View raw input". Failing since
-the review.
-
-Next experiment: compare each section's render condition in
-`JobDetailDrawer.tsx` against what the job summaries for those cells actually
-carry. A section keyed on a summary field that is present but empty would
-explain all three at once.
-
-**`e2e_11`'s keyword correction returns None.** C2 reports `method=None` for an
-RHF request and C3 reports no candidate menu for a mistyped functional or
-basis. The review recorded this and left it open: "whether keyword suggestion
-regressed or the assertion is stale".
-
-Next experiment: call `keyword_suggest` directly with `b3lp` and with `ccpvdz`
-and see whether it returns candidates. That splits the two possibilities in one
-step and needs no browser.
-
-**`e2e_12`'s source-geometry draft never reaches ready.** The draft correctly
-carries `source_geometry_job_id` and never calls `set_geometry`, which is the
-half the check is about, but `reached_ready=False`.
-
-Next experiment: run `validate_draft` on that exact draft and read what it says
-is missing. If it wants a molecule the source job already supplies, the
-resolution path is not consulting the source job.
-
-**`e2e_17`'s L9b: no unprompted summary after a logout.** A job that completes
-while the user is logged out injects its notice but produces no assistant
-reply, so there is nothing waiting in the conversation on return. L1 to L8, the
-leave-and-return core, all pass. Recorded in the review and unchanged.
-
-Next experiment: check whether `invoke_turn_if_idle` refuses because the thread
-has no live session, and if so whether the notice should queue the turn for the
-next time the user opens the thread instead.
+- **deploy_05 under a four-suite load.** Not load. The app keeps one session
+  per account by design (`app/auth/redis_session.py`), and every suite logs in
+  as `qatest_admin`, so concurrent suites log each other out; the page drops to
+  the login screen and the next click finds its element detached. Alone it
+  passes. `tests/README.md` now says suites sharing an account run one at a time.
+- **The approval card rate.** `e2e_21` on the stack: the ensemble request now
+  drafts its frequency prerequisite for approval (user decision), 3 of 3;
+  the conical intersection derives its state count from the crossing pair,
+  3 of 3 in-process; the other cases 3 of 3. That fix also closed a real bug:
+  a CASSCF optimisation targeting S1 with no state count ran on the ground
+  state (`tests/backend/draft_09_target_state_count.py`).
+- **The orbital scrubber.** The viewer now waits for the drag's release;
+  `ui_09` measures 0 renders during the drag and 1 in total.
+- **Drawer sections "where they should be gated off".** A stale test: it keyed
+  jobs on `method`, which became the level of theory in the v2 job model. The
+  drawer was right; `ui_02` now checks each section against the job's data.
+- **`e2e_11` C2.** A stale test reading `spec.params.method`; 8 of 8 on the
+  stack. Keyword suggestion itself was never broken.
+- **`e2e_12` G1.** A stale test: a complete draft goes straight to the
+  approval card now, so "DRAFT READY" text never arrives. The card carries
+  the source job's geometry (reproduced in-process).
+- **`e2e_17` L9b.** A test race: it read the conversation the moment the
+  notice appeared, while the summary turn was still running. 21 of 21.
 
 **Atom numbers do not come back after a vibrational mode change.**
 CLOSED on 2026-09-14. `tests/frontend/ui_10_atom_label_toggle.spec.mjs` is

@@ -46,21 +46,28 @@ The user's decisions, taken 2026-11-10:
 
 ## Phase 1: leave-and-return and what the user sees
 
-- [todo] P1.1: a job that finishes while its owner is logged out has a summary waiting on return (e2e_17 L9b)
-- [todo] P1.2: the job drawer shows only the sections a job's results support
+- [done] P1.1: a job that finishes while its owner is logged out has a summary waiting on return (e2e_17 L9b)
+  evidence: tests/e2e/e2e_17_logout_and_return.py → "21/21 on the stack; L9b was a test race (read once when the notice appeared, while the summary turn still ran); invoke_turn_if_idle needs no live session"
+- [done] P1.2: the job drawer shows only the sections a job's results support
+  evidence: tests/e2e/ui/ui_02_approval_jobs_drawer.spec.mjs → "19/19 alone on 4a409cc; the drawer was right, the test keyed jobs on method (level of theory since v2); sections now checked against each job's own data"
 - [done] P1.3: an empty orbital on one atom is not labelled a lone pair
   evidence: scripts/validate_orbital_character.py → "all checks passed; water/cc-pVDZ orbital 10 (empty, all oxygen) now sigma*, no empty orbital is n, the occupied lone pairs stay n"
-- [todo] P1.4: a mistyped functional or basis gets suggestions (e2e_11)
-- [todo] P1.5: a draft built on another job's geometry reaches ready (e2e_12)
+- [done] P1.4: a mistyped functional or basis gets suggestions (e2e_11)
+  evidence: tests/e2e/e2e_11_param_correction.py → "8/8 on 4a409cc; suggestions always worked (b3lp->b3lyp, ccpvdz->cc-pvdz); C2/C5 read spec.params.method, which v2 moved to spec.method"
+- [done] P1.5: a draft built on another job's geometry reaches ready (e2e_12)
+  evidence: tests/e2e/e2e_12_source_geometry.py → "in-process G1 turn: approval card with source_geometry_job_id and the source water geometry, no set_geometry; the test waited for DRAFT READY text that a direct-to-card draft never sends"
 
 ## Phase 2: drafting reaches the approval card
 
-- [todo] P2.1: ensemble and conical-intersection requests reach a card rather than a question (e2e_21)
+- [done] P2.1: ensemble and conical-intersection requests reach a card rather than a question (e2e_21)
+  evidence: tests/backend/draft_09_target_state_count.py → "12/12; e2e_21 on 4a409cc: ensemble 3/3 (drafts its opt_freq prerequisite, user decision), others 3/3; CI 3/3 in-process with the count derived from the crossing pair; also fixed an S1 CASSCF opt running on S0"
 
 ## Phase 3: performance and test reliability
 
-- [todo] P3.1: dragging the orbital scrubber renders one cube, not three
-- [todo] P3.2: deploy_05 passes while other suites load the stack
+- [done] P3.1: dragging the orbital scrubber renders one cube, not three
+  evidence: tests/e2e/ui/ui_09_orbital_and_mode_panels.spec.mjs → "0 during the drag, 1 in total on 4a409cc (was 3 and 4); the vibration half needs a job with modes, absent on the test account"
+- [done] P3.2: deploy_05 passes while other suites load the stack
+  evidence: tests/README.md → "root cause is one session per account, not load: a second login 401s the first browser; deploy_05 alone clicks through (13/15, the two misses were my concurrent e2e_21 users); suites sharing an account now documented as one at a time"
 
 ## Phase 4: data and decisions
 

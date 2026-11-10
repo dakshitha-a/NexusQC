@@ -59,6 +59,17 @@ and not against one somebody is using.
 
 Since 2026-09-24 a purge needs more than the flag. See the next section.
 
+**Run the browser suites one at a time.** The app keeps one session per
+account: a login replaces whatever session that account had, which is the kick
+mechanism for a second device (`app/auth/redis_session.py`). Every browser spec
+logs in as `qatest_admin`, so two specs running at once log each other out,
+and the one that loses finds its page back at the login screen and the element
+it was about to click detached. That, not load, is what took three checks out
+of `deploy_05` in a four-suite run in September (reproduced 2026-11-10: a
+second login answered the first browser's `/api/auth/me` with 401). Backend
+scripts that log in as the admin share the account too. Scripts that register
+their own `qatest_*` user are safe to overlap.
+
 ## This stack has real users on it
 
 The development stack is also the research group's testing deployment. Every

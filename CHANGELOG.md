@@ -32,6 +32,11 @@ note saying what changed.
 
 ### Fixed
 
+- A CASSCF optimisation or frequency job on an excited state, drafted
+  without a number of states, ran on the ground state. The number of states
+  now defaults to enough to reach the targeted state, and the card says so.
+  A conical-intersection request no longer asks how many states to compute
+  when its two states already say.
 - Asking for a nuclear-ensemble spectrum with no frequency job yet now
   drafts the frequency job (an optimisation first when there is no minimum)
   for approval, instead of asking whether one exists.
