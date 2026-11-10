@@ -53,12 +53,16 @@ does not change mid-session.
   evidence: tests/backend/draft_05_declined_drafts.py → "8/8; real turns after Reject: 'Drop that draft.' called discard_job_draft and cleared it, and a frequency request started a fresh freq draft"
 - [done] P2.4: a job drafted after a converged optimisation uses the optimised geometry, and the card says so
   evidence: tests/backend/draft_06_followup_geometry.py → "8/8; real turn: water opt 4600ce5dba8a completed, then 'compute its vibrational frequencies' drafted freq with source_geometry_job_id=4600ce5dba8a"
+- merged: d693611
 
 ## Phase 3: plots
 
-- [todo] P3.1: spectra overlays take a per-series line style, and an edit the renderer cannot draw is refused by name
-- [todo] P3.2: dense line plots draw no markers by default
-- [todo] P3.3: long titles wrap to the figure, and the legend leaves the peaks clear
+- [done] P3.1: spectra overlays take a per-series line style, and an edit the renderer cannot draw is refused by name
+  evidence: tests/backend/plot_08_series_styles_and_layout.py → "19/19; real turn 'Make the B3LYP curve dashed.' sent line_styles and v2.png shows B3LYP dashed, PBE0 solid"
+- [done] P3.2: dense line plots draw no markers by default
+  evidence: tests/backend/plot_08_series_styles_and_layout.py → "2000-point overlay drawn with no marker; 12-point custom line keeps circles"
+- [done] P3.3: long titles wrap to the figure, and the legend leaves the peaks clear
+  evidence: tests/backend/plot_08_series_styles_and_layout.py → "the 68-character thesis title wraps on 8 in; y top 1.2+ above normalised peaks; plot_02-07 and spec_01 all pass"
 
 ## Phase 4: the interface
 

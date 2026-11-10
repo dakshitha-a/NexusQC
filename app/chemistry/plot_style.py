@@ -39,6 +39,7 @@ what is valid, so the full list is paid only when someone needs it.
 
 from __future__ import annotations
 
+import textwrap
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -176,7 +177,7 @@ class PlotStyle:
         limits have to win over whatever autoscaling the marks caused.
         """
         if self.title:
-            ax.set_title(self.title)
+            ax.set_title(self._wrapped_title())
         if self.xlabel:
             ax.set_xlabel(self.xlabel)
         if self.ylabel:
@@ -198,6 +199,24 @@ class PlotStyle:
         want = legend_default if self.legend is None else bool(self.legend)
         if want and ax.get_legend_handles_labels()[0]:
             self.place_legend(ax)
+
+    def _wrapped_title(self) -> str:
+        """The title, broken onto more lines when it is wider than the figure.
+
+        matplotlib neither wraps nor shrinks a title, and tight_layout does not
+        either, so "Furan UV/Vis: nuclear ensemble vs single geometry
+        (B3LYP/def2-SVP)" ran off the right edge of an 8 in figure (seen
+        2026-11-09). The width is estimated from the figure width and the
+        title's point size at about 0.6 em per character, which suits the
+        proportional sans-serif every plot here uses. A title the caller
+        broke with newlines is left as written.
+        """
+        title = str(self.title)
+        if "\n" in title:
+            return title
+        width_pt = float(self.figsize[0]) * 72.0
+        per_line = max(20, int(width_pt / (0.6 * self.size("title_size"))))
+        return textwrap.fill(title, per_line) if len(title) > per_line else title
 
     # `legend: "outside"` is not a matplotlib location. It is spelled out here
     # because matplotlib has no location that means "not over the data": every
@@ -332,6 +351,37 @@ STYLE_KEYS = tuple(sorted(list(_COERCE) + list(_PAIRS) + ["palette", "legend"]))
 
 
 ANNOTATION_KEYS = ("arrow", "color", "offset", "size", "text", "x", "y")
+
+# One curve's dash pattern, by name. Colour alone cannot tell two curves
+# apart on a greyscale page, which is where most spectra end up printed.
+_LINE_STYLES = {
+    "solid": "-", "-": "-",
+    "dashed": "--", "dash": "--", "--": "--",
+    "dotted": ":", "dot": ":", ":": ":",
+    "dashdot": "-.", "dash-dot": "-.", "-.": "-.",
+}
+
+# Above this many points a line is a continuous curve, and a marker on each
+# point prints as a thick beaded band (a 2000-point spectra overlay, seen
+# 2026-11-09). Below it, markers show where the data actually is.
+DENSE_LINE_POINTS = 200
+
+
+def parse_line_style(value) -> str:
+    """A matplotlib dash pattern for a style name, or PlotStyleError."""
+    key = str(value).strip().lower() if value is not None else ""
+    if key not in _LINE_STYLES:
+        raise PlotStyleError(
+            f"line style {value!r} is not one this app draws; use solid, dashed, dotted "
+            f"or dashdot.")
+    return _LINE_STYLES[key]
+
+
+def default_marker(st: "PlotStyle", n_points: int) -> Optional[str]:
+    """The marker for a line: the one asked for, else circles on sparse data only."""
+    if st.marker is not None:
+        return st.marker
+    return "o" if n_points <= DENSE_LINE_POINTS else None
 
 
 def _parse_annotations(raw) -> tuple:

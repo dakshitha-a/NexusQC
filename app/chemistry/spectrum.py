@@ -30,8 +30,9 @@ from matplotlib.lines import Line2D
 # shared by every user would restyle the next person's plot too. Each
 # renderer now opens a `plt.rc_context` for its own figure instead.
 from dataclasses import replace  # noqa: E402
+from typing import Optional  # noqa: E402
 
-from app.chemistry.plot_style import PlotStyle, figure_lock  # noqa: E402
+from app.chemistry.plot_style import PlotStyle, default_marker, figure_lock  # noqa: E402
 
 # `_FIGSIZE`/`_DPI` used to stand here, reading PlotStyle's class defaults for
 # the one renderer that still sized its own figure. render_histogram_plot takes
@@ -167,9 +168,10 @@ def render_series_plot(
             label = entry["label"]
             y = [np.nan if v is None else float(v) for v in entry["values"]]
             if style == "line":
-                ax.plot(positions, y, marker=st.marker if st.marker is not None else "o",
+                ax.plot(positions, y, marker=default_marker(st, len(positions)),
                         markersize=st.ms(3.0), linewidth=st.lw(1.5),
-                        linestyle=st.line_style, color=color, label=label)
+                        linestyle=entry.get("line_style") or st.line_style,
+                        color=color, label=label)
             elif style == "scatter":
                 # s is an AREA in points squared, while marker_size is a
                 # diameter in points, as everywhere else in this file. The
@@ -240,7 +242,7 @@ def _broadened_spectrum(
 
 def render_line_plot(
     x: list[float], y_series: dict[str, list[float | None]], xlabel: str, ylabel: str, title: str, out_path: str,
-    log_y: bool = False, style: PlotStyle = None,
+    log_y: bool = False, style: PlotStyle = None, series_styles: Optional[dict[str, str]] = None,
 ) -> None:
     """Shared publication-style (white background, real ticks, legend when
     there's more than one series) matplotlib line plot -- one line per
@@ -257,12 +259,23 @@ def render_line_plot(
     # R-079: pyplot is global state; see plot_style.figure_lock.
     with figure_lock(), plt.rc_context(st.rc()):
         fig, ax = plt.subplots(figsize=st.figsize)
+        # series_styles: a dash pattern per label (plot_style.parse_line_style
+        # has already turned names into patterns); a label not in it takes
+        # the plot-wide look.line_style.
+        series_styles = series_styles or {}
         for i, (label, y) in enumerate(y_series.items()):
             y_masked = [v if v is not None else np.nan for v in y]
-            ax.plot(x, y_masked, marker=st.marker if st.marker is not None else "o",
+            ax.plot(x, y_masked, marker=default_marker(st, len(x)),
                     markersize=st.ms(3.0), linewidth=st.lw(1.5),
-                    linestyle=st.line_style, color=st.cycle_color(i), label=label)
-        st.apply(ax, legend_default=len(y_series) > 1)
+                    linestyle=series_styles.get(label, st.line_style),
+                    color=st.cycle_color(i), label=label)
+        legend_default = len(y_series) > 1
+        if legend_default if st.legend is None else bool(st.legend):
+            # The same headroom the UV/Vis renderers and render_series_plot
+            # make, which this renderer skipped: a normalised overlay peaks at
+            # 1.0, so an upper-right legend sat on the peak tops (2026-11-09).
+            st.reserve_legend_headroom(ax, len(y_series))
+        st.apply(ax, legend_default=legend_default)
         fig.tight_layout()
         fig.savefig(out_path, dpi=st.dpi, facecolor="white")
         plt.close(fig)

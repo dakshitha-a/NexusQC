@@ -4875,7 +4875,9 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         return "log_y was requested but at least one y value is <= 0, which can't be shown on a log axis."
 
     series = [
-        {"label": label, "values": column, "color": s.get("color")}
+        {"label": label, "values": column, "color": s.get("color"),
+         "line_style": (plot_style.parse_line_style(s["line_style"])
+                        if s.get("line_style") is not None else None)}
         for label, column, s in zip(labels, columns, series_specs)
     ]
     xlabel = spec.get("xlabel") or (
@@ -4927,6 +4929,47 @@ def _plot_custom(spec: Optional[dict], state: Annotated[AgentState, InjectedStat
         f"Its plot id is {record['plot_id']}, so it can be edited or asked about later. "
         f"Present the underlying values as a markdown table in your reply as well."
     )
+
+
+# What a custom plot's series entry may carry. Anything else was merged into
+# the stored spec, ignored by the renderer, and reported as done: "Single
+# geometry curve now dashed" on 2026-11-09, with the curve still solid.
+SERIES_ENTRY_KEYS = ("color", "label", "line_style", "y_field")
+
+
+def _plot_patch_problem(kind: Optional[str], spec: dict) -> Optional[str]:
+    """Why this spec (or edit patch) asks for something the renderer cannot
+    draw, or None. Checked on what the caller wrote, never on a stored spec,
+    so a plot saved before a rule existed can still be edited."""
+    if "line_styles" in spec and kind != "spectra":
+        return ("line_styles is for spectra overlays. One curve's dash pattern is "
+                "look.line_style; a custom plot's series each take line_style.")
+    if kind == "spectra" and "series" in spec:
+        return ("A spectra plot has no `series`: its curves are its jobs. Restyle a curve with "
+                "line_styles, keyed by job id or label, e.g. {\"line_styles\": {\"<job id>\": "
+                "\"dashed\"}}; rename one with labels; recolour them with look.palette.")
+    if kind == "spectra" and spec.get("line_styles") is not None:
+        if not isinstance(spec["line_styles"], dict):
+            return "line_styles is an object of curve to style, e.g. {\"<job id>\": \"dashed\"}."
+        for value in spec["line_styles"].values():
+            try:
+                plot_style.parse_line_style(value)
+            except plot_style.PlotStyleError as e:
+                return str(e)
+    if kind == "custom" and isinstance(spec.get("series"), list):
+        for entry in spec["series"]:
+            if not isinstance(entry, dict):
+                continue
+            extra = sorted(k for k in entry if k not in SERIES_ENTRY_KEYS)
+            if extra:
+                return (f"A series entry cannot carry {', '.join(extra)}; it takes only "
+                        f"{', '.join(SERIES_ENTRY_KEYS)}. Plot-wide appearance goes in \"look\".")
+            if entry.get("line_style") is not None:
+                try:
+                    plot_style.parse_line_style(entry["line_style"])
+                except plot_style.PlotStyleError as e:
+                    return str(e)
+    return None
 
 
 def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedState],
@@ -5034,6 +5077,18 @@ def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedSta
         dst = units.canonical_unit(x_units)
         xlabel = f"Wavelength ({dst})" if dst == "nm" else f"Energy ({dst})"
 
+    # spec["line_styles"]: a dash pattern per curve, keyed by job id or by its
+    # label. A key that names no curve on this plot is refused rather than
+    # dropped, for the reason SERIES_ENTRY_KEYS gives.
+    series_styles = {}
+    by_job = {jid: label for (jid, _, _, _), label in zip(curves, labels)}
+    for key, value in (spec.get("line_styles") or {}).items():
+        label = by_job.get(key, key)
+        if label not in series:
+            return (f"line_styles names {key!r}, which is not a curve on this plot. Its curves "
+                    f"are: {', '.join(f'{lab} ({jid})' for jid, lab in by_job.items()) if not difference else ', '.join(series)}.")
+        series_styles[label] = plot_style.parse_line_style(value)
+
     if difference:
         title = spec.get("title") or "Spectrum difference"
         ylabel = spec.get("ylabel") or "Difference in normalized intensity"
@@ -5064,7 +5119,7 @@ def _plot_spectra(spec: Optional[dict], state: Annotated[AgentState, InjectedSta
         render=lambda path: render_line_plot(
             [float(v) for v in grid],
             {label: [float(v) for v in values] for label, values in series.items()},
-            xlabel, ylabel, title, path, style=_styled(spec)),
+            xlabel, ylabel, title, path, style=_styled(spec), series_styles=series_styles),
     )
     if error:
         return error
@@ -5146,6 +5201,9 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
         return ("An edit needs `spec` -- the parts to change, e.g. {\"log_y\": true} or "
                 "{\"series\": [{\"label\": \"S2\", \"color\": \"red\"}]}. Only the keys given change.")
 
+    problem = _plot_patch_problem(record.get("kind"), patch)
+    if problem:
+        return problem
     merged = _merge_plot_spec(record.get("spec") or {}, patch)
     try:
         plot_style.from_spec(merged)
@@ -5213,7 +5271,7 @@ def _plot_edit(plot_id: Optional[str], patch: Optional[dict], state) -> str:
 # Appearance keys are not here; they live inside `look` and plot_style checks
 # them. A key added to a builder has to be added here too, or it is refused.
 PLOT_SPEC_KEYS = frozenset({
-    "annotations", "difference", "field", "fwhm", "job_ids", "kind", "labels", "log_y",
+    "annotations", "difference", "field", "fwhm", "job_ids", "kind", "labels", "line_styles", "log_y",
     "look", "parameters", "series", "style", "title", "value_labels", "width", "window",
     "x_field", "x_labels", "x_units", "x_units_from", "x_values", "xlabel", "y_reference_hartree",
     "y_units", "y_units_from", "ylabel",
@@ -5259,7 +5317,8 @@ def plot(
 
     spectra: {"job_ids": [...]} plus optional "fwhm" (in the spectrum's own
     units), "x_units": "nm" to draw an electronic spectrum against wavelength,
-    "labels" keyed by job id, "title", "ylabel", and "difference": true to
+    "labels" and "line_styles" (solid, dashed, dotted, dashdot) keyed by job
+    id, "title", "ylabel", and "difference": true to
     subtract the second from the first (exactly two jobs) rather than overlay
     them. Each curve is resampled onto one shared grid and normalized to its
     own peak, so shapes and peak positions compare across methods. UV/Vis and
@@ -5326,7 +5385,8 @@ def plot(
     Every plot is saved and reports its `plot_id`. To change one, use
     kind="edit" with that plot_id and a `spec` of ONLY the parts that change:
     {"look": {"title": "..."}}, or {"series": [{"label": "S2", "color":
-    "red"}]}, which finds S2 by label and recolours it. Everything else stays,
+    "red"}]}, which finds S2 by label and recolours it (a custom series also
+    takes "line_style"). Everything else stays,
     and null removes a setting. Prefer this to redrawing when the user asks to
     adjust a plot they can already see.
 
@@ -5354,6 +5414,10 @@ def plot(
     if unknown:
         return (f"Unknown plot spec key(s): {', '.join(unknown)}. Valid keys are: "
                 f"{', '.join(sorted(PLOT_SPEC_KEYS))}. Appearance keys go inside \"look\".")
+    if kind != "edit":
+        problem = _plot_patch_problem(kind, spec)
+        if problem:
+            return problem
     try:
         # Validate the style block once, here, so an unknown key is refused
         # by name before any data is gathered. Silently ignoring it would be

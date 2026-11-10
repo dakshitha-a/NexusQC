@@ -194,23 +194,3 @@ so its title and parameters scroll away while the input file and the Approve
 button are on screen. The input file itself is a fixed-height textarea with an
 inner scroll. **Next:** let the input box size to its content, and consider
 making the long notes collapsible so the card's head stays in view.
-
-**The agent says it changed a plot when the renderer cannot make that change.**
-Asked to make one curve of a `spectra` overlay dashed, the agent replied
-"Single geometry curve now dashed" and saved v2, but the curve stayed solid.
-`spectrum.py` draws every series with one `st.line_style`, and the stored spec
-carried no per-series style. **Next:** support a per-series line style for
-`spectra` (it is what tells two curves apart in greyscale print), and have the
-plot tool refuse an edit it cannot draw, so the reply cannot claim it.
-
-**A spectra overlay draws a marker on every grid point by default.** The first
-version of the furan overlay put a marker on each of the 2000 grid points, so
-both curves printed as thick beaded bands. **Next:** no markers by default for
-continuous spectra.
-
-**Long plot titles run off the figure, and the legend sits on the peaks.** The
-agent's title "Furan UV/Vis: nuclear ensemble vs single geometry
-(B3LYP/def2-SVP)" was clipped at the right edge of an 8x6 in figure, and the
-default legend covered both peak tops until the y limit was raised by hand.
-**Next:** wrap or shrink long titles to the axes width, and place the legend
-with `loc="best"` or reserve headroom above normalised spectra.
