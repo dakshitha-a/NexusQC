@@ -10,6 +10,10 @@ state of this file.
 
 ## Open
 
+- **Deploy a7120e7 with `scripts/update.sh`.** It labels core orbitals
+  "core" instead of "n" in the orbital table. The dry run passed with no
+  destructive changes. The round-3 thesis figures are captured after it.
+
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
