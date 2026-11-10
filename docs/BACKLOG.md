@@ -71,15 +71,15 @@ what produced it, load average 39 with nginx returning intermittent 502s), and
 read the `pageState()` line. Full triage in
 `docs/evaluation/2026-09-app-review/evidence/fix/P6.5/README.md`.
 
-**Ownership rows outlive the jobs they name.** On 2026-09-25 the database held
-59 job rows in `ownership_index` for 21 job directories; the test admin alone
-had 20 rows and no jobs. Nothing shows them, but `models.list_owned` returns
-them, so any code asking "does this account own a job" gets a wrong yes
-(`tests/frontend/_helpers.mjs`'s `ensureAdminJob` did, until it checked the job
-exists). Some date from August, before every delete path forgot ownership.
-**Next experiment:** list the rows with no job directory by owner and date to
-see whether any current delete path still leaves them, fix that path, then
-remove the orphaned rows with the owners' agreement.
+**The CAS engine misses aza-naphthalene's n->pi\* states.** All 12 in the
+QUESTDB run; 8 scored at +2.3 to +6.0 eV in a (14e,12o) space, 4 left at an
+unrunnable (18e,14o); APC-2 is good on 10 of 12, and the smaller azines are
+good in 33 of 42. The user decided on 2026-11-10 that this gets its own plan
+rather than a fix inside another one; it is recorded as a limitation in
+`docs/CAS_ENGINE_METHOD.md` §4.4. **Next experiment:** compare the engine's
+(14e,12o) orbitals for aza-naphthalene-x1 against APC-2's (18e,13o) and see
+which nitrogen lone pair or pi orbital the narrowing drops; the fix is then
+validated across the whole benchmark.
 
 **The agent reaches the approval card less often than it did.** In the
 2026-09-25 end-to-end run: `e2e_21` carded 0 of 3 Wigner-ensemble requests

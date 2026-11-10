@@ -1420,6 +1420,16 @@ recommendation stands in both cases.
 **One constant is set on a knife edge for one molecule**, the prune's drift
 tolerance, reported in §3.8 rather than tuned.
 
+**The aza-naphthalene $n \rightarrow \pi^*$ states are missed, and the cause is
+not yet known.** In the QUESTDB run (`docs/casbench/questdb.md`) the engine
+misses all 12 of aza-naphthalene's $n \rightarrow \pi^*$ excitations. Eight
+are scored, in a $(14e,12o)$ space narrowed from the $(18e,14o)$ pool, and fall
++2.3 to +6.0 eV from the reference; the other four keep the $(18e,14o)$ pool,
+which is too large to run. APC-2 is good on 10 of the same 12. The failure is
+specific to this molecule rather than to azines: the smaller azines' states
+are good in 33 of the 42 scored. A repair is an engine change, and it will be
+validated across the whole benchmark before it ships.
+
 **Adding roots is not a repair for a missing state.** Across six molecules at
 three root counts, no molecule at any root count recovered a state that fewer
 roots had missed. The root margin buys convergence and speed rather than

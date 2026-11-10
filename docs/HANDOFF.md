@@ -10,26 +10,6 @@ state of this file.
 
 ## Open
 
-- **Decide what to do with the QUESTDB benchmark result.**
-  The benchmark is finished and committed (`docs/casbench/questdb.md`).
-  The user has to decide whether to act on the engine missing all 12
-  aza-naphthalene n→π* states, which is logged as an open finding in
-  `docs/trackers/2026-10-questdb-benchmark.md`. The engine fix it waited
-  on is deployed: on 2026-10-22 the stack was already running 0d9706a.
-
-- **Decide whether the development host's Docker daemon should stop using
-  its userland port proxy.** On that host a `docker-proxy` process accepts
-  every connection to the published nginx port, so nginx, and through it the
-  app, sees every client as the bridge gateway address. The whole research
-  group therefore shares one client address. Since 2026-09-24 login is rate
-  limited per account as well as per address, so one person's typos no longer
-  lock the others out, but anything else keyed on the client address still
-  treats the group as one client. The fix is `"userland-proxy": false` in the
-  daemon's `daemon.json` and a daemon restart. That file is root-owned and
-  shared by every tenant on the machine, and the restart stops every
-  container on it, so it is a decision for a person, not a session. After
-  it, `docker compose logs nginx` should show real client addresses.
-
 - **Re-verify BAGEL's orbital reuse mapping on a host where BAGEL runs.**
   `tests/backend/active_04_engine_records.py` with `ACTIVE_04_LIVE_BAGEL=1`
   runs a water/STO-3G CASSCF(4,4) source and a destination that reuses it

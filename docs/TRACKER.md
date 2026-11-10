@@ -64,9 +64,11 @@ The user's decisions, taken 2026-11-10:
 
 ## Phase 4: data and decisions
 
-- [todo] P4.1: no ownership row names a job that does not exist, except the one left by decision
-- [todo] P4.2: the aza-naphthalene n->pi\* limitation is documented and planned
-- [todo] P4.3: nginx and the app see real client addresses (userland proxy off)
+- [done] P4.1: no ownership row names a job that does not exist, except the one left by decision
+  evidence: app/auth/models.py → "40 job rows deleted by explicit id in one transaction (qatest_admin 20, dakshitha 20, Aug-Sep); 16 remain, the only orphan is dma's, kept by decision; none was in a project; today's 20 API deletes left none behind"
+- [done] P4.2: the aza-naphthalene n->pi\* limitation is documented and planned
+  evidence: docs/CAS_ENGINE_METHOD.md → "§4.4 states the 12 misses, the +2.3 to +6.0 eV range, APC-2 10 of 12 and the azines 33 of 42; BACKLOG carries it with the next experiment; the HANDOFF decision item is closed"
+- [in-progress] P4.3: nginx and the app see real client addresses (userland proxy off)
 
 ## Phase 5: closing out
 
