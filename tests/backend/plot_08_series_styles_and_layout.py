@@ -168,6 +168,22 @@ def main() -> int:
         else:
             check("a fixed range is kept exactly", tuple(round(v, 9) for v in seen["ylim"]) == (0.0, 1.0), str(seen))
 
+    print("\n== a PDF download embeds TrueType, never Type 3 ==")
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = Path(tmp) / "o.pdf"
+        render_line_plot(list(x), {"A": list(broad)}, "Energy (eV)", "Normalised intensity", None,
+                         str(pdf), style=from_spec({"look": {"fmt": "pdf"}}))
+        raw = pdf.read_bytes()
+        check("the PDF has a font", b"/FontFile2" in raw or b"/Type3" in raw)
+        check("no Type 3 font", b"/Type3" not in raw)
+        check("the font is embedded as TrueType", b"/FontFile2" in raw)
+        try:
+            fonts = subprocess.run(["pdffonts", str(pdf)], capture_output=True, text=True).stdout
+            check("pdffonts agrees", "Type 3" not in fonts and "TrueType" in fonts, fonts)
+        except FileNotFoundError:
+            print("  (pdffonts not installed; byte check only)")
+
     print(f"\n{PASS}/{PASS + FAIL} checks passed")
     return 0 if FAIL == 0 else 1
 

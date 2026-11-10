@@ -32,6 +32,8 @@ note saying what changed.
 
 ### Fixed
 
+- PDF downloads of plots embedded their font as Type 3, which many theses,
+  journals and printers refuse. They now embed TrueType (Type 42).
 - Asking for a plot's y axis "from 0" fixed both ends, so the top sat on
   the peaks and the legend covered them. One end of an axis range can now
   be left open, and the legend still clears the curves.

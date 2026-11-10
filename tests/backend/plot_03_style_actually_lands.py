@@ -67,7 +67,10 @@ def digest(p):
 # that the derivation must not move them.
 HISTORIC = {"font.size": 13.0, "axes.titlesize": 16.0, "axes.labelsize": 14.0,
             "xtick.labelsize": 12.0, "ytick.labelsize": 12.0, "legend.fontsize": 12.0}
-check("an unstyled figure's text sizes are unchanged", PlotStyle().rc() == HISTORIC,
+# Compared on the size keys only: rc() also carries non-size settings, such
+# as the PDF font embedding, which are not what this check protects.
+check("an unstyled figure's text sizes are unchanged",
+      {k: v for k, v in PlotStyle().rc().items() if k in HISTORIC} == HISTORIC,
       "people have these images saved; the defaults are not free to drift")
 
 bigger = from_spec({"look": {"font_size": 26}}).rc()

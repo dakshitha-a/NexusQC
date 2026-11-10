@@ -168,6 +168,14 @@ class PlotStyle:
             "xtick.labelsize": self.size("tick_size"),
             "ytick.labelsize": self.size("tick_size"),
             "legend.fontsize": self.size("legend_size"),
+            # TrueType (Type 42) embedding in a PDF or PS download, not
+            # matplotlib's default Type 3. Type 3 fonts are bitmap-style
+            # procedures that many theses, journals and printers refuse: the
+            # furan figure's PDF failed a thesis build for exactly this
+            # (2026-11-10). Type 42 keeps the outlines and the text
+            # selectable. SVG is unaffected.
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
         }
 
     def apply(self, ax, legend_default: bool = False) -> None:
