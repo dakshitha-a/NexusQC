@@ -79,5 +79,7 @@ The user's decisions, taken 2026-11-10:
 
 ## Phase 5: closing out
 
-- [todo] P5.1: docs and CHANGELOG updated for the user-visible changes
-- [todo] P5.2: deployed with scripts/update.sh and the touched suites pass on the stack
+- [done] P5.1: docs and CHANGELOG updated for the user-visible changes
+  evidence: docs/GUIDE.md → "ensemble prerequisite described; CHANGELOG Unreleased lists the orbital label, job-finished row, dipole, open axis, Type 42, ensemble prerequisite, Wigner phrasing, scrubber and state-count fixes; tests/README one-account note; CAS_ENGINE_METHOD 4.4"
+- [done] P5.2: deployed with scripts/update.sh and the touched suites pass on the stack
+  evidence: tests/e2e/e2e_21_draft_reaches_card.py → "stack 9b01639: all five cases 3/3 carded; ui_02 19/19 and now deletes its own job; e2e_11 8/8, e2e_17 21/21, ui_09 scrubber 0/1 renders; test account back to one thread, no jobs"

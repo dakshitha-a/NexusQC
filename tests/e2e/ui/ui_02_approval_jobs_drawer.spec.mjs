@@ -37,9 +37,17 @@ const SECTION_RULES = [
   { name: "NEB-TS path", shows: (j) => j.task === "neb_ts" },
 ];
 
+// The jobs this spec's own approval creates, so it deletes exactly those
+// and nothing else on the account (a run on 2026-11-10 left its water job).
+let jobsBefore = null;
+
 try {
   await uiLogin(page, ADMIN_USER, adminPassword());
   await waitForComposerReady(page);
+  jobsBefore = new Set((await page.evaluate(async () => {
+    const r = await fetch("/api/jobs?include_archived=true");
+    return r.ok ? await r.json() : [];
+  })).map((j) => j.job_id));
 
   // ------------------------------------------------ the approval card
   // Drive one real submission through the UI so the card is exercised
@@ -237,6 +245,17 @@ try {
   check("ui_02 completed without throwing", false, String(e).slice(0, 400));
   try { await shot(page, "ui02-FAILURE"); } catch { /* best effort */ }
 } finally {
+  if (jobsBefore) {
+    try {
+      const left = await page.evaluate(async (before) => {
+        const all = await (await fetch("/api/jobs?include_archived=true")).json();
+        const mine = all.map((j) => j.job_id).filter((id) => !before.includes(id));
+        for (const id of mine) await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+        return mine;
+      }, [...jobsBefore]);
+      console.log(`    deleted the ${left.length} job(s) this spec created: ${left.join(", ")}`);
+    } catch { /* best effort; the summary below still reports */ }
+  }
   const ok = summary();
   await browser.close();
   process.exit(ok ? 0 : 1);
