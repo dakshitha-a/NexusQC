@@ -555,10 +555,9 @@ _ORCA: tuple[MethodCaps, ...] = (
         gradient="analytic", excited_gradient=True, hessian="analytic",
         nac=True, ci_opt=True, constrained_opt=True,
         notes="Full TDDFT (tda false) is accepted, which is what makes the planned full-TDDFT "
-              "default achievable. B88-containing functionals (B3LYP, BLYP) are REFUSED an "
-              "excited-state gradient through the native path, and this app has no working "
-              "LibXC substitute -- single_point/grad refuses the combination outright rather "
-              "than running a wrong functional (see docs/PARSER_GAPS.md).",
+              "default achievable. ORCA cannot compute an excited-state gradient with B3LYP or "
+              "BLYP, and this app has no working substitute, so jobs that need one are refused. "
+              "Plain TDDFT excitation energies with these functionals are fine.",
         source=_ORCA_SPIKE,
         evidence={
             "energy": _ev("run", "! B3LYP STO-3G terminated normally", _ORCA_SPIKE),

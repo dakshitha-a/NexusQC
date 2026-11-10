@@ -170,13 +170,9 @@ def _warn_nac_pairing(caps: MethodCaps) -> tuple[str, ...]:
 
 def _warn_es_gradient_b88(caps: MethodCaps) -> tuple[str, ...]:
     if caps.engine == "orca" and caps.method == "dft":
+        # User-facing; the LibXC history is in docs/PARSER_GAPS.md.
         return (
-            "For a B88-containing functional (B3LYP, BLYP) ORCA refuses an excited-state "
-            "gradient through its native path. A %method LibXC rewrite was attempted for "
-            "single_point/grad (Phase 5) and produced a ground-state energy off by ~1.2 "
-            "Hartree from the native B3LYP result -- not a working substitute -- so this app "
-            "refuses the combination outright rather than guessing further (see "
-            "docs/PARSER_GAPS.md). Ask for a different functional (e.g. PBE0) or engine.",
+            "ORCA cannot compute an excited-state gradient with B3LYP or BLYP, and this app has no working substitute, so a job that needs one is refused rather than run with a different functional. Choose another functional, such as PBE0, or another engine.",
         )
     return ()
 

@@ -375,7 +375,11 @@ PARAMS: tuple[ParamSpec, ...] = (
         # special case inside missing_required_params().
         required_when={"eq": ["method", "dft"]},
         # Scoped to contexts that actually take an excited-state gradient,
-        # AND to the exact functional names this app checks for -- PBE0 and
+        # AND to the exact functional names this app checks for. Plain vertical
+        # TDDFT (single_point/ee) and the nuclear-ensemble spectrum are NOT such
+        # contexts: both compute excitation energies at fixed geometries, and the
+        # ensemble samples from the ground-state Hessian. Listing them put this
+        # note on every ORCA B3LYP UV/Vis card (seen 2026-11-09). PBE0 and
         # every other functional in the same excited-state-gradient context
         # is unaffected and must not see a warning that does not apply to
         # it. `functional` arrives lowercased by `build_context`.
@@ -385,17 +389,14 @@ PARAMS: tuple[ParamSpec, ...] = (
                 {"eq": ["engine", "orca"]},
                 {"in": ["functional", ["b3lyp", "blyp"]]},
                 {"any": [
-                    {"in": ["subtype", ["ee", "nac", "ci"]]},
-                    {"eq": ["task", "wigner_spectra"]},
+                    {"in": ["subtype", ["nac", "ci"]]},
                     {"truthy": "wants_excited_state"},
                 ]},
             ]},
-            "ORCA refuses excited-state gradients for B88-containing functionals "
-            "(B3LYP, BLYP) through its native path, and this app has no working substitute "
-            "for that combination (a %method LibXC rewrite was tried and produced a wrong "
-            "ground-state energy -- see docs/PARSER_GAPS.md) -- for single_point/grad the job "
-            "is refused rather than run with a wrong functional. Ask for a different "
-            "functional (e.g. PBE0) or engine.",
+            # User-facing: it is shown on the approval card. The history (a
+            # %method LibXC rewrite gave a ground-state energy ~1.2 Hartree off)
+            # is in docs/PARSER_GAPS.md, which a user cannot act on.
+            "ORCA cannot compute an excited-state gradient with B3LYP or BLYP, and this app has no working substitute, so a job that needs one is refused rather than run with a different functional. Choose another functional, such as PBE0, or another engine.",
         ),),
         applies_to=_ALL_COMPUTE,
     ),

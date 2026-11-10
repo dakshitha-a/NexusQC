@@ -41,10 +41,12 @@ does not change mid-session.
 
 - [done] P1.1: tests/frontend launches a Chromium that is installed
   evidence: tests/frontend/gh_01_version_and_issue_links.spec.mjs → "17/17 on HeadlessChrome 151.0.7922.34 (build 1234); with no browser, newBrowser() names the install command"
+- merged: c99a4f7
 
 ## Phase 2: drafting
 
-- [todo] P2.1: the B88 excited-state gradient note appears only when a gradient is requested, and names no repo path
+- [done] P2.1: the B88 excited-state gradient note appears only when a gradient is requested, and names no repo path
+  evidence: tests/backend/elic_01_draft_scenarios.py → "206/206; ORCA B3LYP note absent for sp/ee and wigner_spectra, present for nac, excited opt and excited grad"
 - [todo] P2.2: a nuclear-ensemble or Wigner request in plain words drafts wigner_spectra
 - [todo] P2.3: a rejected draft can be dropped, and a request for a different task starts a new draft
 - [todo] P2.4: a job drafted after a converged optimisation uses the optimised geometry, and the card says so

@@ -400,7 +400,7 @@ def main() -> int:
         "single_point", "grad", WATER, "orca", "dft",
         {"basis": "sto-3g", "functional": "b3lyp", "target_states": [2], "n_states": 3})
     check("orca B3LYP excited-state gradient is refused (the LibXC route was tried and gave a wrong energy)",
-          bool(err) and "B88-containing" in err, str(err))
+          bool(err) and "cannot compute an excited-state gradient" in err, str(err))
 
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "single_point", "nac", WATER, "orca", "hf",

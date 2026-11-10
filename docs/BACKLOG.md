@@ -215,15 +215,6 @@ printed page wants a white field and near-black text. The thesis shots had to
 inject an override. **Next:** a "Print" theme in `appearanceStore.ts` with a
 white background, darker muted text and no scrollbars.
 
-**An ORCA TDDFT spectrum card carries a note about excited-state gradients.**
-"Compute the UV/Vis spectrum of formaldehyde … B3LYP/def2-SVP, 10 states, on
-ORCA" drafted a plain `%tddft` job, and the card still showed a seven-line note
-that ORCA refuses excited-state gradients for B88 functionals and that "for
-single_point/grad the job is refused", naming `docs/PARSER_GAPS.md`. No
-gradient is requested, so the note does not apply, and an internal doc path is
-not something a user can act on. **Next:** show the note only when the draft
-actually asks for an excited-state gradient, and word it without the repo path.
-
 **At larger text sizes the approval card cannot be seen whole.** At text size
 "Largest" on a 1440x900 window, the formaldehyde ORCA card is 998 CSS px tall,
 so its title and parameters scroll away while the input file and the Approve

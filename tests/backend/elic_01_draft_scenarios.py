@@ -268,7 +268,7 @@ SCENARIOS = [
         engine="orca",
         params={"basis": "sto-3g", "functional": "b3lyp", "n_excited_states": 3, "n_states": 3,
                 "state_pairs": [[1, 2]]},
-        warnings_containing=("ground-to-excited coupling only", "B88-containing"),
+        warnings_containing=("ground-to-excited coupling only", "cannot compute an excited-state gradient"),
     ),
     Scenario(
         name="8 -- opt/min",

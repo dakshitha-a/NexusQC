@@ -144,14 +144,14 @@ def main() -> int:
         "opt", "ci", WATER, "orca", "dft",
         {"basis": "sto-3g", "functional": "b3lyp", "target_state_2": 1})
     check("orca B3LYP opt/ci is refused (same B88 excited-gradient limitation as single_point/grad)",
-          bool(err) and "B88-containing" in err, str(err))
+          bool(err) and "cannot compute an excited-state gradient" in err, str(err))
 
     print("\n== app/agent/tools.py: opt/min's B88/excited_gradient guard now also covers ES optimization ==")
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "opt", "min", WATER, "orca", "dft",
         {"basis": "sto-3g", "functional": "b3lyp", "target_state": 1, "n_states": 3})
     check("orca B3LYP opt/min excited-state optimization is refused (was previously unguarded)",
-          bool(err) and "B88-containing" in err, str(err))
+          bool(err) and "cannot compute an excited-state gradient" in err, str(err))
 
     _, _, _, _, _, _, _, err = _build_spec_or_error(
         "opt", "min", WATER, "pyscf", "casscf",

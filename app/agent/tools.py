@@ -1126,10 +1126,9 @@ def _validate_task_params(task: str, subtype: str, molecule: dict, method: Optio
         # app refuses the combination outright instead of running a wrong functional.
         if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
             return (
-                f"ORCA refuses a native excited-state gradient for functional="
-                f"'{params.get('functional')}' (B88-containing), and this app has no working LibXC "
-                f"substitute for it (see docs/PARSER_GAPS.md) -- ask for a different functional "
-                f"(e.g. PBE0) or a different engine."
+                f"ORCA cannot compute an excited-state gradient with "
+                f"{(params.get('functional') or '').upper()}, and this app has no working "
+                f"substitute for it. Ask for another functional, such as PBE0, or another engine."
             )
 
     if task == "single_point" and subtype == "nac":
@@ -1349,10 +1348,9 @@ def _build_spec_or_error(
         # crash at the first geometry cycle rather than search anything.
         if resolved_engine == "orca" and (params.get("functional") or "").strip().lower() in ("b3lyp", "blyp"):
             return None, None, None, None, None, None, [], (
-                f"ORCA refuses a native excited-state gradient for functional="
-                f"'{params.get('functional')}' (B88-containing) -- the same limitation that blocks an "
-                f"excited-state single-point gradient blocks a conical-intersection search too (see "
-                f"docs/PARSER_GAPS.md) -- ask for a different functional (e.g. PBE0) or a different engine."
+                f"ORCA cannot compute an excited-state gradient with "
+                f"{(params.get('functional') or '').upper()}, and a conical-intersection search "
+                f"needs one. Ask for another functional, such as PBE0, or another engine."
             )
         # target_state_2 auto-defaults to a ground/first-excited seam
         # (BAGEL's own target=0/target2=1 convention, which ORCA's IROOT
