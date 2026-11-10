@@ -202,6 +202,14 @@ def resolve_task(query: Optional[str]) -> tuple[Optional[tuple[str, str]], list[
         name = f"{task}/{subtype}" if subtype else task
         if q in (name, task.replace("_", " "), name.replace("_", " ")):
             return (task, subtype), []
+    # A phrase that CONTAINS a decisive word resolves to that word's task:
+    # "wigner_ensemble" reached the model as "not a task this app runs" with
+    # suggestions, although "wigner" alone resolves (e2e_21, 2026-11-10). Only
+    # when every decisive word in the phrase agrees on one task.
+    found = {pair for word, pair in DECISIVE_TASK_WORDS.items()
+             if re.search(rf"\b{re.escape(word)}\b", q)}
+    if len(found) == 1:
+        return found.pop(), []
     hits = _fuzzy(q, TASK_SYNONYMS, n=3, cutoff=0.55)
     return None, hits
 

@@ -32,6 +32,13 @@ note saying what changed.
 
 ### Fixed
 
+- Asking for a nuclear-ensemble spectrum with no frequency job yet now
+  drafts the frequency job (an optimisation first when there is no minimum)
+  for approval, instead of asking whether one exists.
+- The agent's capability lookup now recognises phrasings such as "Wigner
+  ensemble" as the nuclear-ensemble spectrum.
+- Dragging the orbital slider renders only the orbital it is released on,
+  not every orbital it rests on along the way.
 - An empty orbital sitting on one atom was labelled "n", a lone pair, in
   the orbital table. It now takes its shape label, such as "sigma*".
 - PDF downloads of plots embedded their font as Type 3, which many theses,

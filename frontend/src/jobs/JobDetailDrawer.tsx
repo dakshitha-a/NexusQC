@@ -319,6 +319,8 @@ export function JobDetailDrawer({
       : null;
   const activeSpaceWarning = (job?.summary?.["active_space_warning"] as string | undefined) ?? null;
   const [selectedOrbital, setSelectedOrbital] = useState<OrbitalSelection | null>(null);
+  // Whether the orbital scrubber is held down; the viewer waits for release.
+  const [orbitalScrubbing, setOrbitalScrubbing] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [rawOutputOpen, setRawOutputOpen] = useState(false);
   const [rawInputOpen, setRawInputOpen] = useState(false);
@@ -1565,6 +1567,7 @@ export function JobDetailDrawer({
                                       const r = prunedOrbitals[i];
                                       setSelectedOrbital({ index: r.index, spin: r.spin });
                                     }}
+                                    onDraggingChange={setOrbitalScrubbing}
                                   />
                                   <div className="mt-1 text-3xs text-text-muted">
                                     Orbital {scrubberRow.index}
@@ -1584,6 +1587,7 @@ export function JobDetailDrawer({
                                 )}
                                 orbitalSelection={selectedOrbital}
                                 onClearOrbitalSelection={() => setSelectedOrbital(null)}
+                                holdFetch={orbitalScrubbing}
                                 height={expanded ? 640 : 256}
                               />
                             </div>

@@ -36,14 +36,21 @@ export function FrameScrubber({
   count,
   onChange,
   noun = "Frame",
+  onDraggingChange,
 }: {
   index: number;
   count: number;
   onChange: (next: number) => void;
   noun?: string;
+  /** Told when a pointer drag starts and ends, for a consumer whose redraw
+   *  is expensive and should wait for the release (the orbital viewer). */
+  onDraggingChange?: (dragging: boolean) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    onDraggingChange?.(dragging);
+  }, [dragging, onDraggingChange]);
 
   const thumbPct = Math.max(100 / count, MIN_THUMB_PCT);
   // The thumb travels the track MINUS its own width, so its right edge lands

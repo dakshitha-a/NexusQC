@@ -78,7 +78,10 @@ def main() -> None:
         "STO-3G basis using PySCF. Submit it.",
     )
     if pending:
-        method = ((pending.get("spec") or {}).get("params") or {}).get("method")
+        # The method is a top-level spec field since the v2 job model; it was
+        # read from params, where nothing puts it, so C2 reported method=None
+        # on every run from the 2026-09 review until 2026-11-10.
+        method = (pending.get("spec") or {}).get("method")
         check("C2 an RHF request resolves to this app's only method value, 'hf' "
               "(restricted vs unrestricted is chosen from spin, never exposed)",
               method == "hf", f"method={method!r}")
@@ -128,12 +131,14 @@ def main() -> None:
         "Set the molecule to water, then run an MP2 single point with the "
         "STO-3G basis using PySCF. Submit it.",
     )
-    # MP2 is genuinely unsupported as a `method` value here. The correct
-    # behavior is a clear error or an explanation -- never a silent
-    # substitution of hf/dft.
+    # MP2 is a real method on PySCF and ORCA now (it was unsupported when this
+    # was written). The wrong outcome this guards against is unchanged: the
+    # model quietly rewriting the request to hf or dft so it looks like it
+    # worked. Read from the top-level spec field, as C2 is; reading params
+    # found None and so passed whatever the card said.
     if pending:
-        method = ((pending.get("spec") or {}).get("params") or {}).get("method")
-        silently_swapped = method in ("hf", "dft")
+        method = (pending.get("spec") or {}).get("method")
+        silently_swapped = method in ("hf", "dft") or method is None
         check("C5 an unsupported method is not silently swapped for hf/dft "
               "on the approval card", not silently_swapped,
               f"card shows method={method!r} for an MP2 request")

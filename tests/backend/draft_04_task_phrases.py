@@ -47,6 +47,13 @@ def main() -> int:
         got = task_of(phrase)
         check(f"{phrase!r} -> wigner_spectra", got == ("wigner_spectra", ""), str(got))
 
+    print("\n== lookup_capabilities' own resolver takes a phrase holding a decisive word ==")
+    # e2e_21, 2026-11-10: the model asked lookup_capabilities for
+    # "wigner_ensemble" and was told it is not a task this app runs.
+    for phrase in ("wigner_ensemble", "wigner ensemble", "wigner_spectrum"):
+        got, _ = resolve_task(phrase)
+        check(f"resolve_task({phrase!r}) -> wigner_spectra", got == ("wigner_spectra", ""), str(got))
+
     print("\n== nothing else moved ==")
     for phrase, want in (("uv/vis", ("single_point", "ee")),
                          ("UV-Vis spectrum", ("single_point", "ee")),

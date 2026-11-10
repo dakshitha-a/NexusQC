@@ -75,11 +75,14 @@ interface Props {
    * per-frame inspector below the path viewer, and dragging the whole
    * panel's expand toggle down into it would be nonsense. */
   anchorPanelControls?: boolean;
+  /** True while the orbital scrubber is held down. Nothing is fetched until
+   * it is released, so a drag costs one render, for the orbital it ends on. */
+  holdFetch?: boolean;
 }
 
 export function MoCubeViewer({
   jobId, cubeLabels, orbitalSelection, onClearOrbitalSelection, height = 256, filenameBase,
-  anchorPanelControls = false,
+  anchorPanelControls = false, holdFetch = false,
 }: Props) {
   const [selected, setSelected] = useState(cubeLabels[0] ?? "");
   const [cubeText, setCubeText] = useState<string | null>(null);
@@ -142,6 +145,9 @@ export function MoCubeViewer({
   // six-connections-per-origin limit, with the one the user was actually
   // waiting for at the back of the queue.
   const selIndex = orbitalSelection?.index ?? null;
+  // The URL whose cube is on screen, so a release on the same orbital does
+  // not fetch it a second time.
+  const shownUrlRef = useRef<string | null>(null);
   const selSpin = orbitalSelection?.spin ?? null;
   const selGbw = orbitalSelection?.gbw ?? null;
 
@@ -158,6 +164,15 @@ export function MoCubeViewer({
           ? jobArtifactUrl(jobId, `cubes/${selected}`)
           : null;
     if (!url) return;
+    // Held: the user is still dragging the scrubber. The settle delay below
+    // was meant to skip the orbitals a drag passes over, but a slow drag
+    // across a short table rests longer than SETTLE_MS on each one, so
+    // ui_09 measured three or four renders for one drag where one is right.
+    // Waiting for the release is exact however fast the hand moves.
+    if (holdFetch) return;
+    // Released on the orbital already showing (a click on the thumb, or a
+    // drag that came back to where it began): nothing new to fetch.
+    if (url === shownUrlRef.current) return;
     let cancelled = false;
     const controller = new AbortController();
     setCubeLoading(true);
@@ -180,7 +195,10 @@ export function MoCubeViewer({
         .then((r) => checkRawResponse(r, "Couldn't load the orbital"))
         .then((r) => r.text())
         .then((text) => {
-          if (!cancelled) setCubeText(text);
+          if (!cancelled) {
+            shownUrlRef.current = url;
+            setCubeText(text);
+          }
         })
         .catch((e) => {
           if (!cancelled) setCubeError(String(e));
@@ -198,7 +216,7 @@ export function MoCubeViewer({
       // and the SSE stream alongside the viewer itself.
       controller.abort();
     };
-  }, [selected, jobId, selIndex, selSpin, selGbw]);
+  }, [selected, jobId, selIndex, selSpin, selGbw, holdFetch]);
 
   // Re-renders on every cubeText/isoval change, but only re-frames the
   // camera (zoomTo) when the cube itself changed -- otherwise dragging the

@@ -271,14 +271,24 @@ def main() -> None:
               f"{len(watcher_msgs)} notice(s)",
               fail_detail="a returning user would find no mention of their finished job")
 
+        # The notice is checkpointed when the watcher's turn STARTS, and the
+        # summary only when the model has written it, a minute or so later.
+        # Reading once, the moment the notice appeared, raced that turn and
+        # reported "no summary" for one still being written: L9b's standing
+        # failure from the 2026-09 review (closed 2026-11-10). Wait for it.
         after_notice = []
-        if watcher_msgs:
+        for _ in range(60 if watcher_msgs else 0):
             st_msgs = (back.get(f"/api/threads/{thread_id}/state").json() or {}).get("messages") or []
-            idx = max(i for i, m in enumerate(st_msgs) if m in watcher_msgs)
+            notice_ids = {m.get("id") for m in watcher_msgs}
+            idx = max((i for i, m in enumerate(st_msgs)
+                       if m in watcher_msgs or (m.get("id") and m.get("id") in notice_ids)), default=-1)
             after_notice = [
                 str(m.get("content") or "") for m in st_msgs[idx + 1:]
                 if m.get("type") == "AIMessage" and (m.get("content") or "")
-            ]
+            ] if idx >= 0 else []
+            if after_notice:
+                break
+            time.sleep(5)
         summary_text = " ".join(after_notice)
         check("L9b the agent actually WROTE that summary, unprompted, and it "
               "is waiting in the conversation on return",

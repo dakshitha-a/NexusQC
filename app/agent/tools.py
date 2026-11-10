@@ -3550,7 +3550,8 @@ def _draft_command(draft: dict, state: Optional[dict], tool_call_id: str,
         # Sticky across the elicitation back-and-forth, the same way the run
         # intent was: the user says "just show me the input" once.
         "draft_preview_only": preview_only,
-        "messages": [ToolMessage(content=_draft_message(verdict, extra),
+        "messages": [ToolMessage(content=(_frequency_prerequisite_message(verdict, state)
+                                          or _draft_message(verdict, extra)),
                                  tool_call_id=tool_call_id)],
     })
 
@@ -3991,6 +3992,88 @@ def _same_geometry(a: Optional[dict], b: Optional[dict], tol: float = 1e-6) -> b
     ca, cb = a.get("coords") or [], b.get("coords") or []
     return len(ca) == len(cb) and all(
         abs(float(x) - float(y)) <= tol for p, q in zip(ca, cb) for x, y in zip(p, q))
+
+
+def _formula_key(molecule: Optional[dict]) -> Optional[tuple]:
+    symbols = (molecule or {}).get("symbols") or []
+    return tuple(sorted(str(x) for x in symbols)) or None
+
+
+def _has_frequency_job_for(state: Optional[dict]) -> bool:
+    """Whether a finished frequency job on the molecule now on screen exists
+    in this conversation or among the user's own jobs.
+
+    Matched by formula, which is what a Wigner ensemble can be sampled from:
+    the same atoms, at whatever geometry that job ran on. With nothing on
+    screen -- an ensemble takes its geometry from the frequency job, so the
+    model often never sets one -- any finished frequency job counts, and the
+    user is asked which. Errs towards True (asking rather than drafting) when
+    it cannot read the user's jobs.
+    """
+    state = state or {}
+    want = _formula_key(state.get("molecule"))
+    candidates = list(state.get("active_job_ids") or [])
+    owner = state.get("owner_user_id")
+    if owner:
+        try:
+            from app.auth import models as auth_models
+            candidates += auth_models.list_owned("job", owner)
+        except Exception:
+            return True
+    from app.chemistry.jobs.base import read_status
+    for job_id in dict.fromkeys(candidates):
+        spec = read_spec(job_id) or {}
+        if spec.get("task") not in ("freq", "opt_freq"):
+            continue
+        if ((read_status(job_id) or {}).get("status")) != "completed":
+            continue
+        if want is None or _formula_key(spec.get("molecule")) == want:
+            return True
+    return False
+
+
+def _frequency_prerequisite_message(verdict, state: Optional[dict]) -> Optional[str]:
+    """The reply for an ensemble draft whose only route is a frequency job the
+    user does not have yet, or None to ask as usual.
+
+    The ask names both routes ("attach one, or I'll set one up"), which is
+    right when a frequency job might exist. When none does, the question has
+    one possible answer, and asking it cost a round trip before anything
+    reached a card: e2e_21's ensemble request carded 0 of 3 for that reason
+    (2026-11-10). The user decided the agent drafts the prerequisite instead;
+    it still goes to an approval card, so nothing runs unasked.
+    """
+    if verdict.status != "incomplete" or verdict.asking_for != "source_frequency_job_id":
+        return None
+    if _has_frequency_job_for(state):
+        return None
+    draft = verdict.draft or {}
+    params = draft.get("params") or {}
+    level = {k: v for k, v in {
+        "method": draft.get("method"), "engine": draft.get("engine"),
+        "functional": params.get("functional"), "basis": params.get("basis"),
+    }.items() if v}
+    has_min = _converged_opt_from_here(state, "frequencies") is not None
+    on_screen = bool((state or {}).get("molecule"))
+    task = "frequencies" if has_min else "opt_freq"
+    why = ("on the converged optimisation of this structure" if has_min else
+           "optimising first, because frequencies off a minimum give wrong normal modes "
+           "and so a wrong ensemble")
+    samples = params.get("n_samples")
+    return "\n".join([
+        "PREREQUISITE NEEDED. A nuclear-ensemble spectrum is sampled from a finished "
+        "frequency calculation, and there is none for this molecule in this conversation "
+        "or among the user's jobs. Do not ask the user for one.",
+        ("" if on_screen else
+         "No structure is set yet: first call set_geometry with the molecule the user "
+         "named. ") +
+        f"Draft it now: call start_job_draft with task=\"{task}\" and the same level of "
+        f"theory ({json.dumps(level)}). That replaces this ensemble draft and goes to an "
+        f"approval card; it is {why}.",
+        "Tell the user in one or two sentences that the ensemble needs this frequency job "
+        "first, that it is waiting for their approval, and that you will set up the "
+        f"ensemble{f' ({samples} samples)' if samples else ''} from it once it finishes.",
+    ])
 
 
 def _converged_opt_from_here(state: Optional[dict], task_phrase: Optional[str]) -> Optional[str]:

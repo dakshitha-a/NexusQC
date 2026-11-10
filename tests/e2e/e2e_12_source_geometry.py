@@ -95,7 +95,16 @@ def main() -> None:
     # calls set_geometry (the panel-molecule path) and the draft reaches
     # READY once source_geometry_job_id is supplied.
     never_called_set_geometry = "set_geometry" not in [n for n, _ in turn1.tools_requested()]
-    reached_ready1 = bool(exec_texts1) and "DRAFT READY" in exec_texts1[-1]
+    # A complete draft goes straight to the approval card now: update_job_draft
+    # raises the interrupt instead of returning a "DRAFT READY" ToolMessage,
+    # so that text never arrives and this read reached_ready=False on every
+    # run from the 2026-09 review until 2026-11-10, while the card itself was
+    # on screen with the source job's geometry. Either counts as ready; the
+    # card must also carry the tag.
+    pending1 = turn1.pending_approval or s1.wait_for_approval(timeout=45)
+    card_spec1 = (pending1 or {}).get("spec") or {}
+    carded1 = ((card_spec1.get("params") or {}).get("source_geometry_job_id") == job_id)
+    reached_ready1 = carded1 or (bool(exec_texts1) and "DRAFT READY" in exec_texts1[-1])
     ok1 = tagged and never_called_set_geometry and reached_ready1
     check("an explicit 'use job X's geometry' request writes source_geometry_job_id into the draft "
           "and reaches READY without ever calling set_geometry", ok1,
@@ -113,7 +122,8 @@ def main() -> None:
     )
     exec_texts2 = "\n".join(t for _n, t in turn2.tools_executed())
     refused = "No such job" in exec_texts2
-    reached_ready = "DRAFT READY" in exec_texts2
+    # A card is how a complete draft shows up now (see G1); none may appear.
+    reached_ready = "DRAFT READY" in exec_texts2 or bool(turn2.pending_approval)
     check("a nonexistent tagged job is refused by name (the backend's own 'No such job' text), not "
           "silently substituted with something else", refused and not reached_ready,
           f"refused={refused}, reached_ready={reached_ready}, tool_texts={exec_texts2[:250]}")

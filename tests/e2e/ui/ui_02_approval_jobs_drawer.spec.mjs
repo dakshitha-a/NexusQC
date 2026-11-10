@@ -17,15 +17,24 @@ const browser = await newBrowser();
 const ctx = await freshContext(browser);
 const page = await ctx.newPage();
 
-// Section name -> the job types that SHOULD show it. Anything else must not.
+// Section name -> whether a job's own record should show it. Each section
+// is there when the job's results carry what it draws, and absent otherwise.
+// These used to be lists of job types keyed on `job.method`, from before the
+// v2 job model, where method was the job type. Since v2 method is the level
+// of theory ("hf", "dft"), so an HF single point -- which does have an
+// orbital table, and shows it -- failed "[hf] drawer correctly OMITS
+// Molecular orbitals" on every run (2026-09 review, closed 2026-11-10).
+const nonEmpty = (v) => Array.isArray(v) && v.length > 0;
 const SECTION_RULES = [
-  { name: "Vibrational frequencies", showFor: ["frequency"] },
-  { name: "Excited states", showFor: ["tddft", "eom_ccsd", "casscf", "caspt2"] },
-  { name: "Molecular orbitals", showFor: [
-      "single_point", "tddft", "eom_ccsd", "casscf", "caspt2", "mo_visualization"] },
-  { name: "Optimization energy", showFor: ["geometry_optimization"] },
-  { name: "Scan path", showFor: ["pes_scan"] },
-  { name: "NEB-TS path", showFor: ["neb_ts"] },
+  { name: "Vibrational frequencies", shows: (j) => nonEmpty(j.summary?.["frequencies_cm-1"]) },
+  { name: "Excited states", shows: (j) => nonEmpty(j.summary?.excitation_energies_eV)
+      || nonEmpty(j.summary?.excited_states) },
+  { name: "Molecular orbitals", shows: (j) => nonEmpty(j.summary?.orbital_table) },
+  { name: "Optimization energy", shows: (j) =>
+      Array.isArray(j.summary?.optimization_energies_hartree)
+      && j.summary.optimization_energies_hartree.length >= 2 },
+  { name: "Scan path", shows: (j) => j.master_kind === "scan" },
+  { name: "NEB-TS path", shows: (j) => j.task === "neb_ts" },
 ];
 
 try {
@@ -95,7 +104,11 @@ try {
 
   const completed = jobs.filter((j) => j.status === "completed");
   const byType = {};
-  for (const j of completed) if (!byType[j.method]) byType[j.method] = j;
+  // One job of each kind, where a kind is task, subtype and method together.
+  for (const j of completed) {
+    const kind = [j.task, j.subtype, j.method].filter(Boolean).join("/");
+    if (!byType[kind]) byType[kind] = j;
+  }
   console.log(`    job types available to inspect: ${Object.keys(byType).join(", ") || "(none)"}`);
 
   // Make sure the Job manager section is EXPANDED. Clicking its header is
@@ -123,9 +136,18 @@ try {
     // Radix dialog actually opens, rather than assuming the first one is
     // the right target -- otherwise every "section present" check below
     // silently tests the main app's text instead of the drawer's.
+    // The Job manager row has a test id; click it first. The text match below
+    // is kept as a fallback, but on 2026-11-10 it found three elements for
+    // one id and none of them opened the drawer.
+    let opened = false;
+    const row = page.locator(`[data-testid="jobmanager-row-${job.job_id}"]`);
+    if (await row.count()) {
+      await row.first().click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(2000);
+      opened = (await page.locator('[role="dialog"]').count()) > 0;
+    }
     const rows = page.locator(`text=${job.job_id}`);
     const n = await rows.count();
-    let opened = false;
     for (let i = 0; i < n && !opened; i++) {
       try {
         await rows.nth(i).click({ timeout: 5000 });
@@ -146,9 +168,15 @@ try {
     // innerText returns the TRANSFORMED text, so a title-case comparison
     // reports correctly-rendered sections as missing.
     const bodyU = body.toUpperCase();
+    // The drawer reads the full record; the list row carries no summary.
+    const full = await page.evaluate(async (id) => {
+      const r = await fetch(`/api/jobs/${id}`);
+      return r.ok ? await r.json() : {};
+    }, job.job_id);
+    const record = { ...job, ...full, summary: full.summary || full.result?.summary || {} };
     for (const rule of SECTION_RULES) {
       const present = bodyU.includes(rule.name.toUpperCase());
-      const shouldShow = rule.showFor.includes(method);
+      const shouldShow = rule.shows(record);
       if (shouldShow) {
         check(`[${method}] drawer shows "${rule.name}"`, present);
       } else {
@@ -163,9 +191,13 @@ try {
       const rawOut = await control(page, "View raw output").count();
       check(`[XN-15] PySCF job shows neither raw-input nor raw-output button`,
         rawIn === 0 && rawOut === 0, `rawIn=${rawIn} rawOut=${rawOut}`);
-    } else {
+    } else if (job.engine === "orca" || job.engine === "bagel") {
       const rawIn = await control(page, "View raw input").count();
       check(`[${job.engine}] job exposes "View raw input"`, rawIn > 0);
+    } else {
+      // No engine (a geometry set, a batch): there is no input file at all.
+      const rawIn = await control(page, "View raw input").count();
+      check(`[${method}] a job with no engine offers no raw input`, rawIn === 0);
     }
 
     // XN-16: the inline/artifact spectrum pairs are mutually exclusive.
