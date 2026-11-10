@@ -89,6 +89,26 @@ def _shape_descriptor(key: str, value: object) -> str:
     return "present"
 
 
+def _dipole_magnitude(key: str, value) -> float | None:
+    """|mu| for a dipole stored as its three components, else None.
+
+    The runners store the vector, which is what a later plot or comparison
+    needs. Given only the vector, the model reported water HF/cc-pVDZ's
+    dipole as 1.87 D twice in one conversation (2026-11-10, job
+    b23486553278), where the vector (-0.026, -2.075, 0.000) D has magnitude
+    2.08 D. 1.87 D is close to water's experimental value, so the number
+    most likely came from memory, not from the result. The magnitude is
+    one line of arithmetic, so it is done here and handed over, rather
+    than left for the model to do in its head.
+    """
+    if key != "dipole_debye" or not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None
+    try:
+        return float(sum(float(x) ** 2 for x in value) ** 0.5)
+    except (TypeError, ValueError):
+        return None
+
+
 def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
     """Renders a completed job's summary dict as a GFM table instead of a
     raw Python dict repr -- this text becomes part of the LLM's own input
@@ -107,6 +127,9 @@ def _summary_as_markdown_table(summary: dict, skip: tuple = ()) -> str:
             bulk.append(f"{k} [{_shape_descriptor(k, v)}]")
         else:
             shown.append(f"| {k} | {_format_summary_value(v)} |")
+            magnitude = _dipole_magnitude(k, v)
+            if magnitude is not None:
+                shown.append(f"| dipole_magnitude_debye | {magnitude:.4g} |")
     table = "| field | value |\n|---|---|\n" + "\n".join(shown)
     if bulk:
         table += (

@@ -32,6 +32,9 @@ note saying what changed.
 
 ### Fixed
 
+- The agent could misreport a dipole moment. It was handed only the three
+  components, and once gave water's as 1.87 D where the result says 2.08 D.
+  It now gets the magnitude as well.
 - When a job finished, the chat showed the instruction the app sends the
   model ("Check their status and give the user a concise summary"). It now
   shows "Job ... finished."
