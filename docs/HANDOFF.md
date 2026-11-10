@@ -10,6 +10,17 @@ state of this file.
 
 ## Open
 
+- **Deploy 7fe677e..4ff00ae with `scripts/update.sh`.** Three fixes found
+  while retaking the thesis figures on 2026-11-10 are pushed but the stack
+  still runs 5334679: a drafting turn that looped for hundreds of steps
+  when the model wrote the molecule into a draft (7fe677e), 3D viewers
+  drawn dark on the Print theme because the build minifies #ffffff to #fff
+  (5181515), and spectra legends that still touched a peak on small
+  figures (4ff00ae). Auto mode refuses a real `scripts/update.sh`, so a
+  person runs `bash scripts/update.sh`. Afterwards run
+  `tests/frontend/ui_09_drawer_card_print.spec.mjs` against the stack and
+  delete this entry.
+
 - **Decide what to do with the QUESTDB benchmark result.**
   The benchmark is finished and committed (`docs/casbench/questdb.md`).
   The user has to decide whether to act on the engine missing all 12
