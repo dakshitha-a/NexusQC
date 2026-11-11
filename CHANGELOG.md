@@ -32,6 +32,11 @@ note saying what changed.
 
 ### Fixed
 
+- A frequency job on a BAGEL-optimised geometry failed with "Unknown Atom
+  number in a basis set file": the optimised structure named its atoms
+  "O1", "H2". It now names plain elements. BAGEL optimisations also report
+  whether they converged, so follow-up jobs default to their geometry as they
+  already did for the other engines.
 - The agent records the settings named in a request, such as the basis, when
   it starts a draft, instead of asking for them again. Asking to see an input
   without running it now reliably stops before the approval card.

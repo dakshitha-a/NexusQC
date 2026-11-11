@@ -61,18 +61,6 @@ rather than a fix inside another one; it is recorded as a limitation in
 which nitrogen lone pair or pi orbital the narrowing drops; the fix is then
 validated across the whole benchmark.
 
-**BAGEL's CASSCF/CASPT2 optimisation and frequencies are only "structurally
-confirmed", for a reason that turned out to be wrong.** Full runs were never
-let finish because "BAGEL/MKL on this host is unstable": ~70 s macro-iterations
-and a `dsyev/pdsyevd failed in Matrix` crash. On 2026-11-10 that was traced to
-the test case, not the host: water CAS(4,4) in STO-3G has no virtual orbitals,
-so the second-order solver grinds on empty blocks, MKL reports each zero
-leading dimension, and the molden print diagonalises a 0x0 matrix. In 6-31G
-the same CASSCF takes 5 s, and `active_04`'s live orbital-reuse check passes
-(weights above 0.9, 34 s). **Next experiment:** run one BAGEL CASSCF opt and
-one freq on water/6-31G end to end and compare with ORCA, then drop the
-"structurally confirmed" caveat wherever it is stated.
-
 **Closed 2026-11-10, each reproduced on the current code first:**
 
 - **deploy_05 under a four-suite load.** Not load. The app keeps one session
@@ -104,6 +92,12 @@ one freq on water/6-31G end to end and compare with ORCA, then drop the
   input by leaving `run_when_ready` unset, which would have raised a card;
   it now says `preview_only`. In-process: an HF single point reaches its card
   in 2 tool calls, and a preview stops with the input shown.
+- **BAGEL CASSCF optimisation and frequencies "only structurally confirmed".**
+  Verified end to end the same day on water CAS(8,6)/6-31G against ORCA; the
+  first real chain found and fixed two bugs (optimised atoms named "O1", and no
+  `converged` key). `tests/backend/bagel_02_opt_then_freq.py`, 10 of 10 live.
+  CAS(4,4) on water was a poor comparison: its active space is not unique, and
+  ORCA's rotated mid-optimisation.
 - **`e2e_17` L9b.** A test race: it read the conversation the moment the
   notice appeared, while the summary turn was still running. 21 of 21.
 

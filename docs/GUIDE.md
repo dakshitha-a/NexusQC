@@ -655,7 +655,9 @@ verified. See [PARSER_GAPS.md](PARSER_GAPS.md).
 
 **NEB transition-state search is ORCA-only**, and its excited-state path is less
 verified than the ground-state one. **BAGEL's CASSCF geometry optimization and
-frequencies are structurally confirmed but not convergence-verified** end to end.
+frequencies are verified end to end**: on water CAS(8,6)/6-31G they agree with
+ORCA to 0.0001 Å, 0.01° and within 12 cm-1. CASPT2 runs to completion with real
+frequencies but has not been compared against another engine.
 
 **This app is reached over a LAN address and a tailnet address, and nothing
 else.** There is no public-internet listener; a second nginx block for one was

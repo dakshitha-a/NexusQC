@@ -1221,8 +1221,10 @@ translational/rotational modes projected to exactly 0.0.
 
 **BAGEL** accepts a nested `"method"` array inside `optimize`/`hessian` blocks,
 using the same per-method dict shapes already built for the plain job types.
-This support is *structurally confirmed and observed executing correctly* rather
-than *convergence-verified end to end*. See [Known limitations](#known-limitations).
+CASSCF optimisation and frequencies are verified end to end against ORCA
+(`tests/backend/bagel_02_opt_then_freq.py`, 2026-11-10); CASPT2 runs to
+completion with real frequencies but is not yet compared against another engine.
+See [Known limitations](#known-limitations).
 
 ### `blind` jobs
 
@@ -3091,12 +3093,12 @@ discover.
   is surfaced as a failed job, but neither reached a converged excited-state
   transition state, so the exact energy-column semantics on a *successful* run
   were not directly confirmed.
-- BAGEL's CASSCF/CASPT2 geometry optimisation and frequencies are
-  **structurally confirmed and observed executing correctly, not
-  convergence-verified end to end.** Minimal runs showed BAGEL genuinely parsing
-  and acting on the input shape, real optimiser setup output followed by the
-  nested CASSCF starting with correct parameters, but neither was allowed to
-  reach full convergence. Re-run a full test before relying on it for a result.
+- BAGEL's **CASPT2** geometry optimisation and frequencies run to completion
+  with real frequencies (`opt_01`), but have not been compared against another
+  engine. CASSCF was verified end to end on 2026-11-10: water CAS(8,6)/6-31G
+  matches ORCA's geometry to 0.0001 Å and its frequencies within 12 cm-1
+  (`bagel_02`). Full runs had been held back for months by a supposed host
+  instability that was really a test input with no virtual orbitals.
 - BAGEL's conical-intersection optimisation has only that same structural
   verification. A Phase 6 run completed without error but did not converge to
   a true crossing within 100 cycles on an arbitrary water/CASSCF(4,4)/SVP
