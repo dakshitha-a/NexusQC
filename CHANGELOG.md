@@ -8,7 +8,7 @@ This file is load-bearing, not decoration: `scripts/release.sh` refuses to
 publish a version that has no section here, so a release cannot happen without a
 note saying what changed.
 
-## [Unreleased]
+## [1.4.0] - 2026-11-11
 
 ### Added
 
