@@ -32,6 +32,9 @@ note saying what changed.
 
 ### Fixed
 
+- The agent records the settings named in a request, such as the basis, when
+  it starts a draft, instead of asking for them again. Asking to see an input
+  without running it now reliably stops before the approval card.
 - A CASSCF optimisation or frequency job on an excited state, drafted
   without a number of states, ran on the ground state. The number of states
   now defaults to enough to reach the targeted state, and the card says so.

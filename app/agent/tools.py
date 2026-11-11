@@ -3913,7 +3913,7 @@ def start_job_draft(
     task: str,
     method: Optional[str] = None,
     engine: Optional[str] = None,
-    run_when_ready: bool = False,
+    updates: Optional[dict] = None,
     preview_only: bool = False,
     follow_up_work: bool = False,
     state: Annotated[AgentState, InjectedState] = None,
@@ -3944,9 +3944,9 @@ def start_job_draft(
     calculation would involve rather than asking for one. You state that
     once and it is remembered for the rest of this draft.
 
-    `run_when_ready` is accepted and no longer does anything; it was how a
-    draft used to reach the card, and leaving it off was the single most
-    common way a requested calculation quietly never happened.
+    `updates` takes everything else the user already said, in the same shape
+    update_job_draft takes, e.g. {"basis": "sto-3g", "n_excited_states": 5},
+    so the draft does not ask for what it was just told.
 
     A scan or an interpolated path can compute excited states at every
     point, not only the ground state. You do not select that with a
@@ -3977,7 +3977,15 @@ def start_job_draft(
         # stays cleared, because nothing re-applies it.
         draft["params"]["source_geometry_job_id"] = opt_job
         draft[DEFAULTED_KEY] = ["source_geometry_job_id"]
-    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
+    # `updates` replaced run_when_ready, which had done nothing since a ready
+    # draft began raising its own card. The model passed a basis here on
+    # almost every call (2026-11-10), and with nowhere to put it the value was
+    # dropped and the reply asked for the basis the user had just given.
+    if updates:
+        draft, refusal = _apply_draft_updates(draft, updates, state, tool_call_id)
+        if refusal is not None:
+            return refusal
+    return _draft_command(draft, state, tool_call_id, False, follow_up_work,
                           preview_only)
 
 
@@ -4067,9 +4075,10 @@ def _frequency_prerequisite_message(verdict, state: Optional[dict]) -> Optional[
         ("" if on_screen else
          "No structure is set yet: first call set_geometry with the molecule the user "
          "named. ") +
-        f"Draft it now: call start_job_draft with task=\"{task}\" and the same level of "
-        f"theory ({json.dumps(level)}). That replaces this ensemble draft and goes to an "
-        f"approval card; it is {why}.",
+        f"Draft it now: call start_job_draft with task=\"{task}\", the same level of "
+        f"theory ({json.dumps(level)}), and every setting the user named for it (the "
+        f"basis, a functional) in `updates`. That replaces this ensemble draft and goes "
+        f"to an approval card; it is {why}.",
         "Tell the user in one or two sentences that the ensemble needs this frequency job "
         "first, that it is waiting for their approval, and that you will set up the "
         f"ensemble{f' ({samples} samples)' if samples else ''} from it once it finishes.",
@@ -4117,76 +4126,13 @@ def _converged_opt_from_here(state: Optional[dict], task_phrase: Optional[str]) 
     return None
 
 
-@tool
-def update_job_draft(
-    updates: dict,
-    run_when_ready: bool = False,
-    preview_only: bool = False,
-    follow_up_work: bool = False,
-    state: Annotated[AgentState, InjectedState] = None,
-    tool_call_id: Annotated[str, InjectedToolCallId] = None,
-) -> Command:
-    """Record the user's answers into the draft and re-check it.
-
-    `updates` is a flat dict of field name to value, using the exact key
-    the previous reply told you to write -- e.g. {"basis": "cc-pvdz"},
-    {"n_excited_states": 2}, {"active_electrons": 6, "active_orbitals": 6}. Set a
-    field to null to clear it. `task`, `subtype`, `method` and `engine`
-    are accepted here too, for when the user changes their mind.
-
-    Set run_when_ready=True here if the user's intent to actually RUN the
-    calculation only became clear after the draft was started, or if you
-    did not set it then. It sticks for the rest of the draft, so once set
-    there is no need to repeat it, and the draft goes to the approval card
-    by itself as soon as it is complete.
-
-    **Write what the user said. Never write what you would have chosen.**
-    A value you supplied and a value they chose are indistinguishable on the
-    approval card, so a guess is not a helpful default they can correct -- it
-    is a different calculation, presented as the one they asked for, with
-    their approval attached. "Compute the excited states of formaldehyde"
-    names no number of states. Suggesting is fine and often useful: say what
-    you would recommend and why, then let them agree. What is forbidden is
-    putting it in the draft on their behalf. If a required value has not been
-    given, the backend asks for it and tells you exactly what to ask; pass
-    that question on and wait.
-
-    If the user wants this job to run on the SAME geometry as a specific
-    earlier job -- "same geometry as before", "repeat that with a bigger
-    basis" -- set {"source_geometry_job_id": "<that job's id>"} rather than
-    calling set_geometry; you already have that id from earlier in this
-    conversation. A job that cannot supply its geometry (still running, or a
-    scan/batch with more than one) is refused with the reason rather than
-    silently substituted. A draft started on the exact structure a converged
-    optimisation began from already carries that optimisation here, as a
-    default the reply mentions; if the user wants the starting structure
-    instead, write {"source_geometry_job_id": null}.
-
-    If the user wants an earlier CASSCF-family job's active space with an
-    orbital swapped -- "swap orbital 26 for 21", "replace 32 with 37", "rotate
-    21 in" -- read that job's `active_orbital_window` with check_job_status
-    (every such result records it), apply their replacement keeping the
-    length, write the full list into active_space_orbital_indices, and set
-    initial_orbitals_job_id to that job: the numbers are rows of ITS table.
-    Applying the user's own replacement to a recorded list is writing what
-    they said; composing a list from orbital numbers nobody asked to use is
-    not, and is still forbidden.
+def _apply_draft_updates(draft: dict, updates: Optional[dict], state: Optional[dict],
+                         tool_call_id: str):
+    """Write `updates` into `draft` as update_job_draft does: (draft, None),
+    or (None, a refusal Command) when a key is unknown, inapplicable or names
+    a structure. Shared with start_job_draft, so settings the user named in
+    the request go in on the first call under the same checks.
     """
-    draft = dict((state or {}).get("job_draft") or {})
-    if not draft:
-        return Command(update={"messages": [ToolMessage(
-            content="There is no draft in progress -- call start_job_draft first.",
-            tool_call_id=tool_call_id)]})
-    if draft.pop(DECLINED_KEY, False) and _changes_task(draft, updates):
-        # The user declined that draft and is now asking for a different
-        # calculation. Amending would carry the declined job's basis, states
-        # and geometry source into it as though they had been chosen again,
-        # so start clean with only what this call says -- the same thing
-        # start_job_draft would have done.
-        draft = {"task": updates.get("task", draft.get("task")),
-                 "subtype": updates.get("subtype", ""),
-                 "method": updates.get("method"), "engine": updates.get("engine"),
-                 "params": {}}
     params = dict(draft.get("params") or {})
     # A parameter the user has now stated is no longer a default, whatever it
     # was before. `updates` is exactly "what they just said", so this is the
@@ -4245,7 +4191,7 @@ def update_job_draft(
         # case: a model invented `constraint` for a PES scan; it rode into
         # the submitted spec and onto the card. It happened to be inert,
         # since the scan ran off scan_range and n_points.
-        return Command(update={"messages": [ToolMessage(
+        return None, Command(update={"messages": [ToolMessage(
             content=_unknown_param_message(draft, unknown, inapplicable, updates),
             tool_call_id=tool_call_id)]})
     draft["params"] = params
@@ -4269,12 +4215,84 @@ def update_job_draft(
         tail = (f" The other keys in the same call ({', '.join(others)}) were not recorded "
                 f"either, since a half-applied update is harder to reason about than none; "
                 f"send them again." if others else "")
-        return Command(update={"messages": [ToolMessage(
+        return None, Command(update={"messages": [ToolMessage(
             content=(f"A structure is not a job parameter, so {', '.join(misrouted)} "
                      f"was not recorded in the draft. Call {how} instead, then carry "
                      f"on answering the draft's questions.{tail}"),
             tool_call_id=tool_call_id)]})
-    return _draft_command(draft, state, tool_call_id, run_when_ready, follow_up_work,
+    return draft, None
+
+
+@tool
+def update_job_draft(
+    updates: dict,
+    preview_only: bool = False,
+    follow_up_work: bool = False,
+    state: Annotated[AgentState, InjectedState] = None,
+    tool_call_id: Annotated[str, InjectedToolCallId] = None,
+) -> Command:
+    """Record the user's answers into the draft and re-check it.
+
+    `updates` is a flat dict of field name to value, using the exact key
+    the previous reply told you to write -- e.g. {"basis": "cc-pvdz"},
+    {"n_excited_states": 2}, {"active_electrons": 6, "active_orbitals": 6}. Set a
+    field to null to clear it. `task`, `subtype`, `method` and `engine`
+    are accepted here too, for when the user changes their mind.
+
+    A complete draft goes to the approval card by itself; set preview_only
+    only if the user asked to see the input without running it.
+
+    **Write what the user said. Never write what you would have chosen.**
+    A value you supplied and a value they chose are indistinguishable on the
+    approval card, so a guess is not a helpful default they can correct -- it
+    is a different calculation, presented as the one they asked for, with
+    their approval attached. "Compute the excited states of formaldehyde"
+    names no number of states. Suggesting is fine and often useful: say what
+    you would recommend and why, then let them agree. What is forbidden is
+    putting it in the draft on their behalf. If a required value has not been
+    given, the backend asks for it and tells you exactly what to ask; pass
+    that question on and wait.
+
+    If the user wants this job to run on the SAME geometry as a specific
+    earlier job -- "same geometry as before", "repeat that with a bigger
+    basis" -- set {"source_geometry_job_id": "<that job's id>"} rather than
+    calling set_geometry; you already have that id from earlier in this
+    conversation. A job that cannot supply its geometry (still running, or a
+    scan/batch with more than one) is refused with the reason rather than
+    silently substituted. A draft started on the exact structure a converged
+    optimisation began from already carries that optimisation here, as a
+    default the reply mentions; if the user wants the starting structure
+    instead, write {"source_geometry_job_id": null}.
+
+    If the user wants an earlier CASSCF-family job's active space with an
+    orbital swapped -- "swap orbital 26 for 21", "replace 32 with 37", "rotate
+    21 in" -- read that job's `active_orbital_window` with check_job_status
+    (every such result records it), apply their replacement keeping the
+    length, write the full list into active_space_orbital_indices, and set
+    initial_orbitals_job_id to that job: the numbers are rows of ITS table.
+    Applying the user's own replacement to a recorded list is writing what
+    they said; composing a list from orbital numbers nobody asked to use is
+    not, and is still forbidden.
+    """
+    draft = dict((state or {}).get("job_draft") or {})
+    if not draft:
+        return Command(update={"messages": [ToolMessage(
+            content="There is no draft in progress -- call start_job_draft first.",
+            tool_call_id=tool_call_id)]})
+    if draft.pop(DECLINED_KEY, False) and _changes_task(draft, updates):
+        # The user declined that draft and is now asking for a different
+        # calculation. Amending would carry the declined job's basis, states
+        # and geometry source into it as though they had been chosen again,
+        # so start clean with only what this call says -- the same thing
+        # start_job_draft would have done.
+        draft = {"task": updates.get("task", draft.get("task")),
+                 "subtype": updates.get("subtype", ""),
+                 "method": updates.get("method"), "engine": updates.get("engine"),
+                 "params": {}}
+    draft, refusal = _apply_draft_updates(draft, updates, state, tool_call_id)
+    if refusal is not None:
+        return refusal
+    return _draft_command(draft, state, tool_call_id, False, follow_up_work,
                           preview_only)
 
 

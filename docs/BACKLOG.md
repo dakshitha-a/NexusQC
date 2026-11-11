@@ -61,15 +61,6 @@ rather than a fix inside another one; it is recorded as a limitation in
 which nitrogen lone pair or pi orbital the narrowing drops; the fix is then
 validated across the whole benchmark.
 
-**`start_job_draft` drops a basis the model passes it.** In in-process
-e2e_21 turns (2026-11-10) the model called `start_job_draft(..., basis=...)`
-on almost every request. The tool has no `basis` parameter, so the value is
-dropped and the reply asks for the basis the user already gave, one extra
-round per draft. Adding the parameter breaks `agent_01`'s rule that no tool
-takes more than 8 parameters (it would take 9). **Next experiment:** fold
-`basis` into an existing argument shape, for example an optional `params`
-dict replacing one flag, and measure the card rate before and after.
-
 **Closed 2026-11-10, each reproduced on the current code first:**
 
 - **deploy_05 under a four-suite load.** Not load. The app keeps one session
@@ -93,6 +84,14 @@ dict replacing one flag, and measure the card rate before and after.
 - **`e2e_12` G1.** A stale test: a complete draft goes straight to the
   approval card now, so "DRAFT READY" text never arrives. The card carries
   the source job's geometry (reproduced in-process).
+- **`start_job_draft` dropped a basis the model passed it** (logged and fixed
+  the same day). Its `run_when_ready` input had done nothing since ready
+  drafts began raising their own card, so it was replaced by an `updates`
+  dict that goes through the same checks as `update_job_draft`'s; the tool
+  stays at 8 inputs. The system prompt also told the model to preview an
+  input by leaving `run_when_ready` unset, which would have raised a card;
+  it now says `preview_only`. In-process: an HF single point reaches its card
+  in 2 tool calls, and a preview stops with the input shown.
 - **`e2e_17` L9b.** A test race: it read the conversation the moment the
   notice appeared, while the summary turn was still running. 21 of 21.
 

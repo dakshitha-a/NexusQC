@@ -180,8 +180,7 @@ def run_tools_only(tmp: Path) -> None:
     # model's next turn existed only to call submit_draft.
     out = h.call("start_job_draft", {"task": "single point", "method": "hf"})
     check("the draft starts one answer short", "DRAFT INCOMPLETE" in out, out[:160])
-    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"},
-                                      "run_when_ready": True})
+    out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
     pending = h.pending()
     check("the approval card is open on that same call", pending is not None, out[:160])
     check("no NEXT STEP sentence was returned instead",
@@ -207,15 +206,28 @@ def run_tools_only(tmp: Path) -> None:
     print("\n== the intent is sticky across elicitation ==")
     h = Harness(tmp)
     h.seed(molecule=WATER)
-    out = h.call("start_job_draft", {"task": "geometry optimization", "method": "hf",
-                                     "run_when_ready": True})
+    out = h.call("start_job_draft", {"task": "geometry optimization", "method": "hf"})
     check("an incomplete draft still asks its question", "DRAFT INCOMPLETE" in out, out[:160])
     check("and does not open a card early", h.pending() is None, str(h.pending())[:120])
-    # Deliberately does NOT repeat run_when_ready: the point is that stating
-    # it once is enough.
+    # No flag is needed anywhere: run_when_ready did nothing once a ready
+    # draft raised its own card, and was removed on 2026-11-10.
     out = h.call("update_job_draft", {"updates": {"basis": "sto-3g"}})
     check("answering the last question opens the card by itself",
           h.pending() is not None, out[:160])
+
+    print("\n== settings named in the request go in on the first call ==")
+    h = Harness(tmp)
+    h.seed(molecule=WATER)
+    out = h.call("start_job_draft", {"task": "single point", "method": "hf",
+                                     "updates": {"basis": "sto-3g"}})
+    check("start_job_draft with its basis opens the card on that call",
+          h.pending() is not None, out[:160])
+    h = Harness(tmp)
+    h.seed(molecule=WATER)
+    out = h.call("start_job_draft", {"task": "single point", "method": "hf",
+                                     "updates": {"basiss": "sto-3g"}})
+    check("an unknown key in start_job_draft's updates is refused by name",
+          "basiss" in out and h.pending() is None, out[:200])
 
     print("\n== preview_only still answers \"show me the input\" ==")
     # The narrow case the default has to leave room for. Stated once on the
@@ -279,7 +291,7 @@ def run_full_graph() -> int:
         })
         graph.update_state(config, {"messages": [AIMessage(content="", tool_calls=[{
             "name": "update_job_draft",
-            "args": {"updates": {"basis": "sto-3g"}, "run_when_ready": True},
+            "args": {"updates": {"basis": "sto-3g"}},
             "id": f"c{time.time_ns()}",
         }])]}, as_node="agent")
         counter[0] = 0
@@ -331,7 +343,7 @@ def run_full_graph() -> int:
             {"name": "check_job_status", "args": {"job_id": "nosuchjob"},
              "id": f"x{time.time_ns()}"},
             {"name": "update_job_draft",
-             "args": {"updates": {"basis": "sto-3g"}, "run_when_ready": True},
+             "args": {"updates": {"basis": "sto-3g"}},
              "id": f"c{time.time_ns()}"},
         ])]}, as_node="agent")
         graph.invoke(None, config)
