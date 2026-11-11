@@ -1569,6 +1569,34 @@ def run_nac(molecule: dict, params: dict) -> dict:
     return {"summary": summary, "artifacts": artifacts}
 
 
+_CONVERGENCE_ROW = re.compile(r"^\s*\*\s*(Gradient|Displacement|Energy change)\s+\S+\s+\S+\s+(Yes|No)\s*$", re.M)
+
+
+def _optimization_converged(job_dir: str, output: str) -> "bool | None":
+    """Whether BAGEL's geometry optimisation met all three criteria.
+
+    BAGEL prints a "Convergence status" table each step: gradient,
+    displacement and energy change, each Yes or No. Only the first table
+    reaches bagel.out; the rest, including the last, go to opt.log in the job
+    directory. The summary carried no `converged` key at all before
+    2026-11-10, so tools that only follow a converged minimum (a follow-up
+    frequency job's default geometry) never followed a BAGEL one. None when
+    no table was printed.
+    """
+    text = output
+    log = os.path.join(job_dir, "opt.log")
+    if os.path.exists(log):
+        with open(log, errors="replace") as fh:
+            text = fh.read()
+    blocks = text.split("=== Convergence status ===")
+    if len(blocks) < 2:
+        return None
+    rows = _CONVERGENCE_ROW.findall(blocks[-1].split("===")[0])
+    if len(rows) < 3:
+        return None
+    return all(flag == "Yes" for _name, flag in rows[:3])
+
+
 def _geometry_optimization_summary(output: str, job_dir: str, molecule: dict, params: dict, meta: dict | None):
     """The `geometry_optimization` half of a build_summary -- factored out
     so a combined opt_freq single-input run (see run_opt_freq) can build
@@ -1608,7 +1636,12 @@ def _geometry_optimization_summary(output: str, job_dir: str, molecule: dict, pa
 
         mol_opt = pyscf_molden.load(opt_molden)[0]
         optimized_geometry = dict(molecule)
-        optimized_geometry["symbols"] = [mol_opt.atom_symbol(i) for i in range(mol_opt.natm)]
+        # atom_pure_symbol, not atom_symbol: a molecule read back from a molden
+        # file names its atoms "O1", "H2", and those labels went into the
+        # optimised geometry. A frequency job on it then died in BAGEL with
+        # "Unknown Atom number in a basis set file. Requested: o1"
+        # (2026-11-10, the first end-to-end BAGEL opt then freq).
+        optimized_geometry["symbols"] = [mol_opt.atom_pure_symbol(i) for i in range(mol_opt.natm)]
         optimized_geometry["coords"] = (mol_opt.atom_coords() * 0.52917721067).tolist()
 
     opt_state_energies = [energies[i] for i in range(n_states)]
@@ -1617,6 +1650,7 @@ def _geometry_optimization_summary(output: str, job_dir: str, molecule: dict, pa
         "excitation_energies_eV": _excitation_energies_eV(opt_state_energies),
         "final_energy_hartree": energies[0] if n_states == 1 else None,
         "optimized_geometry": optimized_geometry,
+        "converged": _optimization_converged(job_dir, output),
         "active_electrons": params.get("active_electrons"),
         "active_orbitals": params.get("active_orbitals"),
         "n_closed_orbitals": n_closed,
