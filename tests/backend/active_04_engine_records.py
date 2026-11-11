@@ -97,16 +97,22 @@ def main() -> int:
 
         print("\n== BAGEL: the input names the window and the record reads the moldens ==")
         b_src = new_spec("bagel")
-        src_params = {"method": "casscf", "basis": "sto-3g", **CAS, "n_states": 1,
+        # 6-31G, not STO-3G. Water has 7 orbitals in STO-3G, so 3 closed plus
+        # 4 active leaves no virtual orbital at all. BAGEL's second-order
+        # CASSCF then spends ~70 s a macro-iteration on empty blocks, MKL
+        # reports every zero leading dimension as an illegal parameter, and
+        # the molden print dies in DSYEV on a 0x0 matrix ("dsyev/pdsyevd
+        # failed in Matrix"). That was the whole "BAGEL/MKL instability on
+        # this host" (diagnosed 2026-11-10); in 6-31G the same CAS(4,4)
+        # takes 5 s with no warnings and writes both files.
+        src_params = {"method": "casscf", "basis": "6-31g", **CAS, "n_states": 1,
                       "_job_dir": str(b_src.job_dir())}
         text = bagel_runner.build_input_preview("casscf", WATER, {**src_params, "active_space_orbital_indices": [4, 5, 6, 7]})
         check("a named space reaches BAGEL's casscf block as `active`", '"active"' in text and "4," in text)
 
-        # A summary without an export still carries its window. On this
-        # host BAGEL's molden block dies in MKL's dsyev after the CASSCF
-        # has converged (CLAUDE.local.md; reproduced 2026-09-20: 16
-        # macro-iterations to E = -74.98699597, then 'dsyev/pdsyevd failed
-        # in Matrix' in the print block), which is how that case was found.
+        # A summary without an export still carries its window. Found when
+        # BAGEL's molden block died in dsyev after converging (2026-09-20);
+        # that was a test case with no virtual orbitals, see src_params.
         import tempfile
         empty = tempfile.mkdtemp()
         try:
@@ -130,9 +136,16 @@ def main() -> int:
             check("BAGEL source CASSCF ran", "casscf_energy_hartree" in ss, str(ss.get("parse_error")))
             check("BAGEL records its window", ss.get("active_orbital_window") == [4, 5, 6, 7],
                   str(ss.get("active_orbital_window")))
-            check("and flags those rows", [r["index"] for r in ss["orbital_table"] if r.get("active")] == [4, 5, 6, 7])
+            # A missing table means BAGEL's molden export did not land, which on
+            # this host has been its MKL crash after convergence. Say so as a
+            # failed check rather than dying on a KeyError, which skipped the
+            # destination run and the cleanup report (2026-11-10).
+            table = ss.get("orbital_table") or []
+            check("the source wrote its molden, so it has an orbital table", bool(table),
+                  f"no orbital_table; summary keys {sorted(ss)}")
+            check("and flags those rows", [r["index"] for r in table if r.get("active")] == [4, 5, 6, 7])
             check("the flagged rows are the ones BAGEL wrote a zero energy for",
-                  all(r["energy_eV"] == 0.0 for r in ss["orbital_table"] if r.get("active")))
+                  bool(table) and all(r["energy_eV"] == 0.0 for r in table if r.get("active")))
             persist(b_src, src_result)
             b_dst = new_spec("bagel")
             dst = bagel_runner.run_casscf(WATER, {**src_params, "_job_dir": str(b_dst.job_dir()),

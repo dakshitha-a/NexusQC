@@ -61,6 +61,18 @@ rather than a fix inside another one; it is recorded as a limitation in
 which nitrogen lone pair or pi orbital the narrowing drops; the fix is then
 validated across the whole benchmark.
 
+**BAGEL's CASSCF/CASPT2 optimisation and frequencies are only "structurally
+confirmed", for a reason that turned out to be wrong.** Full runs were never
+let finish because "BAGEL/MKL on this host is unstable": ~70 s macro-iterations
+and a `dsyev/pdsyevd failed in Matrix` crash. On 2026-11-10 that was traced to
+the test case, not the host: water CAS(4,4) in STO-3G has no virtual orbitals,
+so the second-order solver grinds on empty blocks, MKL reports each zero
+leading dimension, and the molden print diagonalises a 0x0 matrix. In 6-31G
+the same CASSCF takes 5 s, and `active_04`'s live orbital-reuse check passes
+(weights above 0.9, 34 s). **Next experiment:** run one BAGEL CASSCF opt and
+one freq on water/6-31G end to end and compare with ORCA, then drop the
+"structurally confirmed" caveat wherever it is stated.
+
 **Closed 2026-11-10, each reproduced on the current code first:**
 
 - **deploy_05 under a four-suite load.** Not load. The app keeps one session

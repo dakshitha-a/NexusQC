@@ -346,14 +346,17 @@ run, including one that aborted on an unknown keyword. The spike suite produced
 exactly that false positive before its section matcher learned to skip the
 banner. Any parser written against ORCA output must anchor past it.
 
-### BAGEL on this host
+### A CASSCF with no virtual orbitals breaks BAGEL
 
-See CLAUDE.local.md's standing note: this host's BAGEL/MKL build is slow and has
-produced a real `dsyev/pdsyevd` crash during orbital canonicalisation, so a
-timeout here is evidence about the host as much as about BAGEL. That is a
-reason to prefer another engine when you want a fast turnaround on a small
-system, never a reason to gate or warn users away from BAGEL. Long runtimes
-are expected generally.
+**Leave at least one virtual orbital in a BAGEL CASSCF.** Water in STO-3G has 7
+orbitals, so 3 closed plus a (4e,4o) active space leaves none. BAGEL 1.2.2 then
+runs its second-order solver on empty blocks at about 70 s a macro-iteration,
+MKL reports every zero leading dimension as an illegal parameter, and the
+molden print fails with `dsyev/pdsyevd failed in Matrix` on a 0x0 matrix. The
+same CAS(4,4) in 6-31G takes 5 s with no warnings. For a long time this was
+written up as an unstable BAGEL/MKL build on the development host; it was
+the test input (diagnosed 2026-11-10). Long runtimes are still expected
+generally, and none of this is a reason to steer users away from BAGEL.
 
 **BAGEL has no working constrained optimization by the `fix_atom` route, and
 its exit code says otherwise.** BAGEL's JSON reader accepts unrecognised keys
