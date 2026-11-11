@@ -1,5 +1,9 @@
 <!-- artifact: https://claude.ai/artifact/6VtufKXwCNjDRk5b5NRhCv -- re-render with scripts/render_tracker_html.py and re-publish to THIS url -->
-# Tracker: clearing the backlog
+# Closed Tracker: clearing the backlog
+
+**Closed 2026-11-11. Thirteen steps in five phases, all done; deployed at 9b01639.**
+No tracker is active until the next plan begins. Two new backlog entries came
+out of it: the aza-naphthalene plan and `start_job_draft`'s dropped basis.
 
 **Opened 2026-11-10.** Five phases. The tracker before this one is
 [`trackers/2026-11-thesis-screenshot-fixes.md`](trackers/2026-11-thesis-screenshot-fixes.md).
@@ -56,11 +60,13 @@ The user's decisions, taken 2026-11-10:
   evidence: tests/e2e/e2e_11_param_correction.py → "8/8 on 4a409cc; suggestions always worked (b3lp->b3lyp, ccpvdz->cc-pvdz); C2/C5 read spec.params.method, which v2 moved to spec.method"
 - [done] P1.5: a draft built on another job's geometry reaches ready (e2e_12)
   evidence: tests/e2e/e2e_12_source_geometry.py → "in-process G1 turn: approval card with source_geometry_job_id and the source water geometry, no set_geometry; the test waited for DRAFT READY text that a direct-to-card draft never sends"
+- merged: 9b01639
 
 ## Phase 2: drafting reaches the approval card
 
 - [done] P2.1: ensemble and conical-intersection requests reach a card rather than a question (e2e_21)
   evidence: tests/backend/draft_09_target_state_count.py → "12/12; e2e_21 on 4a409cc: ensemble 3/3 (drafts its opt_freq prerequisite, user decision), others 3/3; CI 3/3 in-process with the count derived from the crossing pair; also fixed an S1 CASSCF opt running on S0"
+- merged: 9b01639
 
 ## Phase 3: performance and test reliability
 
@@ -68,6 +74,7 @@ The user's decisions, taken 2026-11-10:
   evidence: tests/e2e/ui/ui_09_orbital_and_mode_panels.spec.mjs → "0 during the drag, 1 in total on 4a409cc (was 3 and 4); the vibration half needs a job with modes, absent on the test account"
 - [done] P3.2: deploy_05 passes while other suites load the stack
   evidence: tests/README.md → "root cause is one session per account, not load: a second login 401s the first browser; deploy_05 alone clicks through (13/15, the two misses were my concurrent e2e_21 users); suites sharing an account now documented as one at a time"
+- merged: 9b01639
 
 ## Phase 4: data and decisions
 
@@ -75,7 +82,9 @@ The user's decisions, taken 2026-11-10:
   evidence: app/auth/models.py → "40 job rows deleted by explicit id in one transaction (qatest_admin 20, dakshitha 20, Aug-Sep); 16 remain, the only orphan is dma's, kept by decision; none was in a project; today's 20 API deletes left none behind"
 - [done] P4.2: the aza-naphthalene n->pi\* limitation is documented and planned
   evidence: docs/CAS_ENGINE_METHOD.md → "§4.4 states the 12 misses, the +2.3 to +6.0 eV range, APC-2 10 of 12 and the azines 33 of 42; BACKLOG carries it with the next experiment; the HANDOFF decision item is closed"
-- [in-progress] P4.3: nginx and the app see real client addresses (userland proxy off)
+- [done] P4.3: nginx and the app see real client addresses (userland proxy off)
+  evidence: docs/HANDOFF.md → "the user opened the app from their laptop: nginx logged 32 requests from 100.101.102.103 (its tailnet address); requests made on the host itself still log 172.18.0.1, as expected; the decision item is closed"
+- merged: e5c347e
 
 ## Phase 5: closing out
 
@@ -83,3 +92,4 @@ The user's decisions, taken 2026-11-10:
   evidence: docs/GUIDE.md → "ensemble prerequisite described; CHANGELOG Unreleased lists the orbital label, job-finished row, dipole, open axis, Type 42, ensemble prerequisite, Wigner phrasing, scrubber and state-count fixes; tests/README one-account note; CAS_ENGINE_METHOD 4.4"
 - [done] P5.2: deployed with scripts/update.sh and the touched suites pass on the stack
   evidence: tests/e2e/e2e_21_draft_reaches_card.py → "stack 9b01639: all five cases 3/3 carded; ui_02 19/19 and now deletes its own job; e2e_11 8/8, e2e_17 21/21, ui_09 scrubber 0/1 renders; test account back to one thread, no jobs"
+- merged: 361b7f2
